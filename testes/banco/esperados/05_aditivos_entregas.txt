@@ -1,0 +1,38 @@
+== Mario registra aditivo de prazo
+ sigla  |    fim     | valor_total 
+--------+------------+-------------
+ GLASSI | 2026-12-31 |   557937.00
+
+ numero | fim_anterior |  novo_fim  | valor_anterior | novo_valor 
+--------+--------------+------------+----------------+------------
+ 1º TA  | 2025-12-31   | 2026-12-31 |      557937.00 |           
+ 2º TA  | 2026-12-31   |            |      557937.00 |  600000.00
+
+ sigla  |    fim     | valor_total 
+--------+------------+-------------
+ GLASSI | 2026-12-31 |   600000.00
+
+psql:05_aditivos_entregas.sql:16: ERROR:  new row for relation "aditivos" violates check constraint "aditivo_com_efeito"
+psql:05_aditivos_entregas.sql:17: ERROR:  O novo término não pode ser anterior ao início do projeto
+CONTEXT:  PL/pgSQL function tg_aditivo_antes() line 8 at RAISE
+== entregas
+          titulo           | atrasada | dias_ok 
+---------------------------+----------+---------
+ 1º Relatório              | t        | t
+ Prestação de contas final | f        | t
+
+== Igor (responsável) marca entregue; tenta criar entrega
+psql:05_aditivos_entregas.sql:25: ERROR:  new row violates row-level security policy for table "entregas"
+          titulo           |  status  | ?column? 
+---------------------------+----------+----------
+ 1º Relatório              | entregue | t
+ Prestação de contas final | pendente | f
+
+== exclusão do 2º TA desfaz valor
+ sigla  |    fim     | valor_total 
+--------+------------+-------------
+ GLASSI | 2026-12-31 |   557937.00
+
+== Igor (responsável) tenta mudar prazo
+psql:05_aditivos_entregas.sql:35: ERROR:  O responsável pela entrega só atualiza situação, data de entrega, documento e observações
+CONTEXT:  PL/pgSQL function tg_protege_entrega() line 6 at RAISE

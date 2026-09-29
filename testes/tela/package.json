@@ -1,0 +1,10 @@
+{
+  "name": "gpmot-testes-tela",
+  "private": true,
+  "description": "Testes de tela do GPMOT/UFSM (Playwright + Chromium)",
+  "scripts": {
+    "instalar-navegador": "playwright install chromium",
+    "testar": "node executar_todos.cjs"
+  },
+  "devDependencies": { "playwright": "^1.47.0" }
+}

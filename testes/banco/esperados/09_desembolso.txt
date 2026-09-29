@@ -1,0 +1,36 @@
+== coordenador cria 2 parcelas com distribuição
+ rubrica |   valor    | projeto_certo 
+---------+------------+---------------
+ 2.1     | 1269527.05 | t
+ 1.3     |  332683.70 | t
+
+psql:09_desembolso.sql:15: ERROR:  Use uma rubrica final (ex.: 1.1.1 Bolsas), não um grupo
+CONTEXT:  PL/pgSQL function tg_confere_rubrica() line 4 at RAISE
+== regras: recebida sem data/valor; número repetido
+psql:09_desembolso.sql:17: ERROR:  new row for relation "desembolsos" violates check constraint "recebida_completa"
+psql:09_desembolso.sql:18: ERROR:  duplicate key value violates unique constraint "desembolsos_projeto_id_numero_key"
+== recebe parcela 1 e lança gasto
+  previsto  |  recebido  | a_receber  | parcelas_atrasadas |  proxima   | executado | saldo_caixa 
+------------+------------+------------+--------------------+------------+-----------+-------------
+ 7719480.50 | 3859740.25 | 3859740.25 |                  0 | 2027-03-01 |  36000.00 |  3823740.25
+
+== Igor (membro): não vê nem altera
+ parcelas 
+----------
+        0
+
+ view 
+------
+    0
+
+psql:09_desembolso.sql:26: ERROR:  new row violates row-level security policy for table "desembolsos"
+   tabela    | operacao 
+-------------+----------
+ desembolsos | INSERT
+ desembolsos | INSERT
+ desembolsos | UPDATE
+
+ distrib_restante 
+------------------
+                0
+

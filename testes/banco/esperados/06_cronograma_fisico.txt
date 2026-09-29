@@ -1,0 +1,14 @@
+psql:06_cronograma_fisico.sql:11: ERROR:  new row for relation "cronograma" violates check constraint "cronograma_codigo_check"
+psql:06_cronograma_fisico.sql:12: ERROR:  new row for relation "cronograma" violates check constraint "meses_validos"
+== Igor responsável: atualiza % ok, muda meses bloqueado
+psql:06_cronograma_fisico.sql:17: ERROR:  O responsável pela atividade só atualiza andamento, conclusão, evidência e observações
+CONTEXT:  PL/pgSQL function tg_protege_cronograma() line 8 at RAISE
+ codigo | percentual |  status   | concl 
+--------+------------+-----------+-------
+ 2      |          0 | planejada | f
+ 2.5.1  |        100 | concluida | t
+
+       titulo        | atividade_id 
+---------------------+--------------
+ Simular no GT-Power | 
+

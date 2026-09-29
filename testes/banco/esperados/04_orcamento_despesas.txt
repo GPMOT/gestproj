@@ -1,0 +1,25 @@
+psql:04_orcamento_despesas.sql:8: ERROR:  new row for relation "projetos" violates check constraint "projetos_tipo_check"
+== Mario (coordena Petrobras)
+psql:04_orcamento_despesas.sql:13: ERROR:  Use uma rubrica final (ex.: 1.1.1 Bolsas), não um grupo
+CONTEXT:  PL/pgSQL function tg_confere_rubrica() line 4 at RAISE
+psql:04_orcamento_despesas.sql:15: ERROR:  new row for relation "despesas" violates check constraint "despesas_valor_check"
+psql:04_orcamento_despesas.sql:16: ERROR:  new row violates row-level security policy for table "despesas"
+ rubrica |        nome         |  aprovado  |  previsto  | executado |   saldo    | previsto_a_executar 
+---------+---------------------+------------+------------+-----------+------------+---------------------
+ 1.1.1   | Bolsas              | 2554848.00 | 2400000.00 |   5600.00 | 2549248.00 |          2394400.00
+ 2.1     | Material permanente | 2539054.10 | 2500000.00 | 480000.00 | 2059054.10 |          2020000.00
+
+              projeto_id              |  aprovado  |  previsto  | executado |   saldo    
+--------------------------------------+------------+------------+-----------+------------
+ 20000000-0000-0000-0000-000000000001 | 5093902.10 | 4900000.00 | 485600.00 | 4608302.10
+
+== Igor (sem acesso)
+ despesas_visiveis 
+-------------------
+                 0
+
+== parcela única
+psql:04_orcamento_despesas.sql:26: ERROR:  duplicate key value violates unique constraint "despesa_parcela_unica"
+DETAIL:  Key (vinculo_id, competencia)=(30000000-0000-0000-0000-000000000001, 2026-08-01) already exists.
+psql:04_orcamento_despesas.sql:27: ERROR:  Use uma rubrica final (ex.: 1.1.1 Bolsas), não um grupo
+CONTEXT:  PL/pgSQL function tg_confere_rubrica() line 4 at RAISE

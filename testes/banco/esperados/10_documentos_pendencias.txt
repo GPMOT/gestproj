@@ -1,0 +1,39 @@
+== coordenador: documentos (1 restrito) e pendências
+psql:10_documentos_pendencias.sql:11: ERROR:  new row for relation "documentos" violates check constraint "documento_tem_referencia"
+== Igor (membro alocado): vê só o doc não restrito; inclui relatório; não inclui restrito
+        titulo        
+----------------------
+ Plano de trabalho v3
+
+psql:10_documentos_pendencias.sql:17: ERROR:  new row violates row-level security policy for table "documentos"
+ editou_do_coord 
+-----------------
+               0
+
+== Igor responsável: resolve pendência; não muda prazo
+psql:10_documentos_pendencias.sql:21: ERROR:  O responsável pela pendência só atualiza situação, resolução e documento. Prazo e responsável são definidos pela coordenação
+CONTEXT:  PL/pgSQL function tg_pendencia() line 9 at RAISE
+  status   | data |      resolucao      
+-----------+------+---------------------
+ resolvida | t    | Enviadas por e-mail
+
+== Ana (não alocada): não inclui documento nem pendência; vê pendência
+psql:10_documentos_pendencias.sql:26: ERROR:  new row violates row-level security policy for table "documentos"
+psql:10_documentos_pendencias.sql:27: ERROR:  new row violates row-level security policy for table "pendencias"
+ pend_visiveis 
+---------------
+             1
+
+          titulo           | atrasada | responsavel | sigla  
+---------------------------+----------+-------------+--------
+ Enviar certidões à FAURGS | t        | Igor        | ETANOL
+
+   tabela   | operacao 
+------------+----------
+ documentos | INSERT
+ documentos | INSERT
+ pendencias | INSERT
+ documentos | INSERT
+ pendencias | UPDATE
+ pendencias | UPDATE
+

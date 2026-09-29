@@ -1,0 +1,47 @@
+=== IGOR (Gerência de Infraestrutura) cadastra itens
+=== JEAN (Gerência de Projetos) — sem permissão de infraestrutura
+psql:03_infraestrutura.sql:47: ERROR:  new row violates row-level security policy for table "infra_itens"
+psql:03_infraestrutura.sql:49: ERROR:  O responsável pelo uso não tem habilitação válida para "Célula de testes 3"
+CONTEXT:  PL/pgSQL function tg_confere_reserva() line 17 at RAISE
+psql:03_infraestrutura.sql:52: ERROR:  Somente a Gerência de Infraestrutura ou o responsável pelo item confirma reservas
+CONTEXT:  PL/pgSQL function tg_confere_reserva() line 22 at RAISE
+=== IGOR confirma; reserva conflitante é barrada
+psql:03_infraestrutura.sql:58: ERROR:  conflicting key value violates exclusion constraint "sem_conflito"
+DETAIL:  Key conflicts with existing key.
+=== JEAN tenta alterar reserva já confirmada
+psql:03_infraestrutura.sql:62: ERROR:  Reserva já confirmada: peça alteração à Gerência de Infraestrutura
+CONTEXT:  PL/pgSQL function tg_confere_reserva() line 25 at RAISE
+=== MARIO reporta defeito (ok) e tenta planejar preventiva (barrado)
+psql:03_infraestrutura.sql:68: ERROR:  new row violates row-level security policy for table "infra_manutencoes"
+=== IGOR executa a manutenção
+        nome        |    status     
+--------------------+---------------
+ Célula de testes 3 | em_manutencao
+
+        nome        |   status    
+--------------------+-------------
+ Célula de testes 3 | operacional
+
+ ini | fim 
+-----+-----
+ t   | t
+
+=== alertas e uso
+          item          | tipo_alerta |               descricao                | vencido 
+------------------------+-------------+----------------------------------------+---------
+ Dinamômetro AVL 400 kW | vencimento  | calibracao: Calibração célula de carga | f
+
+        item        | projeto |    mes     | reservas | horas 
+--------------------+---------+------------+----------+-------
+ Célula de testes 3 | Aramco  | 2026-10-01 |        1 |   8.5
+
+       tabela       | operacao | count 
+--------------------+----------+-------
+ infra_habilitacoes | INSERT   |     1
+ infra_itens        | INSERT   |     2
+ infra_itens        | UPDATE   |     2
+ infra_manutencoes  | INSERT   |     2
+ infra_manutencoes  | UPDATE   |     5
+ infra_reservas     | INSERT   |     1
+ infra_reservas     | UPDATE   |     2
+

@@ -1,0 +1,19 @@
+== anon (sem login) não acessa nenhuma tabela nem função
+psql:12_permissoes_api.sql:7: ERROR:  permission denied for table projetos
+psql:12_permissoes_api.sql:8: ERROR:  permission denied for table pessoas
+psql:12_permissoes_api.sql:9: ERROR:  permission denied for function e_direcao
+== authenticated sem perfil ativo: tem permissão na tabela, mas o RLS não mostra nada
+ projetos_visiveis 
+-------------------
+                 0
+
+== todas as tabelas e visões do esquema public têm permissão para authenticated
+ sem_select | sem_escrita | anon_com_select 
+------------+-------------+-----------------
+          0 |           0 |               0
+
+== data de hoje no fuso de Brasília, mesmo com a sessão em UTC
+ hoje_brasilia 
+---------------
+ t
+

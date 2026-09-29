@@ -1,0 +1,34 @@
+== coordenador cadastra candidatos
+       nome       | projeto_ok 
+------------------+------------
+ Bruna Candidata  | t
+ Carlos Candidato | t
+
+psql:11_candidatos_checklist.sql:13: ERROR:  new row for relation "candidatos" violates check constraint "candidatos_nota_check"
+== coordenador marca checklist de Igor (alocado no projeto dele)
+== ... e não de Ana (fora dos projetos dele)
+psql:11_candidatos_checklist.sql:17: ERROR:  new row violates row-level security policy for table "pessoa_checklist"
+== Igor (membro): não vê candidatos; vê o próprio checklist; não marca
+ candidatos 
+------------
+          0
+
+ meu_checklist 
+---------------
+             2
+
+psql:11_candidatos_checklist.sql:22: ERROR:  new row violates row-level security policy for table "pessoa_checklist"
+ mudou_modelo 
+--------------
+            0
+
+== bolsas vencendo
+ pessoa | sigla  | dias_restantes 
+--------+--------+----------------
+ Igor   | ETANOL |             40
+
+  fase   | count 
+---------+-------
+ entrada |     7
+ saida   |     6
+

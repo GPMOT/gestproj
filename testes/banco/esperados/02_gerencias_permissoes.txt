@@ -1,0 +1,79 @@
+psql:02_gerencias_permissoes.sql:33: ERROR:  new row for relation "gerencias" violates check constraint "permissoes_validas"
+=== permissões de cada um
+   quem   |                minhas_permissoes                 
+----------+--------------------------------------------------
+ Thompson | {financeiro_editar,financeiro_ver,historico_ver}
+
+ quem |                                minhas_permissoes                                
+------+---------------------------------------------------------------------------------
+ Jean | {alocacoes_gerir,projetos_criar,projetos_editar,prospeccao_gerir,tarefas_gerir}
+
+ quem |   minhas_permissoes    
+------+------------------------
+ Igor | {infraestrutura_gerir}
+
+  quem  | minhas_permissoes 
+--------+-------------------
+ Hausen | {}
+
+ quem  |               minhas_permissoes               
+-------+-----------------------------------------------
+ Mario | {alocacoes_gerir,pessoas_gerir,tarefas_gerir}
+
+=== THOMPSON (Gerência Financeira, não coordena nada)
+ vinculos_visiveis_esperado_2 
+------------------------------
+                            2
+
+ historico_visivel_maior_0 
+---------------------------
+                        31
+
+psql:02_gerencias_permissoes.sql:50: ERROR:  new row violates row-level security policy for table "tarefas"
+=== JEAN (Gerência de Projetos)
+ vinculos_visiveis_esperado_0 
+------------------------------
+                            0
+
+psql:02_gerencias_permissoes.sql:59: ERROR:  Somente a Direção pode definir coordenadores de projeto
+CONTEXT:  PL/pgSQL function tg_protege_coordena() line 6 at RAISE
+psql:02_gerencias_permissoes.sql:60: ERROR:  new row violates row-level security policy for table "gerencia_membros"
+=== IGOR (Gerência de Infraestrutura + membro Aramco)
+ vinculos_visiveis_esperado_0 
+------------------------------
+                            0
+
+psql:02_gerencias_permissoes.sql:66: ERROR:  new row violates row-level security policy for table "tarefas"
+psql:02_gerencias_permissoes.sql:68: ERROR:  new row violates row-level security policy for table "projetos"
+=== HAUSEN (mandato financeiro encerrado)
+ vinculos_visiveis_esperado_0 
+------------------------------
+                            0
+
+=== MARIO (Gerência Técnica + coordena Petrobras)
+ vinculos_visiveis_esperado_1 
+------------------------------
+                            1
+
+ historico_visivel_esperado_0 
+------------------------------
+                            0
+
+=== resultado
+   sigla   |        fase        
+-----------+--------------------
+ Aramco    | Em execução (Jean)
+ Novo      | 
+ Petrobras | 
+
+ nome | risco_sobrecarga 
+------+------------------
+ Igor | t
+
+            nome            |                                             gerentes                                             | demandas_abertas | demandas_atrasadas 
+----------------------------+--------------------------------------------------------------------------------------------------+------------------+--------------------
+ Gerência de Projetos       | [{"nome": "Jean", "funcao": "titular", "pessoa_id": "00000000-0000-0000-0000-00000000000e"}]     |                0 |                  0
+ Gerência Técnica           | [{"nome": "Mario", "funcao": "titular", "pessoa_id": "00000000-0000-0000-0000-00000000000b"}]    |                0 |                  0
+ Gerência de Infraestrutura | [{"nome": "Igor", "funcao": "titular", "pessoa_id": "00000000-0000-0000-0000-00000000000c"}]     |                1 |                  1
+ Gerência Financeira        | [{"nome": "Thompson", "funcao": "titular", "pessoa_id": "00000000-0000-0000-0000-00000000000d"}] |                1 |                  0
+

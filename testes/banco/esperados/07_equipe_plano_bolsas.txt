@@ -1,0 +1,52 @@
+== coordenador cria posições e bolsas
+== regras: ocupada sem pessoa / vaga com pessoa / mesma pessoa em 2 posições ocupadas
+psql:07_equipe_plano_bolsas.sql:17: ERROR:  new row for relation "equipe_plano" violates check constraint "ocupada_tem_pessoa"
+psql:07_equipe_plano_bolsas.sql:18: ERROR:  new row for relation "equipe_plano" violates check constraint "vaga_sem_pessoa"
+psql:07_equipe_plano_bolsas.sql:19: ERROR:  duplicate key value violates unique constraint "equipe_plano_pessoa_unica"
+== preenche a vaga com Igor e gera vínculo de 12 meses
+          nome_plano           | valor_total | meses | meses_vinculados 
+-------------------------------+-------------+-------+------------------
+ Bolsista de Mestrado 1 (UFSM) |    79200.00 |    24 |               12
+ Mario Martins                 |   399024.00 |    48 |                0
+
+              projeto_id              | posicoes | ocupadas | vagas_abertas | em_selecao 
+--------------------------------------+----------+----------+---------------+------------
+ 20000000-0000-0000-0000-000000000001 |        2 |        2 |             0 |          0
+
+== Igor (membro): vê posições, não vê bolsas, não edita
+ posicoes_visiveis 
+-------------------
+                 2
+
+ bolsas_visiveis 
+-----------------
+               0
+
+ linhas_v_plano_bolsas 
+-----------------------
+                     0
+
+ editou 
+--------
+      0
+
+psql:07_equipe_plano_bolsas.sql:32: ERROR:  new row violates row-level security policy for table "equipe_plano"
+== projeto_id da bolsa segue a posição; exclusão da posição remove bolsa e desvincula
+ ok_projeto 
+------------
+          2
+
+ bolsas | vaga_do_vinculo 
+--------+-----------------
+      1 | 
+
+       tabela        | operacao 
+---------------------+----------
+ equipe_plano        | INSERT
+ equipe_plano        | INSERT
+ equipe_plano_bolsas | INSERT
+ equipe_plano_bolsas | INSERT
+ equipe_plano        | UPDATE
+ equipe_plano        | DELETE
+ equipe_plano_bolsas | DELETE
+

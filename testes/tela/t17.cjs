@@ -1,0 +1,31 @@
+const CFG = require('./config.cjs');
+const { chromium } = require('playwright'); const fs = require('fs');
+const XL = CFG.PLANILHA;
+(async () => {
+  const old = JSON.parse(fs.readFileSync(CFG.DADOS_V1, 'utf8'));
+  const b = await chromium.launch(); const pg = await b.newPage({ viewport: { width: 1400, height: 900 } });
+  const errs = []; pg.on('pageerror', e => errs.push('PAGEERR ' + e.message)); pg.on('console', m => { if (m.type() === 'error') errs.push('CONSOLE ' + m.text()); });
+  const log = (...a) => console.log(...a);
+  await pg.goto(CFG.APP); await pg.waitForTimeout(200);
+  await pg.evaluate(d => { const { T } = converterV1(d); Object.keys(TABLES).forEach(t => D[t] = T[t] || []); Local.persistAll(); aplicarSim({ papel: 'direcao', pessoa_id: D.pessoas.find(p => p.nome.startsWith('Lucas')).id }); A.nav({t:'projetos'}); }, old);
+  const [fc] = await Promise.all([pg.waitForEvent('filechooser'), pg.click('[data-a="importarPlanilha"]')]);
+  await fc.setFiles(XL); await pg.waitForSelector('#im_ok', { timeout: 15000 }); await pg.fill('#im_sigla', 'MOVER-FUNDEP'); await pg.fill('#im_ini', '2025-03-01'); await pg.click('#im_ok'); await pg.waitForTimeout(1500);
+  await pg.evaluate(async () => { const P = D.projetos.find(x => x.sigla === 'MOVER-FUNDEP'), G = D.projetos.find(x => x.sigla === 'GLASSI');
+    await Data.insert('entregas', { projeto_id: P.id, titulo: 'Relatório técnico parcial 1', tipo: 'relatorio_parcial', prazo: '2026-03-31', status: 'entregue', data_entrega: '2026-03-28' });
+    await Data.insert('entregas', { projeto_id: P.id, titulo: 'Relatório técnico parcial 2', tipo: 'relatorio_parcial', prazo: '2026-09-15' });
+    await Data.insert('entregas', { projeto_id: P.id, titulo: 'Relatório técnico parcial 3', tipo: 'relatorio_parcial', prazo: '2027-03-31' });
+    const d1 = D.desembolsos.find(d => d.projeto_id === P.id && d.numero === 1); await Data.update('desembolsos', d1.id, { status: 'recebida', data_recebida: '2025-05-12', valor_recebido: 3859740.25 });
+    await Data.insert('aditivos', { projeto_id: G.id, numero: '1º TA', tipo: 'prazo', novo_fim: '2027-06-30', data_assinatura: '2025-11-20' });
+    for (const [c, pc] of [['2.1', 100], ['2.2', 60], ['2.5.1', 100], ['2.5.3', 70], ['2.6.1', 100]]) { const x = D.cronograma.find(y => y.projeto_id === P.id && y.codigo === c); await Data.update('cronograma', x.id, { percentual: pc }); }
+    UI.tab = 'cronograma'; UI.sub.cron = 'gantt'; UI.f.cronAbertos = new Set([P.id]); render(); });
+  await pg.waitForTimeout(150); await pg.screenshot({ path: CFG.saida('u1_gantt.png'), fullPage: true });
+  log('linhas svg:', await pg.$$eval('svg text[data-a="cronAbrirProj"]', x => x.length), '| marcos entrega:', await pg.$$eval('svg rect[transform]', x => x.length));
+  await pg.click('[data-a="cronZoom"][data-v="tudo"]'); await pg.waitForTimeout(100); await pg.screenshot({ path: CFG.saida('u2_gantt_tudo.png'), fullPage: true });
+  await pg.click('svg text[data-a="cronAbrirProj"] >> nth=0'); await pg.waitForTimeout(80);
+  await pg.click('svg g[data-a="projAbrir"] >> nth=0'); log('clique barra →', await pg.evaluate(() => [UI.tab, siglaProjeto(UI.projeto)]));
+  await pg.evaluate(() => { UI.tab = 'cronograma'; UI.projeto = null; UI.sub.cron = 'carga'; render(); }); await pg.waitForTimeout(100);
+  log('carga linhas:', await pg.$$eval('table.t tr', x => x.length), '| sobrecarga:', await pg.$$eval('td', x => x.filter(e => /!$/.test(e.innerText)).length));
+  await pg.screenshot({ path: CFG.saida('u3_carga.png'), fullPage: true });
+  log('membro:', await pg.evaluate(() => { aplicarSim({ papel: 'membro', pessoa_id: D.pessoas.find(p => p.nome.startsWith('Nicholas')).id }); UI.sub.cron = 'gantt'; UI.f.cronMeus = true; render(); return [document.querySelectorAll('svg text[data-a="cronAbrirProj"]').length, document.querySelectorAll('svg circle[r="5.5"]').length]; }));
+  console.log(errs.join('\n') || 'no page errors'); await b.close();
+})();

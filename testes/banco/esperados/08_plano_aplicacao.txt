@@ -1,0 +1,41 @@
+== coordenador cria itens
+psql:08_plano_aplicacao.sql:13: ERROR:  Use uma rubrica final (ex.: 1.1.1 Bolsas), não um grupo
+CONTEXT:  PL/pgSQL function tg_confere_rubrica() line 4 at RAISE
+== despesa ligada ao item herda a rubrica (mesmo digitando outra)
+ rubrica |  valor   
+---------+----------
+ 1.3     | 18000.00
+
+== item de outro projeto é recusado
+psql:08_plano_aplicacao.sql:19: ERROR:  O item do plano de aplicação é de outro projeto
+CONTEXT:  PL/pgSQL function tg_despesa_item() line 7 at RAISE
+== mudar a rubrica do item leva as despesas
+ rubrica 
+---------
+ 1.4
+
+      descricao       | valor_previsto | executado |   saldo    | n_despesas 
+----------------------+----------------+-----------+------------+------------
+ Analisador de gases  |     1472191.60 |         0 | 1472191.60 |          0
+ Pistões customizados |       36000.00 |  18000.00 |   18000.00 |          1
+
+== vincular ao item de infraestrutura
+ desligado 
+-----------
+ t
+
+== Igor (membro): não vê itens nem despesas, não insere
+ itens_visiveis 
+----------------
+              0
+
+ view_visivel 
+--------------
+            0
+
+psql:08_plano_aplicacao.sql:33: ERROR:  new row violates row-level security policy for table "plano_itens"
+== apagar item mantém a despesa (sem item)
+     descricao     | rubrica | item_id 
+-------------------+---------+---------
+ Lote 1 de pistões | 1.3     | 
+
