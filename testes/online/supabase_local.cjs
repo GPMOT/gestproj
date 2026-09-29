@@ -58,6 +58,13 @@ function filtros(q, params) {
 }
 
 async function rest(req, res, table, q, body, claims) {
+  if (table.startsWith('rpc/')) {   // funções do banco (supabase.rpc)
+    const fn = qi(table.slice(4)), c = await pool.connect();
+    try { await c.query('begin'); await c.query(`set local role ${claims.role === 'authenticated' ? 'authenticated' : 'anon'}`);
+      await c.query(`select set_config('request.jwt.claim.sub', $1, true)`, [claims.sub || '']);
+      const r = await c.query(`select to_json(public.${fn}()) as j`); await c.query('commit'); return send(res, 200, r.rows[0].j);
+    } catch (e) { await c.query('rollback').catch(() => { }); return send(res, e.code === '42501' ? 401 : 404, { code: e.code, message: e.message }); } finally { c.release(); }
+  }
   const T = 'public.' + qi(table), params = [], pref = String(req.headers.prefer || '');
   const retRep = /return=representation/.test(pref);
   let sql;

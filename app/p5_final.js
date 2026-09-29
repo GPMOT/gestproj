@@ -139,10 +139,10 @@ VIEWS.config = () => {
     ${!ME.online && Perm.dir() ? `<div class="sec">Zona de risco</div><button class="btn-d" data-a="zerar">Apagar todos os dados deste navegador</button>` : ''}</div>
 
   ${ME.online && Perm.dir() ? `<div class="card"><div class="bold mb">Usuários e acessos</div><div class="small muted mb">Novos logins entram sem acesso. Ligue cada usuário a uma pessoa do cadastro, escolha o papel e ative.</div>
-    ${D.perfis.sort(byName('email')).map(pf => `<div class="fgrid mb" style="grid-template-columns:1.2fr 1.2fr .8fr auto;align-items:end"><div class="small"><b>${esc(pf.email)}</b></div>
+    ${D.perfis.sort(byName('email')).map(pf => `<div class="fgrid mb" style="grid-template-columns:1.2fr 1.2fr .8fr auto;align-items:end"><div class="small"><b>${esc(pf.email)}</b>${fixo(pf) ? '<br><span class="muted">Direção permanente</span>' : ''}</div>
       <select onchange="run(()=>Data.update('perfis','${pf.id}',{pessoa_id:this.value||null}).then(render))"><option value="">— pessoa —</option>${optPessoas().map(([v, l]) => `<option value="${v}"${pf.pessoa_id === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>
-      <select onchange="run(()=>Data.update('perfis','${pf.id}',{papel:this.value}).then(render))">${PAPEIS.map(([v, l]) => `<option value="${v}"${pf.papel === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
-      <label class="row small"><input type="checkbox" ${pf.ativo ? 'checked' : ''} onchange="run(()=>Data.update('perfis','${pf.id}',{ativo:this.checked}).then(render))"> ativo</label></div>`).join('') || '<div class="empty">Nenhum usuário.</div>'}</div>` : ''}
+      <select ${fixo(pf) ? 'disabled title="Acesso permanente da Direção"' : ''} onchange="run(()=>Data.update('perfis','${pf.id}',{papel:this.value}).then(render))">${PAPEIS.map(([v, l]) => `<option value="${v}"${pf.papel === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+      <label class="row small"><input type="checkbox" ${pf.ativo ? 'checked' : ''} ${fixo(pf) ? 'disabled' : ''} onchange="run(()=>Data.update('perfis','${pf.id}',{ativo:this.checked}).then(render))"> ativo</label></div>`).join('') || '<div class="empty">Nenhum usuário.</div>'}</div>` : ''}
 
   ${Perm.tem('historico_ver') ? `<div class="card" style="grid-column:1/-1"><div class="between mb"><span class="bold">Histórico de alterações</span>${ME.online ? '<button class="btn-s" data-a="histCarregar">carregar últimas 300</button>' : ''}</div>
     ${D.historico.length ? D.historico.slice().sort((a, b) => String(b.em).localeCompare(String(a.em))).slice(0, 150).map(h => `<div class="small mb"><span class="muted">${fmtDT(h.em)} · ${esc(quem(h.usuario))}</span> — ${esc(descHist(h))}</div>`).join('') : '<div class="empty">Sem registros carregados.</div>'}</div>` : ''}
@@ -383,6 +383,8 @@ async function confirmarCodigo() {
   if (error) { flash(traduzErro(error), true); return; }
   if (data && data.session && !ME.online) await entrarOnline(data.session);
 }
+/* logins da Direção permanente (definidos no banco: public.emails_direcao_fixa) */
+const fixo = pf => (ME.fixos || []).includes(String(pf.email || '').toLowerCase());
 function usarLocal() { try { localStorage.removeItem(LS_PREFIX + '_supabase'); } catch { } location.reload(); }
 async function entrarOnline(session) {
   ME.online = true; ME.uid = session.user.id; ME.email = session.user.email;
@@ -391,6 +393,7 @@ async function entrarOnline(session) {
   const pf = D.perfis.find(p => p.id === ME.uid);
   if (!pf || !pf.ativo) { telaSimples(`<div class="title mb">Acesso aguardando aprovação</div><div class="small">Seu login (${esc(ME.email)}) foi registrado. A Direção precisa ativar seu acesso e ligá-lo ao seu cadastro.</div><div class="mactions"><button onclick="A.sair()">Sair</button></div>`); return; }
   ME.papel = pf.papel; ME.pessoa_id = pf.pessoa_id;
+  try { const { data, error } = await SB.client.rpc('emails_direcao_fixa'); ME.fixos = !error && Array.isArray(data) ? data.map(e => String(e).toLowerCase()) : []; } catch { ME.fixos = []; }
   try {   // atualização em tempo real (se o Realtime estiver habilitado no Supabase)
     let pend = new Set(), tm = null;
     SB.client.channel('gpmot').on('postgres_changes', { event: '*', schema: 'public' }, p => {

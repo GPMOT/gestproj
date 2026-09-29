@@ -185,6 +185,18 @@ const ignorar = t => /WebSocket|realtime|ERR_CONNECTION_REFUSED|status of 40[0-9
   ok(m.apagar !== 'apagou', 'banco recusa o membro apagar pessoas', m.apagar);
   await u2.pg.evaluate(() => A.sair()); await u2.pg.waitForSelector('#lg_email', { timeout: 5000 }); ok(true, 'sair volta para a tela de login');
 
+  // ── Direção permanente: o login fixo entra direto como Direção, sem aprovação ──
+  console.log('FASE 4 — Direção permanente');
+  const u3 = await nova();
+  await u3.pg.goto(CFG.APP); await u3.pg.evaluate(c => { localStorage.clear(); localStorage.setItem('gpmot2:_supabase', JSON.stringify(c)); }, { url: SB, anonKey: keys.anon }); await u3.pg.reload();
+  await u3.pg.waitForSelector('#lg_email'); await u3.pg.fill('#lg_email', 'lucas.scherer@ufsm.br'); await u3.pg.click('#lg_env'); await u3.pg.waitForSelector('#lg_code');
+  const c3 = (await (await fetch(SB + '/__test/otp?email=lucas.scherer@ufsm.br')).json()).code; await u3.pg.fill('#lg_code', c3); await u3.pg.click('#lg_ok'); await u3.pg.waitForTimeout(1200);
+  ok(await u3.pg.evaluate(() => ME.online && ME.papel === 'direcao'), 'login fixo entra direto como Direção no primeiro acesso');
+  await u3.pg.evaluate(() => A.nav({ t: 'config' })); await u3.pg.waitForTimeout(200);
+  const fx = await u3.pg.evaluate(() => { const linha = [...document.querySelectorAll('#app .fgrid')].find(d => /lucas\.scherer@ufsm\.br/.test(d.textContent)); return linha ? { txt: /Direção permanente/.test(linha.textContent), sel: linha.querySelectorAll('select')[1].disabled, chk: linha.querySelector('input[type=checkbox]').disabled } : null; });
+  ok(fx && fx.txt && fx.sel && fx.chk, 'tela mostra "Direção permanente" com papel e ativo travados', fx);
+  const tent = await u3.pg.evaluate(async () => { const pf = D.perfis.find(p => p.email === 'lucas.scherer@ufsm.br'); await Data.update('perfis', pf.id, { papel: 'leitura', ativo: false }).catch(() => { }); await SB.reload(['perfis']); const n = D.perfis.find(p => p.id === pf.id); return [n.papel, n.ativo]; });
+  ok(tent[0] === 'direcao' && tent[1] === true, 'mesmo forçando pela API, o banco mantém Direção e ativo', tent);
   console.log(errs.length ? 'ERROS NA PÁGINA:\n' + errs.join('\n') : '  sem erros na página');
   console.log(falhas || errs.length ? `\n${falhas} verificação(ões) falharam, ${errs.length} erro(s) na página` : '\nTudo certo'); await b.close(); try { fs.unlinkSync(BK); } catch { }
   process.exit(falhas || errs.length ? 1 : 0);

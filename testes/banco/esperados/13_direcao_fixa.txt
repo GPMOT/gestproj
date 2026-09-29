@@ -1,0 +1,38 @@
+== primeiro login do e-mail fixo já entra como Direção ativa; outro e-mail entra inativo
+         email         |  papel  | ativo 
+-----------------------+---------+-------
+ lucas.scherer@ufsm.br | direcao | t
+ outra.direcao@ufsm.br | leitura | f
+
+== outra pessoa da Direção tenta rebaixar, desativar e trocar o e-mail do login fixo
+         email         |  papel  | ativo 
+-----------------------+---------+-------
+ lucas.scherer@ufsm.br | direcao | t
+
+== excluir o perfil fixo pela tela é bloqueado
+psql:13_direcao_fixa.sql:14: ERROR:  O acesso de lucas.scherer@ufsm.br é da Direção permanente e não pode ser removido.
+CONTEXT:  PL/pgSQL function tg_perfil_direcao_fixa() line 6 at RAISE
+== ninguém consegue trocar o próprio e-mail para virar Direção permanente
+         email         | papel  
+-----------------------+--------
+ outra.direcao@ufsm.br | membro
+
+ perfis_restantes 
+------------------
+                2
+
+== apagar o próprio login (painel da Supabase) remove o perfil junto; novo login volta como Direção
+ perfis_restantes 
+------------------
+                1
+
+         email         |  papel  | ativo 
+-----------------------+---------+-------
+ lucas.scherer@ufsm.br | direcao | t
+
+== a função com a lista é acessível a quem fez login, não a anônimos
+   emails_direcao_fixa   
+-------------------------
+ {lucas.scherer@ufsm.br}
+
+psql:13_direcao_fixa.sql:27: ERROR:  permission denied for function emails_direcao_fixa
