@@ -29,5 +29,11 @@ const r = spawnSync(process.execPath, ['--check', tmp], { encoding: 'utf8' });
 if (r.status !== 0) { console.error('ERRO DE SINTAXE:\n' + r.stderr); process.exit(1); }
 const versao = (js.match(/VERSAO = '([\d.]+)'/) || [])[1];
 console.log(`BUILD_OK — versão ${versao} — ${(html.length / 1024).toFixed(0)} KB → ${destino}`);
-if (URL_SB) console.log('Versão online: conectada a ' + URL_SB);
+if (URL_SB) {
+  console.log('Versão online: conectada a ' + URL_SB);
+  // cópia para o GitHub Pages (Settings → Pages → branch main, pasta /docs)
+  const docs = path.join(__dirname, 'docs'); fs.mkdirSync(docs, { recursive: true });
+  fs.writeFileSync(path.join(docs, 'index.html'), html.replace('<head>', '<head>\n<meta name="robots" content="noindex">'));
+  console.log('GitHub Pages: ' + path.join(docs, 'index.html'));
+}
 if (process.argv.includes('--publicar')) { const pub = path.join(__dirname, '..', URL_SB ? 'GPMOT_UFSM — Gestão de Portfólio (online).html' : 'GPMOT_UFSM — Gestão de Portfólio v2.html'); fs.copyFileSync(destino, pub); console.log('Publicado em ' + pub); }

@@ -33,6 +33,8 @@ node build.cjs --publicar --url https://xxxx.supabase.co --chave sb_publishable_
 
 Use só a chave **pública** (publishable/anon); o build recusa a chave secreta.
 
+Com `--url` o build também grava `docs/index.html`, a cópia publicada pelo **GitHub Pages** (Settings → Pages → branch `main`, pasta `/docs`). Depois de cada mudança no programa, gere de novo com `--url` e envie o `docs/index.html` junto.
+
 As partes são concatenadas nesta ordem, num único `<script>` (as funções de uma parte podem usar as das outras):
 
 | Parte | Conteúdo |
