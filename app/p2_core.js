@@ -8,7 +8,7 @@
    - Modo online: preencha SUPABASE_CONFIG abaixo (ou em Configurações)
      e o programa passa a ler e gravar no banco Supabase, com login.
    ════════════════════════════════════════════════════════════════════ */
-const VERSAO = '2.15';
+const VERSAO = '2.16';
 const SUPABASE_CONFIG = { url: '', anonKey: '' };   // ← preencher na implantação
 
 /* ── utilidades ─────────────────────────────────────────────────── */

@@ -2,7 +2,7 @@
 
 Programa de gestão de projetos, equipe, financeiro e infraestrutura do laboratório.
 O produto final é **um único arquivo HTML** (funciona offline, sem instalar nada), montado a partir das partes em `app/`.
-Versão do programa: **2.15** · versão do esquema do banco: **1.2**. Implantação no Supabase: veja `../Guia de implantação online (Supabase).docx`.
+Versão do programa: **2.16** · versão do esquema do banco: **1.2**. Implantação no Supabase: veja `../Guia de implantação online (Supabase).docx`.
 
 ```
 Software de Gestão/
@@ -33,7 +33,9 @@ node build.cjs --publicar --url https://xxxx.supabase.co --chave sb_publishable_
 
 Use só a chave **pública** (publishable/anon); o build recusa a chave secreta.
 
-Com `--url` o build também grava `docs/index.html`, a cópia publicada pelo **GitHub Pages** (Settings → Pages → branch `main`, pasta `/docs`). Depois de cada mudança no programa, gere de novo com `--url` e envie o `docs/index.html` junto.
+Com `--url` o build também grava `docs/index.html`, a cópia publicada pelo **GitHub Pages** (Settings → Pages → branch `main`, pasta `/docs`). Depois de cada mudança no programa, gere de novo com `--url` e envie a pasta `docs` junto (index.html, manifesto e ícones).
+
+**Identidade visual:** `app/marca/` tem o logotipo e o símbolo do GPMOT vetorizados (cor `#003963`), os ícones do aplicativo (PNG 192/512, versão *maskable*, SVG) e `gpmot.ico` para atalhos do Windows. O programa usa o símbolo no menu lateral, o logotipo nas telas de entrada e o ícone na aba do navegador (tudo embutido no HTML, pela constante `MARCA` em `p3_ui.js`).
 
 As partes são concatenadas nesta ordem, num único `<script>` (as funções de uma parte podem usar as das outras):
 

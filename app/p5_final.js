@@ -346,7 +346,7 @@ const nomeT = (T, id) => (T.pessoas.find(p => p.id === id) || {}).nome || '?';
 /* ════════════════════════════════════════════════════════════════════
    INICIALIZAÇÃO
    ════════════════════════════════════════════════════════════════════ */
-function telaSimples(html) { document.body.classList.add('no-side'); document.getElementById('side').innerHTML = ''; document.getElementById('app').innerHTML = `<div class="card" style="max-width:520px;margin:60px auto">${html}</div>`; }
+function telaSimples(html) { document.body.classList.add('no-side'); document.getElementById('side').innerHTML = ''; document.getElementById('app').innerHTML = `<div class="card" style="max-width:520px;margin:60px auto;padding:26px 28px"><div class="marca-topo">${MARCA.logo}<div>Gestão de Portfólio</div></div>${html}</div>`; }
 function chaveSecreta(k) {
   if (/^sb_secret_/.test(k)) return true;
   try { const p = JSON.parse(atob(k.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))); return p.role === 'service_role'; } catch { return false; }
@@ -354,8 +354,7 @@ function chaveSecreta(k) {
 let LOGIN_EMAIL = '';
 function telaLogin(msg, etapa) {
   const codigo = etapa === 'codigo';
-  telaSimples(`<div class="title mb">GPMOT/UFSM — Gestão de Portfólio</div>
-    ${codigo ? `<div class="small muted mb">Enviamos um e-mail para <b>${esc(LOGIN_EMAIL)}</b>. Digite abaixo o código que veio nele${location.protocol.startsWith('http') ? ' (ou clique no link do e-mail, neste mesmo navegador)' : ''}.</div>`
+  telaSimples(`    ${codigo ? `<div class="small muted mb">Enviamos um e-mail para <b>${esc(LOGIN_EMAIL)}</b>. Digite abaixo o código que veio nele${location.protocol.startsWith('http') ? ' (ou clique no link do e-mail, neste mesmo navegador)' : ''}.</div>`
       : `<div class="small muted mb">Entre com seu e-mail institucional. Você receberá um código de acesso por e-mail.</div>`}
     ${msg ? `<div class="alert ${codigo ? 'ok' : 'warn'}">${esc(msg)}</div>` : ''}
     ${codigo ? `<label class="fl">Código recebido</label><input id="lg_code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456" style="font-size:20px;letter-spacing:4px">
