@@ -146,6 +146,7 @@ VIEWS.config = () => {
 
   ${Perm.tem('historico_ver') ? `<div class="card" style="grid-column:1/-1"><div class="between mb"><span class="bold">Histórico de alterações</span>${ME.online ? '<button class="btn-s" data-a="histCarregar">carregar últimas 300</button>' : ''}</div>
     ${D.historico.length ? D.historico.slice().sort((a, b) => String(b.em).localeCompare(String(a.em))).slice(0, 150).map(h => `<div class="small mb"><span class="muted">${fmtDT(h.em)} · ${esc(quem(h.usuario))}</span> — ${esc(descHist(h))}</div>`).join('') : '<div class="empty">Sem registros carregados.</div>'}</div>` : ''}
+  <div class="card" style="grid-column:1/-1"><div class="bold mb">Sobre</div>${sobreHTML(true)}</div>
   </div>`;
 };
 function lerSim() { try { return JSON.parse(localStorage.getItem(LS_PREFIX + '_sim') || 'null') || { papel: 'direcao', pessoa_id: null }; } catch { return { papel: 'direcao', pessoa_id: null }; } }
@@ -403,7 +404,30 @@ async function entrarOnline(session) {
   } catch (e) { console.warn('Realtime indisponível', e); }
   render();
 }
+
+/* ── tela de abertura e quadro "Sobre" (direitos autorais) ─────────── */
+const SOBRE = {
+  titulo: 'Software de Gestão de Portfólio de Projetos',
+  aviso: 'Este software é protegido pelas leis de direitos autorais e demais legislações aplicáveis sobre propriedade intelectual. É proibida a reprodução, distribuição, modificação, engenharia reversa ou qualquer outra forma de utilização não autorizada, total ou parcial, deste sistema sem autorização expressa do titular dos direitos.',
+  desenvolvido: 'GPMOT/UFSM', suporte: 'lucas.scherer@ufsm.br', licenca: 'Uso restrito ao GPMOT/UFSM',
+  rodape: '© 2026 GPMOT — Laboratório de Motores, Combustíveis e Emissões',
+};
+function sobreHTML(cfg) {
+  const dados = `<dl><dt>Versão:</dt><dd>${VERSAO}</dd><dt>Data da versão:</dt><dd>${VERSAO_DATA}</dd><dt>Licença:</dt><dd>${esc(SOBRE.licenca)}</dd>
+    <dt>Desenvolvido por:</dt><dd>${esc(SOBRE.desenvolvido)}</dd><dt>Suporte:</dt><dd><a href="mailto:${SOBRE.suporte}">${SOBRE.suporte}</a></dd></dl>`;
+  const txt = `<h2>${SOBRE.titulo}</h2><div class="copy">© 2026 GPMOT/UFSM. Todos os direitos reservados.</div><p class="aviso">${SOBRE.aviso}</p>${dados}<div class="rodape">${esc(SOBRE.rodape)}</div>`;
+  return cfg ? `<div class="sobre sobre-cfg">${MARCA.logo}<div>${txt}</div></div>` : `<div class="sobre">${MARCA.logo}${txt}<div class="barra"><i></i></div></div>`;
+}
+function abertura() {   // 3 s na abertura; clicar pula. Não aparece nos testes automáticos (navigator.webdriver), salvo com ?abertura=1
+  if (navigator.webdriver && !/[?&]abertura=1\b/.test(location.search)) return;
+  const d = document.createElement('div'); d.id = 'abertura'; d.title = 'Clique para continuar'; d.innerHTML = sobreHTML(false);
+  document.body.appendChild(d);
+  const sair = () => { if (!d.isConnected || d.classList.contains('saindo')) return; d.classList.add('saindo'); setTimeout(() => d.remove(), 500); };
+  d.onclick = e => { if (!e.target.closest('a')) sair(); };
+  setTimeout(sair, 3000);
+}
 async function boot() {
+  abertura(); UI.tab = 'painel';
   if (SB.cfg()) {
     try {
       await SB.connect();
