@@ -19,6 +19,7 @@ function render() {
   const ae = document.activeElement, focusId = ae && ae.id, sel = ae && ae.selectionStart;
   const y = window.scrollY;
   let body = '';
+  if (!tabVisivel(UI.tab)) UI.tab = 'painel';
   try { body = (VIEWS[UI.tab] || VIEWS.painel)(); }
   catch (e) { console.error(e); body = `<div class="merr">Erro ao montar a tela: ${esc(e.message)}</div>`; }
   document.body.classList.remove('no-side');
@@ -61,6 +62,7 @@ const ic = k => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" str
 const TITULOS = { painel: 'Painel', projetos: 'Projetos', entregas: 'Entregas e prazos', cronograma: 'Cronograma', prospeccao: 'Prospecção', equipe: 'Equipe', tarefas: 'Tarefas', gerencias: 'Gerências', financeiro: 'Financeiro', infra: 'Infraestrutura', relatorios: 'Relatórios', config: 'Configurações' };
 function tabVisivel(t) {
   if (t === 'financeiro') return D.projetos.some(p => Perm.veFin(p.id));
+  if (ME.papel === 'leitura' && ['prospeccao', 'infra', 'gerencias'].includes(t)) return false;   // Leitura: só acompanha os próprios projetos
   return true;
 }
 function navItens() {
@@ -132,6 +134,8 @@ function papelTexto() {
   Perm.gerenciasAtivas().forEach(g => parts.push(g.nome.replace('Gerência ', 'Ger. ')));
   const coord = D.alocacoes.filter(a => a.pessoa_id === ME.pessoa_id && a.coordena).map(a => siglaProjeto(a.projeto_id));
   if (coord.length) parts.push('Coord. ' + coord.join(', '));
+  const vice = D.alocacoes.filter(a => a.pessoa_id === ME.pessoa_id && a.vice_coordena).map(a => siglaProjeto(a.projeto_id));
+  if (vice.length) parts.push('Vice-coord. ' + vice.join(', '));
   return parts.join(' · ');
 }
 function header() {
@@ -387,15 +391,15 @@ function painelSemana() {
   const grupos = [['Atrasados', x => x.data && x.data < t, 'bad'], ['Esta semana', x => x.data && x.data >= t && x.data <= fimSem], ['Próximos 30 dias', x => x.data && x.data > fimSem && x.data <= lim], ['Sem prazo definido', x => !x.data]];
   const cont = grupos.map(([, f]) => ag.filter(f).length);
   const pe = byId('pessoas', ME.pessoa_id);
-  const meusProj = D.alocacoes.filter(a => a.pessoa_id === ME.pessoa_id && a.status === 'ativo').map(a => ({ a, p: byId('projetos', a.projeto_id) })).filter(x => x.p && Calc.vigente(x.p)).sort((a, b) => b.a.coordena - a.a.coordena || String(a.p.sigla).localeCompare(b.p.sigla));
-  const coordIds = new Set(meusProj.filter(x => x.a.coordena).map(x => x.p.id));
+  const meusProj = D.alocacoes.filter(a => a.pessoa_id === ME.pessoa_id && a.status === 'ativo').map(a => ({ a, p: byId('projetos', a.projeto_id) })).filter(x => x.p && Calc.vigente(x.p)).sort((a, b) => (b.a.coordena || b.a.vice_coordena) - (a.a.coordena || a.a.vice_coordena) || String(a.p.sigla).localeCompare(b.p.sigla));
+  const coordIds = new Set(meusProj.filter(x => x.a.coordena || x.a.vice_coordena).map(x => x.p.id));
   const atencao = alertasPainel().filter(x => x.pid && coordIds.has(x.pid));
   const linha = x => { const atr = x.data && x.data < t;
     return `<div class="row small click" style="gap:10px;padding:6px 0;border-bottom:1px solid #eeebe4" ${attrsEv(x.a)}><span style="width:78px;font-variant-numeric:tabular-nums;${atr ? 'color:var(--red);font-weight:600' : ''}">${x.data ? (x.data.slice(0, 4) === t.slice(0, 4) ? fmtD(x.data).slice(0, 5) : fmtD(x.data).slice(0, 6) + x.data.slice(2, 4)) + ' ' + ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][toDate(x.data).getDay()] : '—'}</span>
       <span class="b b-gray" style="min-width:74px;text-align:center">${esc(x.tipo)}</span>${x.pid ? `<span class="muted" style="min-width:90px">${esc(siglaProjeto(x.pid))}</span>` : '<span style="min-width:90px"></span>'}<span style="flex:1">${esc(x.txt)}</span></div>`; };
   const mets = [['Atrasados', cont[0], cont[0] ? 'color:var(--red)' : ''], ['Esta semana', cont[1]], ['Próximos 30 dias', cont[2]], ['Meus projetos vigentes', meusProj.length]];
   return `<div class="between mb"><div><div class="title" style="font-size:18px">Olá, ${esc((pe && pe.nome || '').split(' ')[0])}</div><div class="small muted">${['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'][dow]}, ${fmtD(t)} · o que está sob a sua responsabilidade</div></div>
-    <button class="btn-s" data-a="tarefaNova">+ tarefa</button></div>
+    ${Perm.podeEditar() ? `<button class="btn-s" data-a="tarefaNova">+ tarefa</button>` : ""}</div>
   <div class="metrics">${mets.map(([k, v, s]) => `<div class="metric"><div class="k">${k}</div><div class="v" style="${s || ''}">${v}</div></div>`).join('')}</div>
   <div class="grid" style="grid-template-columns:minmax(420px,3fr) minmax(300px,2fr);align-items:start">
     <div class="card">${ag.length ? grupos.map(([nome, f, c], i) => { const l = ag.filter(f).sort((a, b) => String(a.data || '').localeCompare(String(b.data || ''))); return l.length ? `<div class="sec" style="${i === 0 ? 'margin-top:0;' : ''}${c ? 'color:var(--red)' : ''}">${nome} (${l.length})</div>${l.map(linha).join('')}` : ''; }).join('')
@@ -403,7 +407,7 @@ function painelSemana() {
     <div>
       ${atencao.length ? `<div class="card mb"><div class="bold mb">Precisa da sua atenção <span class="small muted">(projetos que você coordena)</span></div>${atencao.map(x => `<div class="alert ${x.c}"><b>${esc(siglaProjeto(x.pid))}</b>: ${x.h}</div>`).join('')}</div>` : ''}
       <div class="card mb"><div class="bold mb">Meus projetos</div>${meusProj.length ? meusProj.map(({ a, p }) => { const s = Calc.saudeProjeto(p), prox = Calc.entregasAbertas(p.id)[0];
-        return `<div class="click" data-a="projAbrir" data-id="${p.id}" style="padding:7px 0;border-bottom:1px solid #eeebe4"><div class="between"><span><b>${esc(p.sigla)}</b> ${a.coordena ? badge('coordena', 'b-green') : `<span class="small muted">${esc(a.papel || '')}</span>`}</span>${badge(SINAL[s.sinal][2] + ' ' + SINAL[s.sinal][0], SINAL[s.sinal][1])}</div>
+        return `<div class="click" data-a="projAbrir" data-id="${p.id}" style="padding:7px 0;border-bottom:1px solid #eeebe4"><div class="between"><span><b>${esc(p.sigla)}</b> ${a.coordena ? badge('coordena', 'b-green') : a.vice_coordena ? badge('vice-coordena', 'b-green') : `<span class="small muted">${esc(a.papel || '')}</span>`}</span>${badge(SINAL[s.sinal][2] + ' ' + SINAL[s.sinal][0], SINAL[s.sinal][1])}</div>
           <div class="row small mt" style="gap:12px">${s.fis ? `<span class="muted">físico</span> ${barraAvanco(s.fis.pct, s.fis.prev)}` : ''}<span class="muted">${prox ? `próx. entrega ${fmtD(prox.prazo)}` : 'sem entregas abertas'}</span></div></div>`; }).join('') : '<div class="empty small">Sem alocações em projetos vigentes.</div>'}</div>
       ${(() => { const ger = Perm.gerenciasAtivas(); return ger.length ? `<div class="card"><div class="bold mb">Minhas gerências</div>${ger.map(g => `<div class="row small mb"><span class="b b-blue">${esc(g.nome)}</span> <button class="btn-s" data-a="gerAbrir" data-id="${g.id}">demandas</button></div>`).join('')}</div>` : ''; })()}
     </div></div>`;
@@ -421,7 +425,7 @@ function painelPortfolio() {
     ['Críticos / atenção', `${nS('bad')} / ${nS('warn')}`, nS('bad') ? 'color:var(--red)' : ''], ['Entregas atrasadas', S.reduce((s, x) => s + x.entAtr, 0), S.some(x => x.entAtr) ? 'color:var(--red)' : ''],
     ['Vagas abertas', vagas, vagas ? 'color:var(--yellow-txt)' : ''], ['Equipe / IC', `${equipe} / ${ics}`]];
   const algumFin = S.some(x => x.veF);
-  const linhas = S.map(x => { const p = x.p, sg = SINAL[x.sinal], coord = Calc.coordenadores(p.id).map(c => c.nome.split(' ')[0]).join(', ');
+  const linhas = S.map(x => { const p = x.p, sg = SINAL[x.sinal], coord = nomesCoordenacao(p.id, true);
     const finCel = !x.veF ? '<span class="faint">—</span>' : x.fin ? `${barraExec(x.fin.exec, x.fin.apr)}<div class="small muted">em ${x.tempoPct}% do prazo</div>` : '<span class="small faint">sem orçamento</span>';
     return `<tr class="click" data-a="projAbrir" data-id="${p.id}"><td><b>${esc(p.sigla)}</b> ${badgeTipo(p)}<div class="small muted">${esc(coord || '—')}</div></td>
       <td class="small">${fmtD(p.fim)}<div class="muted">${Calc.vencido(p) ? '<b style="color:var(--red)">vencida</b>' : `${x.mesesRest} mês(es)`}</div></td>
@@ -502,7 +506,7 @@ function barraExec(ex, ap) {
 }
 function cardProjeto(p) {
   const st = STATUS_PROJ[p.status] || STATUS_PROJ.pendente;
-  const coord = Calc.coordenadores(p.id).map(x => x.nome).join(', ');
+  const coord = nomesCoordenacao(p.id);
   const nT = D.tarefas.filter(t => t.projeto_id === p.id && !t.concluida).length, nA = D.tarefas.filter(t => t.projeto_id === p.id && Calc.atrasada(t)).length;
   return `<div class="card pcard">
     <div class="hd"><div class="row"><button class="link" style="font-size:15px" data-a="projAbrir" data-id="${p.id}">${esc(p.sigla)}</button>${badgeTipo(p)}${badge(st[0], st[1])}
@@ -589,7 +593,7 @@ function projResumo(p) {
   const fin = Perm.veFin(p.id) ? Calc.totaisOrc(p.id) : null;
   const vincs = Perm.veFin(p.id) ? D.vinculos_financeiros.filter(v => v.projeto_id === p.id) : [];
   const nDesp = D.despesas.filter(x => x.projeto_id === p.id).length;
-  const coord = Calc.coordenadores(p.id).map(x => x.nome).join(', ');
+  const coord = nomesCoordenacao(p.id);
   const vo = Calc.vigenciaOriginal(p);
   const ents = Calc.entregasAbertas(p.id).slice(0, 6);
   const tAtr = D.tarefas.filter(t => t.projeto_id === p.id && Calc.atrasada(t));
@@ -855,7 +859,7 @@ function projEquipe(p) {
   ${plano}
   <div class="toolbar mt"><span class="sec" style="margin:0">Alocações no projeto <span class="small muted" style="text-transform:none;letter-spacing:0;font-weight:400">(${alocs.length} · carga e permissões no dia a dia)</span></span>${gere ? `<button class="btn-s" data-a="alocNova" data-projeto="${p.id}">+ Alocar pessoa</button>` : ''}</div>
   <div class="card tw" style="padding:4px 8px">${alocs.length ? `<table class="t"><tr><th>Pessoa</th><th>Papel</th><th>Nível</th><th class="num">Carga</th><th>Atribuição</th><th>Desde</th><th>Status</th></tr>
-    ${alocs.map(a => `<tr class="${gere ? 'click' : ''}" ${gere ? `data-a="alocEditar" data-id="${a.id}"` : ''}><td><b>${esc(nomePessoa(a.pessoa_id))}</b> ${a.coordena ? badge('coordena', 'b-green') : ''} ${EP.rows.length && foraIds.has(a.id) ? `<span title="Alocada no projeto, mas não ocupa nenhuma posição do plano de trabalho">${badge('fora do plano', 'b-gray')}</span>` : ''}</td><td>${esc(a.papel || '—')}</td><td>${NIVEIS[a.nivel] || '—'}</td>
+    ${alocs.map(a => `<tr class="${gere ? 'click' : ''}" ${gere ? `data-a="alocEditar" data-id="${a.id}"` : ''}><td><b>${esc(nomePessoa(a.pessoa_id))}</b> ${a.coordena ? badge('coordena', 'b-green') : a.vice_coordena ? badge('vice-coordena', 'b-green') : ''} ${EP.rows.length && foraIds.has(a.id) ? `<span title="Alocada no projeto, mas não ocupa nenhuma posição do plano de trabalho">${badge('fora do plano', 'b-gray')}</span>` : ''}</td><td>${esc(a.papel || '—')}</td><td>${NIVEIS[a.nivel] || '—'}</td>
       <td class="num">${pillCarga(num(a.carga_pct))}</td><td class="small">${esc(a.atribuicao || '')}</td><td class="small">${fmtD(a.desde)}</td><td>${badge(lbl(ST_ALOC, a.status), a.status === 'ativo' ? 'b-green' : 'b-gray')}</td></tr>`).join('')}</table>`
       : '<div class="empty">Ninguém alocado.</div>'}</div>`;
 }
@@ -1134,19 +1138,28 @@ function camposAlocacao(a, pid) {
     { k: 'papel', l: 'Papel (ex.: COG, CFD, Sup. Fab.)' },
     { k: 'desde', l: 'Alocado desde', t: 'date' },
     { k: 'status', l: 'Status', t: 'select', blank: false, opts: ST_ALOC },
-    { k: 'coordena', l: 'Coordena este projeto', t: 'check', ro: !Perm.dir(), help: Perm.dir() ? 'Dá acesso de coordenação (inclusive financeiro) a este projeto' : 'Somente a Direção define coordenadores' },
+    (() => { const pj = (a && a.projeto_id) || pid, pode = Perm.dir() || (!!pj && Perm.coordenaTitular(pj) && !(a && a.coordena));
+      return { k: '_coord', l: 'Coordenação do projeto', t: 'select', blank: false, opts: [['', 'Não'], ['coord', 'Coordenador'], ['vice', 'Vice-coordenador']], ro: !pode,
+        help: Perm.dir() ? 'Coordenador e vice têm acesso de coordenação (inclusive financeiro) a este projeto' : pode ? 'Você, como coordenador, pode indicar o vice-coordenador' : 'A Direção define coordenadores; o coordenador indica o vice' }; })(),
     { k: 'atribuicao', l: 'Atribuição real no projeto', t: 'textarea' }];
+}
+/* campo "Coordenação do projeto" → coordena / vice_coordena (sem o campo, não mexe) */
+const coordDe = x => { if ('_coord' in x) { x.coordena = x._coord === 'coord'; x.vice_coordena = x._coord === 'vice'; delete x._coord; } return x; };
+/* nomes da coordenação do projeto: coordenador(es) e vice(s) */
+function nomesCoordenacao(pid, curto) {
+  const n = p => curto ? p.nome.split(' ')[0] : p.nome;
+  return [...Calc.coordenadores(pid).map(n), ...Calc.vices(pid).map(p => n(p) + ' (vice)')].join(', ');
 }
 const fixAloc = x => { x.nivel = Number(x.nivel ?? 1); if (x.carga_pct == null) x.carga_pct = NIVEL_CARGA[x.nivel] || 0; return x; };
 A.alocNova = d => form({
-  title: 'Alocar pessoa', fields: camposAlocacao(null, d.projeto), values: { projeto_id: d.projeto || null, pessoa_id: d.pessoa || null, nivel: '1', status: 'ativo' },
-  onSave: x => Data.insert('alocacoes', fixAloc({ ...x, projeto_id: x.projeto_id || d.projeto, pessoa_id: x.pessoa_id || d.pessoa })),
+  title: 'Alocar pessoa', fields: camposAlocacao(null, d.projeto), values: { projeto_id: d.projeto || null, pessoa_id: d.pessoa || null, nivel: '1', status: 'ativo', _coord: '' },
+  onSave: x => Data.insert('alocacoes', fixAloc(coordDe({ ...x, projeto_id: x.projeto_id || d.projeto, pessoa_id: x.pessoa_id || d.pessoa }))),
 });
 A.alocEditar = d => {
   const a = byId('alocacoes', d.id);
   form({
-    title: `Alocação — ${nomePessoa(a.pessoa_id)} · ${siglaProjeto(a.projeto_id)}`, fields: camposAlocacao(a), values: { ...a, nivel: String(a.nivel) },
-    onSave: x => { delete x.pessoa_id; delete x.projeto_id; return Data.update('alocacoes', a.id, fixAloc(x)); },
+    title: `Alocação — ${nomePessoa(a.pessoa_id)} · ${siglaProjeto(a.projeto_id)}`, fields: camposAlocacao(a), values: { ...a, nivel: String(a.nivel), _coord: a.coordena ? 'coord' : a.vice_coordena ? 'vice' : '' },
+    onSave: x => { delete x.pessoa_id; delete x.projeto_id; return Data.update('alocacoes', a.id, fixAloc(coordDe(x))); },
     onDelete: () => Data.remove('alocacoes', a.id), deleteLabel: 'Remover do projeto', deleteConfirm: 'Remover esta pessoa do projeto?',
   });
 };
@@ -1319,10 +1332,10 @@ function equipeMatriz() {
         if (!a) return `<td>${pode ? `<button class="cell" style="color:#c8c6c0" data-a="alocNova" data-projeto="${p.id}" data-pessoa="${pe.id}">+</button>` : '<span class="faint">—</span>'}</td>`;
         const [bg, col, bd] = corCarga(a.status === 'ativo' ? num(a.carga_pct) : 0);
         const late = D.tarefas.some(t => t.projeto_id === p.id && Calc.atrasada(t) && D.tarefa_responsaveis.some(r => r.tarefa_id === t.id && r.pessoa_id === pe.id));
-        return `<td><button class="cell" ${pode ? `data-a="alocEditar" data-id="${a.id}"` : 'disabled style="opacity:1;cursor:default"'} style="background:${bg};color:${col};border-color:${a.coordena ? '#1a5ca8' : bd};${a.coordena ? 'border-width:2px;' : ''}" title="${esc(nomePessoa(pe.id) + ' · ' + p.sigla + ' · ' + NIVEIS[a.nivel] + ' · ' + a.carga_pct + '%' + (a.atribuicao ? ' — ' + a.atribuicao : ''))}">${esc(a.papel || NIVEIS[a.nivel])}<br><b>${num(a.carga_pct)}%</b>${late ? ' <span style="color:var(--red)">●</span>' : ''}</button></td>`;
+        return `<td><button class="cell" ${pode ? `data-a="alocEditar" data-id="${a.id}"` : 'disabled style="opacity:1;cursor:default"'} style="background:${bg};color:${col};border-color:${a.coordena || a.vice_coordena ? '#1a5ca8' : bd};${a.coordena || a.vice_coordena ? 'border-width:2px;' : ''}" title="${esc(nomePessoa(pe.id) + ' · ' + p.sigla + ' · ' + NIVEIS[a.nivel] + ' · ' + a.carga_pct + '%' + (a.atribuicao ? ' — ' + a.atribuicao : ''))}">${esc(a.papel || NIVEIS[a.nivel])}<br><b>${num(a.carga_pct)}%</b>${late ? ' <span style="color:var(--red)">●</span>' : ''}</button></td>`;
       }).join('')}</tr>`;
   }).join('')}</table></div>
-  <div class="small muted mt">Borda azul = coordena o projeto · ● vermelho = tem tarefa atrasada no projeto · cores da carga: amarelo &lt;38%, verde 38–64%, azul 65–99%, laranja 100–114%, vermelho ≥115%</div>`;
+  <div class="small muted mt">Borda azul = coordena ou é vice-coordenador do projeto · ● vermelho = tem tarefa atrasada no projeto · cores da carga: amarelo &lt;38%, verde 38–64%, azul 65–99%, laranja 100–114%, vermelho ≥115%</div>`;
 }
 function equipePessoas() {
   const ft = UI.f.peTipo || 'todos', q = norm(UI.f.peBusca), inat = !!UI.f.peInativos;
@@ -1336,7 +1349,7 @@ function equipePessoas() {
     ${Perm.gerePessoas() ? `<button class="btn-p" data-a="pessoaNova">+ Nova pessoa</button>` : ''}</div>
   <div class="card tw" style="padding:4px 8px"><table class="t"><tr><th>Nome</th><th>Tipo / função</th><th>Curso</th><th class="num">Carga</th><th class="num">Dispon.</th><th>Projetos vigentes</th><th>Gerências</th></tr>
   ${list.map(p => {
-    const projs = D.alocacoes.filter(a => a.pessoa_id === p.id && a.status === 'ativo' && Calc.vigente(byId('projetos', a.projeto_id))).map(a => siglaProjeto(a.projeto_id) + (a.coordena ? '★' : ''));
+    const projs = D.alocacoes.filter(a => a.pessoa_id === p.id && a.status === 'ativo' && Calc.vigente(byId('projetos', a.projeto_id))).map(a => siglaProjeto(a.projeto_id) + (a.coordena ? '★' : a.vice_coordena ? '☆' : ''));
     const gers = Perm.gerenciasAtivas(p.id).map(g => g.nome.replace('Gerência ', ''));
     return `<tr class="click" data-a="pessoaAbrir" data-id="${p.id}"><td><b>${p.risco_sobrecarga ? '⚠ ' : ''}${esc(p.nome)}</b>${p.ativo === false ? ' ' + badge('inativo', 'b-gray') : ''}</td>
       <td class="small">${esc(lbl(TIPOS_PESSOA, p.tipo))}${p.funcao ? ' · ' + esc(p.funcao) : ''}</td><td class="small">${esc(p.curso || '')}${p.semestre ? ' · ' + p.semestre + 'º sem.' : ''}</td>
@@ -1548,7 +1561,7 @@ function pessoaDetalhe(p) {
       ${(p.habilidades || []).length ? `<div class="mt">${p.habilidades.map(h => `<span class="tag">${esc(h)}</span>`).join('')}</div>` : ''}</div>
     <div class="card"><div class="bold mb">Funções de gestão</div>
       ${gers.length ? gers.map(gm => { const g = byId('gerencias', gm.gerencia_id); const ativo = (!gm.desde || gm.desde <= hoje()) && (!gm.ate || gm.ate >= hoje()); return `<div class="small mb">${badge(g ? g.nome : '?', ativo ? 'b-blue' : 'b-gray')} ${gm.funcao} · ${fmtD(gm.desde)}${gm.ate ? ' → ' + fmtD(gm.ate) : ''}</div>`; }).join('') : '<div class="small faint mb">Nenhuma gerência.</div>'}
-      ${alocs.filter(a => a.coordena).map(a => `<div class="small mb">${badge('Coordenação · ' + siglaProjeto(a.projeto_id), 'b-green')}</div>`).join('')}
+      ${alocs.filter(a => a.coordena || a.vice_coordena).map(a => `<div class="small mb">${badge((a.coordena ? 'Coordenação · ' : 'Vice-coordenação · ') + siglaProjeto(a.projeto_id), 'b-green')}</div>`).join('')}
       ${habs.length ? `<div class="bold mb mt">Habilitações em infraestrutura</div>${habs.map(h => `<div class="small mb">${esc((byId('infra_itens', h.item_id) || {}).nome || '')} · ${esc(lbl(NIVEL_HAB, h.nivel))}${h.validade ? ' · até ' + fmtD(h.validade) : ''}${h.validade && h.validade < hoje() ? ' ' + badge('vencida', 'b-red') : ''}</div>`).join('')}` : ''}</div>
   </div>
   ${(() => { const pos = D.equipe_plano.filter(e => e.pessoa_id === p.id); return pos.length ? `<div class="sec">Posições no plano de trabalho</div><div class="card tw" style="padding:4px 8px"><table class="t"><tr><th>Projeto</th><th>Posição</th><th>Função no edital</th><th>Desde</th><th>Etapas</th>${pos.some(e => Perm.veFin(e.projeto_id)) ? '<th>Bolsa</th>' : ''}</tr>${pos.map(e => { const r = linhaVaga(e.id), pr = byId('projetos', e.projeto_id);

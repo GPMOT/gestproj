@@ -2,7 +2,7 @@
 
 Programa de gestão de projetos, equipe, financeiro e infraestrutura do laboratório.
 O produto final é **um único arquivo HTML** (funciona offline, sem instalar nada), montado a partir das partes em `app/`.
-Versão do programa: **2.19** · versão do esquema do banco: **1.3**. Implantação no Supabase: veja `../Guia de implantação online (Supabase).docx`.
+Versão do programa: **2.20** · versão do esquema do banco: **1.4**. Implantação no Supabase: veja `../Guia de implantação online (Supabase).docx`.
 
 ```
 Software de Gestão/
@@ -81,6 +81,7 @@ Abre `app/gpmot.html` no Chromium, carrega os dados do programa antigo e, quando
 | t10–t14 | equipe do plano, plano de aplicação, desembolso, documentos e pendências, Equipe (seleção e contratação) |
 | t15–t18 | Painel, relatório físico-financeiro (.docx), Cronograma do portfólio, Financeiro geral |
 | t19 | tela de abertura (1 s) e quadro Sobre |
+| t20 | perfis: Suporte técnico, Leitura (só os próprios projetos, sem valores nem dados pessoais) e vice-coordenação |
 | `desempenho` | diagnóstico: tempo de cada tela com ≈ 11 mil registros (`node tela.cjs desempenho`) |
 | `celular` | diagnóstico: telas num celular de 390 px (`node tela.cjs celular`) |
 
@@ -90,7 +91,7 @@ Requer **PostgreSQL 16** local e `psql` no PATH (no Windows, Git Bash ou WSL). C
 
 ### Online — `node online.cjs`
 
-Recria um banco de teste no PostgreSQL local, sobe `simulador_supabase.cjs` (o subconjunto da API da Supabase que o programa usa, executando tudo com o papel `authenticated`, de modo que permissões, políticas, gatilhos e visões valem de verdade) e roda o programa com a biblioteca oficial `supabase-js`. Cobre: chave secreta recusada; login por código; aprovação; envio e reenvio do backup (inclusive dados antigos com campos faltando); gravações com gatilhos; edição simultânea; membro vendo só o que o banco permite; Direção permanente; e a lista `COLUNAS` do programa igual ao esquema.
+Recria um banco de teste no PostgreSQL local, sobe `simulador_supabase.cjs` (o subconjunto da API da Supabase que o programa usa, executando tudo com o papel `authenticated`, de modo que permissões, políticas, gatilhos e visões valem de verdade) e roda o programa com a biblioteca oficial `supabase-js`. Cobre: chave secreta recusada; login por código; aprovação; envio e reenvio do backup (inclusive dados antigos com campos faltando); gravações com gatilhos; edição simultânea; membro vendo só o que o banco permite; Suporte técnico permanente; Leitura recebendo do banco só os próprios projetos, sem valores nem dados pessoais; vice-coordenação; e a lista `COLUNAS` do programa igual ao esquema.
 
 ## Fluxo para alterar o programa
 

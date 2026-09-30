@@ -468,31 +468,133 @@ select count(*) filter (where not has_table_privilege('authenticated', c.oid, 's
 \echo == data de hoje no fuso de Brasília, mesmo com a sessão em UTC
 set timezone = 'UTC';
 select public.hoje() = (now() at time zone 'America/Sao_Paulo')::date as hoje_brasilia;
--- @@ 13_direcao_fixa
+-- @@ 13_suporte_tecnico
 \set ON_ERROR_STOP 0
 \pset footer off
--- Direção permanente: lucas.scherer@ufsm.br é sempre Direção e ativo
-\echo == primeiro login do e-mail fixo já entra como Direção ativa; outro e-mail entra inativo
-insert into auth.users values ('10000000-0000-0000-0000-00000000000a','Lucas.Scherer@ufsm.br'),('10000000-0000-0000-0000-00000000000b','outra.direcao@ufsm.br');
+-- Suporte técnico: lucas.scherer@ufsm.br sempre Suporte técnico e ativo; só o Suporte concede esse perfil
+\echo == primeiro login do e-mail fixo já entra como Suporte técnico ativo; outro e-mail entra inativo
+insert into auth.users values ('10000000-0000-0000-0000-00000000000a','Lucas.Scherer@ufsm.br'),('10000000-0000-0000-0000-00000000000b','outra.direcao@ufsm.br'),('10000000-0000-0000-0000-00000000000c','ajudante@ufsm.br');
 select email, papel, ativo from perfis order by email;
 update perfis set papel = 'direcao', ativo = true where email = 'outra.direcao@ufsm.br';
-\echo == outra pessoa da Direção tenta rebaixar, desativar e trocar o e-mail do login fixo
+update perfis set papel = 'membro', ativo = true where email = 'ajudante@ufsm.br';
+\echo == Suporte técnico tem o mesmo acesso da Direção
+set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000a';
+select public.e_direcao() as irrestrito, public.e_suporte() as suporte, array_length(public.minhas_permissoes(), 1) as permissoes;
+reset role;
+\echo == a Direção tenta rebaixar, desativar e trocar o e-mail do login fixo (nada muda)
 set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
 update perfis set papel = 'leitura', ativo = false where email = 'lucas.scherer@ufsm.br';
 update perfis set email = 'x@ufsm.br' where id = '10000000-0000-0000-0000-00000000000a';
 select email, papel, ativo from perfis where id = '10000000-0000-0000-0000-00000000000a';
+\echo == a Direção não pode conceder Suporte técnico
+update perfis set papel = 'suporte' where email = 'ajudante@ufsm.br';
 \echo == excluir o perfil fixo pela tela é bloqueado
 delete from perfis where id = '10000000-0000-0000-0000-00000000000a';
-\echo == ninguém consegue trocar o próprio e-mail para virar Direção permanente
-update perfis set email = 'lucas.scherer@ufsm.br', papel = 'membro' where id = '10000000-0000-0000-0000-00000000000b';
-select email, papel from perfis where id = '10000000-0000-0000-0000-00000000000b';
 reset role;
-select count(*) as perfis_restantes from perfis;
-\echo == apagar o próprio login (painel da Supabase) remove o perfil junto; novo login volta como Direção
+\echo == o Suporte técnico concede o perfil a outra pessoa; a Direção não consegue retirar
+set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000a';
+update perfis set papel = 'suporte' where email = 'ajudante@ufsm.br';
+reset role;
+set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+update perfis set papel = 'membro' where email = 'ajudante@ufsm.br';
+delete from perfis where email = 'ajudante@ufsm.br';
+reset role;
+select email, papel from perfis where email = 'ajudante@ufsm.br';
+\echo == ... mas o Suporte técnico consegue
+set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000a';
+update perfis set papel = 'membro' where email = 'ajudante@ufsm.br';
+reset role;
+select email, papel from perfis where email = 'ajudante@ufsm.br';
+\echo == ninguém consegue trocar o próprio e-mail para virar Suporte técnico
+set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+update perfis set email = 'lucas.scherer@ufsm.br', papel = 'membro' where id = '10000000-0000-0000-0000-00000000000b';
+reset role;
+select email, papel from perfis where id = '10000000-0000-0000-0000-00000000000b';
+\echo == apagar o próprio login (painel da Supabase) remove o perfil junto; novo login volta como Suporte técnico
 delete from auth.users where id = '10000000-0000-0000-0000-00000000000a';
 select count(*) as perfis_restantes from perfis;
 insert into auth.users values ('10000000-0000-0000-0000-0000000000aa','lucas.scherer@ufsm.br');
 select email, papel, ativo from perfis where email = 'lucas.scherer@ufsm.br';
 \echo == a função com a lista é acessível a quem fez login, não a anônimos
-set role authenticated; select public.emails_direcao_fixa(); reset role;
-set role anon; select public.emails_direcao_fixa(); reset role;
+set role authenticated; select public.emails_suporte_tecnico(); reset role;
+set role anon; select public.emails_suporte_tecnico(); reset role;
+-- @@ 14_leitura_vice_coordenacao
+\set ON_ERROR_STOP 0
+\pset footer off
+-- Leitura (IC iniciante): só os projetos de que participa, sem valores e sem dados pessoais de terceiros.
+-- Vice-coordenação: mesmos poderes do coordenador; definida pela Direção ou pelo coordenador titular.
+insert into pessoas(id,nome,email,tipo,lattes,curso) values
+ ('00000000-0000-0000-0000-00000000000a','Lucas','lucas@ufsm.br','docente',null,null),
+ ('00000000-0000-0000-0000-00000000000b','Mario','mario@ufsm.br','docente','http://lattes/mario',null),
+ ('00000000-0000-0000-0000-00000000000c','Igor','igor@ufsm.br','doutorando',null,'Eng. Mecânica'),
+ ('00000000-0000-0000-0000-00000000000d','Ana','ana@ufsm.br','ic',null,'Eng. Mecânica'),
+ ('00000000-0000-0000-0000-00000000000e','Bia','bia@ufsm.br','ic',null,'Eng. Química'),
+ ('00000000-0000-0000-0000-00000000000f','Carlos','carlos@ufsm.br','mestrando',null,'Eng. Mecânica');
+insert into auth.users values
+ ('10000000-0000-0000-0000-00000000000a','lucas@ufsm.br'),('10000000-0000-0000-0000-00000000000b','mario@ufsm.br'),
+ ('10000000-0000-0000-0000-00000000000c','igor@ufsm.br'),('10000000-0000-0000-0000-00000000000d','ana@ufsm.br'),
+ ('10000000-0000-0000-0000-00000000000e','bia@ufsm.br'),('10000000-0000-0000-0000-00000000000f','carlos@ufsm.br');
+update perfis set ativo = true, papel = 'membro';
+update perfis set papel = 'direcao' where email = 'lucas@ufsm.br';
+update perfis set papel = 'leitura' where email in ('ana@ufsm.br','bia@ufsm.br');
+insert into projetos(id,sigla,inicio,fim) values
+ ('20000000-0000-0000-0000-000000000001','P1','2025-01-01','2027-12-31'),
+ ('20000000-0000-0000-0000-000000000002','P2','2025-01-01','2027-12-31');
+insert into alocacoes(pessoa_id,projeto_id,coordena,status) values
+ ('00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',true,'ativo'),
+ ('00000000-0000-0000-0000-00000000000d','20000000-0000-0000-0000-000000000001',false,'ativo'),
+ ('00000000-0000-0000-0000-00000000000f','20000000-0000-0000-0000-000000000001',false,'ativo'),
+ ('00000000-0000-0000-0000-00000000000c','20000000-0000-0000-0000-000000000002',false,'ativo'),
+ ('00000000-0000-0000-0000-00000000000e','20000000-0000-0000-0000-000000000002',false,'concluido');
+insert into cronograma(id,projeto_id,codigo,titulo,responsavel_id) values
+ ('30000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','1.1','Ensaio A','00000000-0000-0000-0000-00000000000d'),
+ ('30000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000002','1.1','Ensaio B','00000000-0000-0000-0000-00000000000c');
+insert into tarefas(id,projeto_id,titulo) values
+ ('40000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','Tarefa P1'),
+ ('40000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000002','Tarefa P2 (atribuída à Ana)'),
+ ('40000000-0000-0000-0000-000000000003','20000000-0000-0000-0000-000000000002','Tarefa P2 (outra)');
+insert into tarefa_responsaveis values ('40000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-00000000000d');
+insert into orcamento_rubricas(projeto_id,rubrica,aprovado) values ('20000000-0000-0000-0000-000000000001','1.3',1000);
+insert into prospeccoes(nome) values ('Edital X');
+insert into infra_itens(nome) values ('Dinamômetro');
+\echo == Leitura (Ana, participa do P1): só o P1, suas atividades e tarefas, sem valores, prospecção ou infraestrutura
+set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000d';
+select (select string_agg(sigla, ',' order by sigla) from projetos) as projetos,
+       (select count(*) from alocacoes) as alocacoes, (select string_agg(titulo, ',' order by titulo) from cronograma) as cronograma,
+       (select string_agg(titulo, ' | ' order by titulo) from tarefas) as tarefas,
+       (select count(*) from orcamento_rubricas) as orcamento, (select count(*) from prospeccoes) as prospeccoes, (select count(*) from infra_itens) as infra;
+\echo == Leitura: tabela de pessoas só com o próprio cadastro; na visão, colegas sem dados pessoais
+select nome, email from pessoas order by nome;
+select nome, email, lattes, curso from v_pessoas order by nome;
+\echo == Leitura não altera nada, nem a atividade de que é responsável
+update cronograma set percentual = 50 where id = '30000000-0000-0000-0000-000000000001';
+select percentual from cronograma where id = '30000000-0000-0000-0000-000000000001';
+reset role;
+\echo == Leitura (Bia, alocação concluída no P2): não vê nenhum projeto
+set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000e';
+select (select count(*) from projetos) as projetos, (select count(*) from v_pessoas) as pessoas_visiveis;
+reset role;
+\echo == Membro (Igor): todos os projetos, sem valores; dados pessoais visíveis
+set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000c';
+select (select string_agg(sigla, ',' order by sigla) from projetos) as projetos, (select count(*) from orcamento_rubricas) as orcamento,
+       (select count(*) from v_pessoas where email is not null) as com_email, (select count(*) from prospeccoes) as prospeccoes;
+reset role;
+\echo == vice-coordenação: o coordenador titular (Mario) nomeia o Carlos vice do P1
+set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+update alocacoes set vice_coordena = true where pessoa_id = '00000000-0000-0000-0000-00000000000f';
+\echo == ... mas não pode nomear coordenadores
+update alocacoes set coordena = true where pessoa_id = '00000000-0000-0000-0000-00000000000d';
+reset role;
+select p.nome, a.coordena, a.vice_coordena from alocacoes a join pessoas p on p.id = a.pessoa_id where a.projeto_id = '20000000-0000-0000-0000-000000000001' order by p.nome;
+\echo == o vice (Carlos) tem os poderes do coordenador no P1: edita o projeto e vê o orçamento
+set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000f';
+update projetos set resumo = 'editado pelo vice' where sigla = 'P1';
+select (select resumo from projetos where sigla = 'P1') as resumo, (select count(*) from orcamento_rubricas) as orcamento;
+\echo == ... mas não nomeia outro vice, e no P2 continua membro comum
+update alocacoes set vice_coordena = true where pessoa_id = '00000000-0000-0000-0000-00000000000d';
+update projetos set resumo = 'tentativa' where sigla = 'P2';
+reset role;
+select sigla, resumo from projetos order by sigla;
+\echo == ninguém é coordenador e vice ao mesmo tempo
+set request.jwt.claim.sub = '';
+update alocacoes set coordena = true where pessoa_id = '00000000-0000-0000-0000-00000000000f';

@@ -126,7 +126,7 @@ function montarRelProjeto(p, o) {
     ...(p.linha_tematica ? [['Linha temática', p.linha_tematica]] : []), ['Financiador', p.financiador || '—'], ['Fundação de apoio', p.fundacao_apoio || '—'], ...(p.numero_contrato ? [['Contrato / convênio', p.numero_contrato]] : []),
     ['Vigência', `${fmtD(p.inicio)} a ${fmtD(p.fim)}${ads.some(a => a.novo_fim) ? ` (original até ${fmtD(Calc.vigenciaOriginal(p))}; ${ads.length} termo(s) aditivo(s))` : ''}`],
     ...(fin ? [['Valor do projeto', fmtBRL2(p.valor_total) + (ads.some(a => a.novo_valor != null) ? ` (original ${fmtBRL2(Calc.valorOriginal(p))})` : '')]] : []),
-    ['Coordenação', coord.map(c => c.nome).join(', ') || '—'], ['Período deste relatório', `${fmtD(de)} a ${fmtD(ate)}`]] });
+    ['Coordenação', coord.map(c => c.nome).join(', ') || '—'], ...(Calc.vices(p.id).length ? [['Vice-coordenação', Calc.vices(p.id).map(c => c.nome).join(', ')]] : []), ['Período deste relatório', `${fmtD(de)} a ${fmtD(ate)}`]] });
   // 1. Resumo
   if (sec.resumo) {
     const s = nova('Resumo do período');

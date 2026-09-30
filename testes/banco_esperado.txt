@@ -433,42 +433,118 @@ psql:12_permissoes_api.sql:9: ERROR:  permission denied for function e_direcao
 ---------------
  t
 
--- @@ 13_direcao_fixa
-== primeiro login do e-mail fixo já entra como Direção ativa; outro e-mail entra inativo
+-- @@ 13_suporte_tecnico
+== primeiro login do e-mail fixo já entra como Suporte técnico ativo; outro e-mail entra inativo
          email         |  papel  | ativo 
 -----------------------+---------+-------
- lucas.scherer@ufsm.br | direcao | t
+ ajudante@ufsm.br      | leitura | f
+ lucas.scherer@ufsm.br | suporte | t
  outra.direcao@ufsm.br | leitura | f
 
-== outra pessoa da Direção tenta rebaixar, desativar e trocar o e-mail do login fixo
+== Suporte técnico tem o mesmo acesso da Direção
+ irrestrito | suporte | permissoes 
+------------+---------+------------
+ t          | t       |         10
+
+== a Direção tenta rebaixar, desativar e trocar o e-mail do login fixo (nada muda)
          email         |  papel  | ativo 
 -----------------------+---------+-------
- lucas.scherer@ufsm.br | direcao | t
+ lucas.scherer@ufsm.br | suporte | t
 
+== a Direção não pode conceder Suporte técnico
+psql:13_suporte_tecnico.sql:19: ERROR:  Somente o Suporte técnico pode conceder ou alterar o perfil de Suporte técnico.
+CONTEXT:  PL/pgSQL function tg_perfil_protegido() line 24 at RAISE
 == excluir o perfil fixo pela tela é bloqueado
-psql:13_direcao_fixa.sql:14: ERROR:  O acesso de lucas.scherer@ufsm.br é da Direção permanente e não pode ser removido.
-CONTEXT:  PL/pgSQL function tg_perfil_direcao_fixa() line 6 at RAISE
-== ninguém consegue trocar o próprio e-mail para virar Direção permanente
+psql:13_suporte_tecnico.sql:21: ERROR:  O acesso de lucas.scherer@ufsm.br é do Suporte técnico e não pode ser removido por aqui.
+CONTEXT:  PL/pgSQL function tg_perfil_protegido() line 10 at RAISE
+== o Suporte técnico concede o perfil a outra pessoa; a Direção não consegue retirar
+psql:13_suporte_tecnico.sql:28: ERROR:  Somente o Suporte técnico pode conceder ou alterar o perfil de Suporte técnico.
+CONTEXT:  PL/pgSQL function tg_perfil_protegido() line 24 at RAISE
+psql:13_suporte_tecnico.sql:29: ERROR:  O acesso de ajudante@ufsm.br é do Suporte técnico e não pode ser removido por aqui.
+CONTEXT:  PL/pgSQL function tg_perfil_protegido() line 10 at RAISE
+      email       |  papel  
+------------------+---------
+ ajudante@ufsm.br | suporte
+
+== ... mas o Suporte técnico consegue
+      email       | papel  
+------------------+--------
+ ajudante@ufsm.br | membro
+
+== ninguém consegue trocar o próprio e-mail para virar Suporte técnico
          email         | papel  
 -----------------------+--------
  outra.direcao@ufsm.br | membro
 
+== apagar o próprio login (painel da Supabase) remove o perfil junto; novo login volta como Suporte técnico
  perfis_restantes 
 ------------------
                 2
 
-== apagar o próprio login (painel da Supabase) remove o perfil junto; novo login volta como Direção
- perfis_restantes 
-------------------
-                1
-
          email         |  papel  | ativo 
 -----------------------+---------+-------
- lucas.scherer@ufsm.br | direcao | t
+ lucas.scherer@ufsm.br | suporte | t
 
 == a função com a lista é acessível a quem fez login, não a anônimos
-   emails_direcao_fixa   
+ emails_suporte_tecnico  
 -------------------------
  {lucas.scherer@ufsm.br}
 
-psql:13_direcao_fixa.sql:27: ERROR:  permission denied for function emails_direcao_fixa
+psql:13_suporte_tecnico.sql:49: ERROR:  permission denied for function emails_suporte_tecnico
+-- @@ 14_leitura_vice_coordenacao
+== Leitura (Ana, participa do P1): só o P1, suas atividades e tarefas, sem valores, prospecção ou infraestrutura
+ projetos | alocacoes | cronograma |                 tarefas                 | orcamento | prospeccoes | infra 
+----------+-----------+------------+-----------------------------------------+-----------+-------------+-------
+ P1       |         3 | Ensaio A   | Tarefa P1 | Tarefa P2 (atribuída à Ana) |         0 |           0 |     0
+
+== Leitura: tabela de pessoas só com o próprio cadastro; na visão, colegas sem dados pessoais
+ nome |    email    
+------+-------------
+ Ana  | ana@ufsm.br
+
+  nome  |    email    | lattes |     curso     
+--------+-------------+--------+---------------
+ Ana    | ana@ufsm.br |        | Eng. Mecânica
+ Carlos |             |        | 
+ Mario  |             |        | 
+
+== Leitura não altera nada, nem a atividade de que é responsável
+ percentual 
+------------
+          0
+
+== Leitura (Bia, alocação concluída no P2): não vê nenhum projeto
+ projetos | pessoas_visiveis 
+----------+------------------
+        0 |                1
+
+== Membro (Igor): todos os projetos, sem valores; dados pessoais visíveis
+ projetos | orcamento | com_email | prospeccoes 
+----------+-----------+-----------+-------------
+ P1,P2    |         0 |         6 |           1
+
+== vice-coordenação: o coordenador titular (Mario) nomeia o Carlos vice do P1
+== ... mas não pode nomear coordenadores
+psql:14_leitura_vice_coordenacao.sql:65: ERROR:  Somente a Direção pode definir coordenadores de projeto
+CONTEXT:  PL/pgSQL function tg_protege_coordena() line 6 at RAISE
+  nome  | coordena | vice_coordena 
+--------+----------+---------------
+ Ana    | f        | f
+ Carlos | f        | t
+ Mario  | t        | f
+
+== o vice (Carlos) tem os poderes do coordenador no P1: edita o projeto e vê o orçamento
+      resumo       | orcamento 
+-------------------+-----------
+ editado pelo vice |         1
+
+== ... mas não nomeia outro vice, e no P2 continua membro comum
+psql:14_leitura_vice_coordenacao.sql:73: ERROR:  Somente a Direção ou o coordenador do projeto podem definir a vice-coordenação
+CONTEXT:  PL/pgSQL function tg_protege_coordena() line 11 at RAISE
+ sigla |      resumo       
+-------+-------------------
+ P1    | editado pelo vice
+ P2    | 
+
+== ninguém é coordenador e vice ao mesmo tempo
+psql:14_leitura_vice_coordenacao.sql:79: ERROR:  new row for relation "alocacoes" violates check constraint "alocacao_coord_ou_vice"

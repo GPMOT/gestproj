@@ -4,7 +4,7 @@
 //   PGHOST=localhost PGPORT=5432 PGUSER=postgres node online.cjs
 // Fase 1 (modo local): monta dados completos (JSON antigo + planilha + registros de todas as áreas) e exporta o backup.
 // Fase 2 (online): conexão, chave secreta recusada, login por código, aprovação, envio do backup, gravações, conflito.
-// Fase 3: segundo usuário (membro). Fase 4: Direção permanente.
+// Fase 3: segundo usuário (membro). Fase 4: Suporte técnico permanente. Fase 5: Leitura (bolsista de IC).
 const { CFG } = require('./tela.cjs');
 const { chromium } = require('playwright'); const fs = require('fs'), path = require('path'), os = require('os');
 const { execFileSync, spawn } = require('child_process');
@@ -57,6 +57,11 @@ const ignorar = t => /WebSocket|realtime|ERR_CONNECTION_REFUSED|status of 40[0-9
       // pessoa para o segundo login: alguém que participa de P2 sem coordenar nenhum projeto
       const cand = D.pessoas.find(pe => D.alocacoes.some(a => a.pessoa_id === pe.id && a.projeto_id === P2.id) && !D.alocacoes.some(a => a.pessoa_id === pe.id && a.coordena));
       await Data.update('pessoas', cand.id, { email: 'membro.teste@ufsm.br' });
+      // pessoa para o login de Leitura: participa de alguns projetos, mas não de todos
+      const part = pe => D.projetos.filter(pr => D.alocacoes.some(a => a.projeto_id === pr.id && a.pessoa_id === pe.id && ['ativo', 'pausado'].includes(a.status)) || D.equipe_plano.some(e => e.projeto_id === pr.id && e.pessoa_id === pe.id)).length;
+      const leitor = D.pessoas.filter(pe => pe !== cand && part(pe) > 0).sort((x, y) => part(x) - part(y) || (y.tipo === 'ic') - (x.tipo === 'ic'))[0];
+      await Data.update('pessoas', leitor.id, { email: 'leitura.teste@ufsm.br' });
+      window._leitor = { nome: leitor.nome, projetos: part(leitor) };
       await ins('aditivos', { projeto_id: P2.id, numero: '1º Termo Aditivo', tipo: 'prazo', data_assinatura: '2026-06-01', novo_fim: addDays(P2.fim, 90), justificativa: 'Teste online' });
       await ins('entregas', { projeto_id: P.id, titulo: 'Relatório parcial 1', prazo: '2026-12-15', status: 'pendente' });
       await ins('documentos', { projeto_id: P.id, titulo: 'Termo de outorga', url: 'https://exemplo.ufsm.br/termo.pdf' });
@@ -66,9 +71,9 @@ const ignorar = t => /WebSocket|realtime|ERR_CONNECTION_REFUSED|status of 40[0-9
       const inf = await ins('infra_itens', { nome: 'Dinamômetro de teste', status: 'operacional' });
       await ins('infra_itens', { nome: 'Célula de carga', status: 'operacional', pai_id: inf.id });
       await ins('infra_manutencoes', { item_id: inf.id, tipo: 'calibracao', titulo: 'Calibração anual', status: 'concluida', data_conclusao: '2026-03-01', proxima_em: '2027-03-01' });
-      return { cand: cand.nome, P: P.sigla, P2: P2.sigla, reg: Object.keys(TABLES).reduce((s, t) => s + D[t].length, 0) };
+      return { leitor: window._leitor, cand: cand.nome, P: P.sigla, P2: P2.sigla, reg: Object.keys(TABLES).reduce((s, t) => s + D[t].length, 0) };
     });
-    console.log('  dados locais:', extra);
+    console.log('  dados locais:', extra); global.LEITOR = extra.leitor;
     const [dl] = await Promise.all([pg.waitForEvent('download'), pg.evaluate(() => A.bkExportar())]); await dl.saveAs(BK);
     await ctx.close();
   }
@@ -200,18 +205,42 @@ const ignorar = t => /WebSocket|realtime|ERR_CONNECTION_REFUSED|status of 40[0-9
   ok(m.apagar !== 'apagou', 'banco recusa o membro apagar pessoas', m.apagar);
   await u2.pg.evaluate(() => A.sair()); await u2.pg.waitForSelector('#lg_email', { timeout: 5000 }); ok(true, 'sair volta para a tela de login');
 
-  // ── Direção permanente: o login fixo entra direto como Direção, sem aprovação ──
-  console.log('FASE 4 — Direção permanente');
+  // ── Suporte técnico permanente: o login fixo entra direto, sem aprovação ──
+  console.log('FASE 4 — Suporte técnico permanente');
   const u3 = await nova();
   await u3.pg.goto(CFG.APP); await u3.pg.evaluate(c => { localStorage.clear(); localStorage.setItem('gpmot2:_supabase', JSON.stringify(c)); }, { url: SB, anonKey: keys.anon }); await u3.pg.reload();
   await u3.pg.waitForSelector('#lg_email'); await u3.pg.fill('#lg_email', 'lucas.scherer@ufsm.br'); await u3.pg.click('#lg_env'); await u3.pg.waitForSelector('#lg_code');
   const c3 = (await (await fetch(SB + '/__test/otp?email=lucas.scherer@ufsm.br')).json()).code; await u3.pg.fill('#lg_code', c3); await u3.pg.click('#lg_ok'); await u3.pg.waitForTimeout(1200);
-  ok(await u3.pg.evaluate(() => ME.online && ME.papel === 'direcao'), 'login fixo entra direto como Direção no primeiro acesso');
+  ok(await u3.pg.evaluate(() => ME.online && ME.papel === 'suporte' && Perm.dir()), 'login fixo entra direto como Suporte técnico (acesso irrestrito) no primeiro acesso');
   await u3.pg.evaluate(() => A.nav({ t: 'config' })); await u3.pg.waitForTimeout(200);
-  const fx = await u3.pg.evaluate(() => { const linha = [...document.querySelectorAll('#app .fgrid')].find(d => /lucas\.scherer@ufsm\.br/.test(d.textContent)); return linha ? { txt: /Direção permanente/.test(linha.textContent), sel: linha.querySelectorAll('select')[1].disabled, chk: linha.querySelector('input[type=checkbox]').disabled } : null; });
-  ok(fx && fx.txt && fx.sel && fx.chk, 'tela mostra "Direção permanente" com papel e ativo travados', fx);
+  const fx = await u3.pg.evaluate(() => { const linha = [...document.querySelectorAll('#app .fgrid')].find(d => /lucas\.scherer@ufsm\.br/.test(d.textContent)); return linha ? { txt: /Suporte técnico permanente/.test(linha.textContent), sel: linha.querySelectorAll('select')[1].disabled, chk: linha.querySelector('input[type=checkbox]').disabled } : null; });
+  ok(fx && fx.txt && fx.sel && fx.chk, 'tela mostra "Suporte técnico permanente" com papel e ativo travados', fx);
   const tent = await u3.pg.evaluate(async () => { const pf = D.perfis.find(p => p.email === 'lucas.scherer@ufsm.br'); await Data.update('perfis', pf.id, { papel: 'leitura', ativo: false }).catch(() => { }); await SB.reload(['perfis']); const n = D.perfis.find(p => p.id === pf.id); return [n.papel, n.ativo]; });
-  ok(tent[0] === 'direcao' && tent[1] === true, 'mesmo forçando pela API, o banco mantém Direção e ativo', tent);
+  ok(tent[0] === 'suporte' && tent[1] === true, 'mesmo forçando pela API, o banco mantém Suporte técnico e ativo', tent);
+
+  // ── Leitura (bolsista de IC iniciante): só os projetos de que participa, sem valores nem dados pessoais de terceiros ──
+  console.log('FASE 5 — Leitura');
+  const u4 = await nova();
+  await u4.pg.goto(CFG.APP); await u4.pg.evaluate(c => { localStorage.clear(); localStorage.setItem('gpmot2:_supabase', JSON.stringify(c)); }, { url: SB, anonKey: keys.anon }); await u4.pg.reload();
+  await u4.pg.waitForSelector('#lg_email'); await u4.pg.fill('#lg_email', 'leitura.teste@ufsm.br'); await u4.pg.click('#lg_env'); await u4.pg.waitForSelector('#lg_code');
+  const c4 = (await (await fetch(SB + '/__test/otp?email=leitura.teste@ufsm.br')).json()).code; await u4.pg.fill('#lg_code', c4); await u4.pg.click('#lg_ok'); await u4.pg.waitForTimeout(800);
+  sql("update public.perfis set papel = 'leitura', ativo = true where email = 'leitura.teste@ufsm.br'");
+  await u4.pg.reload(); await u4.pg.waitForTimeout(1200);
+  const lt = await u4.pg.evaluate(() => { const eu = ME.pessoa_id; return { papel: ME.papel, proj: D.projetos.length, fin: D.orcamento_rubricas.length + D.vinculos_financeiros.length + D.despesas.length + D.plano_itens.length,
+    prosp: D.prospeccoes.length, infra: D.infra_itens.length, pessoas: D.pessoas.length, emailsTerceiros: D.pessoas.filter(p => p.id !== eu && p.email).length, proprio: !!(D.pessoas.find(p => p.id === eu) || {}).email,
+    menu: [...document.querySelectorAll('#side .nv-a')].map(x => x.textContent.trim()).join(' | ') }; });
+  ok(lt.papel === 'leitura' && lt.proj === LEITOR.projetos, `Leitura recebe do banco só os ${LEITOR.projetos} projeto(s) de que participa`, { recebeu: lt.proj });
+  ok(lt.fin === 0 && lt.prosp === 0 && lt.infra === 0, 'banco não entrega valores, prospecção nem infraestrutura à Leitura');
+  ok(lt.emailsTerceiros === 0 && lt.proprio && lt.pessoas < 30, 'banco entrega só as pessoas dos seus projetos, sem e-mail de terceiros; o próprio cadastro completo', { pessoas: lt.pessoas });
+  ok(!/Prospecção|Infraestrutura|Gerências|Financeiro/.test(lt.menu), 'menu da Leitura sem Prospecção, Infraestrutura, Gerências e Financeiro');
+  const ltGrava = await u4.pg.evaluate(async () => { try { await SB.update('projetos', D.projetos[0].id, { resumo: 'leitura tentou' }, D.projetos[0]); return 'gravou'; } catch (e) { return traduzErro(e); } });
+  ok(ltGrava !== 'gravou', 'banco recusa gravação da Leitura', ltGrava);
+  const direto = await u4.pg.evaluate(async () => { const r = await SB.client.from('pessoas').select('*'); return r.data ? r.data.length : r.error.message; });
+  ok(direto === 1, 'consultando a tabela de pessoas direto pela API, a Leitura só obtém o próprio cadastro', direto);
+  // vice-coordenação pela tela, no banco
+  const vc = await pg.evaluate(async () => { const p = D.projetos.find(pr => D.alocacoes.some(a => a.projeto_id === pr.id && !a.coordena)); const a = D.alocacoes.find(x => x.projeto_id === p.id && !x.coordena);
+    await Data.update('alocacoes', a.id, { vice_coordena: true }); return { aid: a.id, pid: p.id }; });
+  ok(sql(`select vice_coordena from public.alocacoes where id = '${vc.aid}'`) === 't', 'Direção nomeia vice-coordenador (gravado no banco)');
   console.log(errs.length ? 'ERROS NA PÁGINA:\n' + errs.join('\n') : '  sem erros na página');
   console.log(falhas || errs.length ? `\n${falhas} verificação(ões) falharam, ${errs.length} erro(s) na página` : '\nTudo certo'); await b.close(); try { fs.unlinkSync(BK); } catch { }
   process.exit(falhas || errs.length ? 1 : 0);

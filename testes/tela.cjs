@@ -161,7 +161,7 @@ const TESTES = {
     await pg.fill('#fld_fim', '2028-10-31'); await pg.click('#m_ok'); await pg.waitForTimeout(200);
     log('projeto criado, detalhe aberto:', await pg.textContent('.title[style]'));
     // 2. alocar pessoa como coordenadora
-    await pg.click('.ptab[data-v="equipe"]'); await pg.click('[data-a="alocNova"]'); await pg.selectOption('#fld_pessoa_id', { label: 'Lucas Giuliani Scherer' }); await pg.selectOption('#fld_nivel', '3'); await pg.fill('#fld_papel', 'COG'); await pg.check('#fld_coordena'); await pg.click('#m_ok'); await pg.waitForTimeout(150);
+    await pg.click('.ptab[data-v="equipe"]'); await pg.click('[data-a="alocNova"]'); await pg.selectOption('#fld_pessoa_id', { label: 'Lucas Giuliani Scherer' }); await pg.selectOption('#fld_nivel', '3'); await pg.fill('#fld_papel', 'COG'); await pg.selectOption('#fld__coord', 'coord'); await pg.click('#m_ok'); await pg.waitForTimeout(150);
     log('alocação:', await pg.evaluate(() => D.alocacoes.filter(a => a.projeto_id === UI.projeto).map(a => [nomePessoa(a.pessoa_id), a.nivel, a.carga_pct, a.coordena])));
     // 3. tarefa com dois responsáveis
     await pg.click('.ptab[data-v="tarefas"]'); await pg.click('[data-a="tarefaNova"][data-projeto]'); await pg.fill('#fld_titulo', 'Especificar banco de H2'); await pg.fill('#fld_inicio', '2026-11-03'); await pg.fill('#fld_prazo', '2026-12-15');
@@ -988,6 +988,63 @@ const TESTES = {
     await pg.evaluate(() => A.nav({ t: 'config' })); await pg.waitForTimeout(200);
     const cfg = await pg.textContent('#app');
     ok(/Sobre/.test(cfg) && /Direitos|direitos reservados/.test(cfg) && /lucas\.scherer@ufsm\.br/.test(cfg) && /Laboratório de Motores, Combustíveis e Emissões/.test(cfg), 'Configurações mostram o quadro Sobre com os mesmos dados');
+    console.log(errs.join('\n') || 'no page errors'); await b.close();
+    process.exit(falhas || errs.length ? 1 : 0);
+  })();
+},
+'t20': () => {
+  // Perfis: Suporte técnico, Leitura (só os projetos de que participa, sem valores nem dados pessoais) e vice-coordenação
+  const { chromium } = require('playwright'); const fs = require('fs');
+  (async () => {
+    const b = await chromium.launch(); const pg = await b.newPage({ viewport: { width: 1300, height: 850 } });
+    const errs = []; pg.on('pageerror', e => errs.push('PAGEERR ' + e.message)); pg.on('console', m => { if (m.type() === 'error' && !/ErroRegra/.test(m.text())) errs.push('CONSOLE ' + m.text()); });
+    let falhas = 0; const ok = (c, m, x) => { console.log((c ? '✓ ' : '✗ ') + m + (x !== undefined ? ' — ' + JSON.stringify(x) : '')); if (!c) falhas++; };
+    await pg.goto(CFG.APP); await pg.waitForTimeout(200);
+    const old = JSON.parse(fs.readFileSync(CFG.DADOS_V1, 'utf8'));
+    await pg.evaluate(d => { localStorage.clear(); Local.load(); const { T } = converterV1(d); Object.keys(TABLES).forEach(t => D[t] = T[t] || []); seedPadrao(); Local.persistAll(); aplicarSim({ papel: 'direcao', pessoa_id: null }); }, old);
+    const antes = await pg.evaluate(() => ({ proj: D.projetos.length, pes: D.pessoas.length, ls: localStorage.getItem('gpmot2:projetos').length }));
+    // um bolsista com alocação ativa em algum projeto (mas não em todos)
+    const alvo = await pg.evaluate(() => { const ps = D.pessoas.filter(p => { const n = D.projetos.filter(pr => D.alocacoes.some(a => a.projeto_id === pr.id && a.pessoa_id === p.id && ['ativo', 'pausado'].includes(a.status))).length; return n > 0 && n < D.projetos.length; });
+      const p = ps.find(x => x.tipo === 'ic') || ps[0]; if (!p.email) { p.email = 'ic.teste@ufsm.br'; Local.persist('pessoas'); } return { id: p.id, nome: p.nome, n: D.projetos.filter(pr => D.alocacoes.some(a => a.projeto_id === pr.id && a.pessoa_id === p.id && ['ativo', 'pausado'].includes(a.status))).length }; });
+    await pg.evaluate(id => { aplicarSim({ papel: 'leitura', pessoa_id: id }); A.nav({ t: 'painel' }); }, alvo.id); await pg.waitForTimeout(200);
+    const v = await pg.evaluate(eu => ({ proj: D.projetos.length, fin: D.orcamento_rubricas.length + D.vinculos_financeiros.length + D.despesas.length, prosp: D.prospeccoes.length, infra: D.infra_itens.length,
+      menu: [...document.querySelectorAll('#side .nv-a')].map(x => x.textContent.trim().replace(/\d+$/, '').trim()),
+      emailsTerceiros: D.pessoas.filter(p => p.id !== eu && p.email).length, pessoas: D.pessoas.length, proprio: !!(D.pessoas.find(p => p.id === eu) || {}).email }), alvo.id);
+    ok(v.proj === alvo.n, `Leitura vê só os ${alvo.n} projeto(s) de que participa`, { de: antes.proj, ve: v.proj });
+    ok(v.fin === 0 && v.prosp === 0 && v.infra === 0, 'Leitura não recebe valores, prospecção nem infraestrutura');
+    ok(!v.menu.some(m => /Prospecção|Infraestrutura|Gerências|Financeiro/.test(m)), 'menu da Leitura sem Prospecção, Infraestrutura, Gerências e Financeiro', v.menu);
+    ok(v.emailsTerceiros === 0 && v.proprio && v.pessoas < antes.pes, 'Leitura vê só as pessoas dos seus projetos, sem e-mail de terceiros; o próprio cadastro completo', { pessoas: v.pessoas });
+    const telas = await pg.evaluate(() => ['painel', 'projetos', 'entregas', 'cronograma', 'equipe', 'tarefas', 'relatorios', 'config', 'infra'].map(t => { try { A.nav({ t }); return t + '→' + UI.tab; } catch (e) { return t + ':' + e.message; } }));
+    ok(telas.every(x => x.includes('→')) && telas.includes('infra→painel'), 'todas as telas da Leitura abrem; Infraestrutura volta ao Painel', telas);
+    const grava = await pg.evaluate(async () => { try { await Data.update('projetos', D.projetos[0].id, { resumo: 'x' }); return 'gravou'; } catch (e) { return e.message; } });
+    ok(grava !== 'gravou', 'Leitura não altera nada', grava);
+    await pg.screenshot({ path: CFG.saida('leitura.png') });
+    await pg.evaluate(() => { aplicarSim({ papel: 'direcao', pessoa_id: null }); render(); });
+    const depois = await pg.evaluate(() => ({ proj: D.projetos.length, pes: D.pessoas.length, ls: localStorage.getItem('gpmot2:projetos').length }));
+    ok(depois.proj === antes.proj && depois.pes === antes.pes && depois.ls === antes.ls, 'ao voltar para a Direção, todos os dados estão lá (nada foi apagado)', depois);
+    // Suporte técnico
+    await pg.evaluate(() => { aplicarSim({ papel: 'suporte', pessoa_id: null }); A.nav({ t: 'config' }); });
+    ok(await pg.evaluate(() => Perm.dir() && Perm.suporte() && Perm.minhas().length === PERMISSOES.length && D.projetos.length > 0), 'Suporte técnico tem acesso irrestrito');
+    ok(await pg.evaluate(() => [...document.querySelectorAll('#sim_r option')].some(o => o.value === 'suporte' && /Suporte técnico/.test(o.textContent))), 'papel Suporte técnico disponível');
+    // vice-coordenação: a Direção nomeia; o vice tem poderes de coordenação no projeto
+    const pj = await pg.evaluate(() => { const p = D.projetos.find(pr => D.alocacoes.filter(a => a.projeto_id === pr.id && !a.coordena).length >= 2 && D.alocacoes.some(a => a.projeto_id === pr.id && a.coordena)); return { id: p.id, sigla: p.sigla,
+      titular: D.alocacoes.find(a => a.projeto_id === p.id && a.coordena).pessoa_id, outros: D.alocacoes.filter(a => a.projeto_id === p.id && !a.coordena).map(a => ({ id: a.id, pessoa: a.pessoa_id })) }; });
+    await pg.evaluate(() => aplicarSim({ papel: 'direcao', pessoa_id: null }));
+    await pg.evaluate(id => A.alocEditar({ id }), pj.outros[0].id); await pg.waitForTimeout(150);
+    await pg.selectOption('#fld__coord', 'vice'); await pg.click('#m_ok'); await pg.waitForTimeout(200);
+    ok(await pg.evaluate(id => byId('alocacoes', id).vice_coordena === true && byId('alocacoes', id).coordena === false, pj.outros[0].id), `Direção nomeia vice-coordenador no ${pj.sigla}`);
+    ok(await pg.evaluate(id => nomesCoordenacao(id).includes('(vice)'), pj.id), 'a coordenação do projeto mostra o vice');
+    const vice = await pg.evaluate(o => { aplicarSim({ papel: 'membro', pessoa_id: o.pessoa }); return { gere: Perm.gereProjeto(o.pid), fin: Perm.veFin(o.pid), titular: Perm.coordenaTitular(o.pid) }; }, { pessoa: pj.outros[0].pessoa, pid: pj.id });
+    ok(vice.gere && vice.fin && !vice.titular, 'o vice tem os poderes de coordenação no projeto (e não é titular)', vice);
+    const viceNomeia = await pg.evaluate(async o => { try { await Data.update('alocacoes', o.aid, { vice_coordena: true }); return 'nomeou'; } catch (e) { return e.message; } }, { aid: pj.outros[1].id });
+    ok(/vice-coordenação/.test(viceNomeia), 'o vice não nomeia outro vice', viceNomeia);
+    await pg.evaluate(o => aplicarSim({ papel: 'membro', pessoa_id: o }), pj.titular);
+    await pg.evaluate(id => A.alocEditar({ id }), pj.outros[1].id); await pg.waitForTimeout(150);
+    const campo = await pg.evaluate(() => { const el = document.getElementById('fld__coord'); return el ? !el.disabled : false; });
+    ok(campo, 'o coordenador titular pode indicar o vice no próprio projeto');
+    await pg.selectOption('#fld__coord', 'coord'); await pg.click('#m_ok'); await pg.waitForTimeout(200);
+    ok(/Somente a Direção pode definir coordenadores/.test(await pg.textContent('.merr, #flash').catch(() => '')) || await pg.evaluate(id => !byId('alocacoes', id).coordena, pj.outros[1].id), 'o titular não nomeia outro coordenador');
+    await pg.evaluate(() => closeModal && closeModal());
     console.log(errs.join('\n') || 'no page errors'); await b.close();
     process.exit(falhas || errs.length ? 1 : 0);
   })();

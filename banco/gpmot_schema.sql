@@ -1,6 +1,8 @@
 -- ════════════════════════════════════════════════════════════════════
 --  GPMOT/UFSM — Gestão de Portfólio
---  Esquema do banco de dados (PostgreSQL / Supabase) — versão 1.3
+--  Esquema do banco de dados (PostgreSQL / Supabase) — versão 1.4
+--  30/09/2026 — v1.4: perfil Suporte técnico; Leitura só vê os projetos de que participa,
+--               sem dados pessoais de terceiros; vice-coordenação de projeto
 --  29/09/2026 — v1.3: Direção permanente (lucas.scherer@ufsm.br sempre Direção e ativo)
 --  29/09/2026 — v1.2: permissões explícitas (regra da Supabase para projetos
 --               criados desde 30/05/2026), datas no fuso de Brasília,
@@ -16,17 +18,22 @@
 --  Direção, gerente de uma ou mais áreas e coordenadora de projetos)
 --
 --    Papel base do login (tabela perfis)
+--      suporte   Suporte técnico: acesso irrestrito (igual à Direção); só ele
+--                concede ou altera esse perfil (ver emails_suporte_tecnico)
 --      direcao   vê e edita tudo
---      membro    edita as próprias tarefas e o próprio cadastro
---      leitura   só consulta
+--      membro    vê todos os projetos (sem valores); edita as próprias tarefas,
+--                atividades de que é responsável e o próprio cadastro
+--      leitura   só consulta os projetos de que participa e as próprias
+--                tarefas, sem valores e sem dados pessoais de terceiros
+--                (ex.: bolsistas de IC que estão começando)
 --
 --    Gerências (tabelas gerencias + gerencia_membros)
 --      Áreas de gestão do laboratório, cadastráveis pela Direção.
 --      Cada gerência tem uma lista de PERMISSÕES que valem para
 --      TODOS os projetos, e tem demandas próprias (tarefas da área).
 --
---    Coordenação (alocacoes.coordena)
---      Vale só para o projeto em que a pessoa é coordenadora:
+--    Coordenação (alocacoes.coordena / alocacoes.vice_coordena)
+--      Vale só para o projeto em que a pessoa é coordenadora ou vice:
 --      edita o projeto e vê/edita bolsas e orçamento dele.
 --
 --  Valores de bolsa e orçamento: visíveis só para Direção,
@@ -98,7 +105,7 @@ create table public.perfis (
   email          text not null,
   pessoa_id      uuid unique references public.pessoas(id) on delete set null,
   papel          text not null default 'leitura'
-                   check (papel in ('direcao','membro','leitura')),
+                   check (papel in ('suporte','direcao','membro','leitura')),
   ativo          boolean not null default false,   -- Direção aprova cada novo usuário
   criado_em      timestamptz not null default now(),
   atualizado_em  timestamptz not null default now(),
@@ -120,35 +127,47 @@ end $$;
 create trigger ao_criar_usuario after insert on auth.users
   for each row execute function public.tg_novo_usuario();
 
--- Direção permanente: estes logins são sempre Direção e ativos. Garante que o
--- sistema nunca fique sem ninguém capaz de administrar os acessos.
+-- Suporte técnico: estes logins são sempre "Suporte técnico" e ativos — acesso irrestrito,
+-- igual ao da Direção. Garante que o sistema nunca fique sem ninguém capaz de administrar.
+-- Só quem é Suporte técnico concede, altera ou remove esse perfil.
 -- Para alterar a lista, edite o e-mail abaixo e execute este bloco no SQL Editor.
-create or replace function public.emails_direcao_fixa()
+create or replace function public.emails_suporte_tecnico()
 returns text[] language sql immutable set search_path = '' as $$
   select array['lucas.scherer@ufsm.br']::text[]
 $$;
 
-create or replace function public.tg_perfil_direcao_fixa()
+create or replace function public.tg_perfil_protegido()
 returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  fixo boolean;
+  quem text := (select p.papel from public.perfis p where p.id = auth.uid() and p.ativo);
 begin
   if tg_op = 'DELETE' then
-    -- bloqueia a exclusão pela tela; se o próprio login for apagado no painel da Supabase, o perfil sai junto
-    if lower(old.email) = any(public.emails_direcao_fixa()) and exists (select 1 from auth.users u where u.id = old.id) then
-      raise exception 'O acesso de % é da Direção permanente e não pode ser removido.', old.email;
+    -- a exclusão pela tela é bloqueada; se o próprio login for apagado no painel da Supabase, o perfil sai junto
+    if old.papel = 'suporte' and exists (select 1 from auth.users u where u.id = old.id)
+       and (lower(old.email) = any(public.emails_suporte_tecnico()) or (auth.uid() is not null and coalesce(quem, '') <> 'suporte')) then
+      raise exception 'O acesso de % é do Suporte técnico e não pode ser removido por aqui.', old.email;
     end if;
     return old;
   end if;
   if tg_op = 'UPDATE' then new.email := old.email; end if;   -- o e-mail vem do login, não se edita aqui
-  if lower(new.email) = any(public.emails_direcao_fixa()) then
-    new.papel := 'direcao';
+  fixo := lower(new.email) = any(public.emails_suporte_tecnico());
+  if fixo then
+    new.papel := 'suporte';
     new.ativo := true;
+    return new;
+  end if;
+  -- só o Suporte técnico concede ou retira o perfil de Suporte técnico
+  if auth.uid() is not null and coalesce(quem, '') <> 'suporte'
+     and (new.papel = 'suporte' or (tg_op = 'UPDATE' and old.papel = 'suporte' and (new.papel <> 'suporte' or new.ativo is distinct from old.ativo))) then
+    raise exception 'Somente o Suporte técnico pode conceder ou alterar o perfil de Suporte técnico.';
   end if;
   return new;
 end $$;
-create trigger direcao_fixa before insert or update on public.perfis
-  for each row execute function public.tg_perfil_direcao_fixa();
-create trigger direcao_fixa_excluir before delete on public.perfis
-  for each row execute function public.tg_perfil_direcao_fixa();
+create trigger perfil_protegido before insert or update on public.perfis
+  for each row execute function public.tg_perfil_protegido();
+create trigger perfil_protegido_excluir before delete on public.perfis
+  for each row execute function public.tg_perfil_protegido();
 
 -- ────────────────────────────────────────────────────────────────────
 -- 4. Projetos
@@ -198,6 +217,7 @@ create table public.alocacoes (
   nivel          smallint not null default 1 check (nivel between 0 and 3), -- 0 — ·1 Apoio ·2 Colab. ·3 Principal
   carga_pct      numeric(5,1) not null default 25 check (carga_pct between 0 and 200),
   coordena       boolean not null default false,  -- dá permissão de coordenador NESTE projeto
+  vice_coordena  boolean not null default false,  -- vice-coordenador: mesmos poderes do coordenador
   papel          text,                            -- ex.: COG, CFD, Sup. Fab.
   atribuicao     text,                            -- descrição da atribuição real
   desde          date,
@@ -205,7 +225,8 @@ create table public.alocacoes (
   criado_em      timestamptz not null default now(),
   atualizado_em  timestamptz not null default now(),
   atualizado_por uuid,
-  unique (pessoa_id, projeto_id)
+  unique (pessoa_id, projeto_id),
+  constraint alocacao_coord_ou_vice check (not (coordena and vice_coordena))
 );
 create index on public.alocacoes (projeto_id);
 create trigger carimbo before update on public.alocacoes
@@ -1168,14 +1189,55 @@ returns boolean language sql stable as $$
   select public.meu_papel() is not null
 $$;
 
+create or replace function public.e_suporte()
+returns boolean language sql stable as $$
+  select coalesce(public.meu_papel() = 'suporte', false)
+$$;
+
+-- Direção e Suporte técnico têm acesso irrestrito
 create or replace function public.e_direcao()
 returns boolean language sql stable as $$
-  select coalesce(public.meu_papel() = 'direcao', false)
+  select coalesce(public.meu_papel() in ('direcao','suporte'), false)
 $$;
 
 create or replace function public.pode_editar()
 returns boolean language sql stable as $$
-  select coalesce(public.meu_papel() in ('direcao','membro'), false)
+  select coalesce(public.meu_papel() in ('suporte','direcao','membro'), false)
+$$;
+
+-- Participa do projeto: alocação ativa ou pausada, ou vaga do plano de trabalho ocupada por ele
+create or replace function public.participa(p_projeto uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.minha_pessoa() is not null and (
+    exists (select 1 from public.alocacoes a where a.projeto_id = p_projeto and a.pessoa_id = public.minha_pessoa() and a.status in ('ativo','pausado'))
+    or exists (select 1 from public.equipe_plano e where e.projeto_id = p_projeto and e.pessoa_id = public.minha_pessoa()))
+$$;
+
+-- Vê o projeto: Suporte, Direção e Membros veem todos; Leitura só os projetos de que participa
+create or replace function public.ve_projeto(p_projeto uuid)
+returns boolean language sql stable as $$
+  select public.pode_editar() or (public.tem_acesso() and public.participa(p_projeto))
+$$;
+
+-- Tarefa visível: para a Leitura, só as dos seus projetos e as atribuídas a ela
+create or replace function public.tarefa_visivel(p_tarefa uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.pode_editar() or (public.tem_acesso() and exists (
+    select 1 from public.tarefas t where t.id = p_tarefa and (
+      (t.projeto_id is not null and public.participa(t.projeto_id))
+      or exists (select 1 from public.tarefa_responsaveis r where r.tarefa_id = t.id and r.pessoa_id = public.minha_pessoa()))))
+$$;
+
+-- Pessoa visível: para a Leitura, só ela mesma e quem aparece nos seus projetos e tarefas
+create or replace function public.pessoa_visivel(p_pessoa uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.pode_editar() or p_pessoa = public.minha_pessoa() or (public.tem_acesso() and (
+       exists (select 1 from public.alocacoes a where a.pessoa_id = p_pessoa and public.participa(a.projeto_id))
+    or exists (select 1 from public.equipe_plano e where e.pessoa_id = p_pessoa and public.participa(e.projeto_id))
+    or exists (select 1 from public.cronograma c where c.responsavel_id = p_pessoa and public.participa(c.projeto_id))
+    or exists (select 1 from public.entregas x where x.responsavel_id = p_pessoa and public.participa(x.projeto_id))
+    or exists (select 1 from public.pendencias x where x.responsavel_id = p_pessoa and public.participa(x.projeto_id))
+    or exists (select 1 from public.tarefa_responsaveis r where r.pessoa_id = p_pessoa and public.tarefa_visivel(r.tarefa_id))))
 $$;
 
 -- Permissões que o usuário tem pelas gerências que ocupa hoje
@@ -1212,14 +1274,22 @@ returns boolean language sql stable security definer set search_path = public as
        and (gm.ate is null or gm.ate >= public.hoje())))
 $$;
 
--- Coordena este projeto?
+-- Coordena este projeto? (coordenador ou vice-coordenador: mesmos poderes)
 create or replace function public.coordena(p_projeto uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select public.pode_editar() and exists (
     select 1 from public.alocacoes a
      where a.projeto_id = p_projeto
        and a.pessoa_id  = public.minha_pessoa()
-       and a.coordena)
+       and (a.coordena or a.vice_coordena))
+$$;
+
+-- É o coordenador titular do projeto?
+create or replace function public.coordena_titular(p_projeto uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.pode_editar() and exists (
+    select 1 from public.alocacoes a
+     where a.projeto_id = p_projeto and a.pessoa_id = public.minha_pessoa() and a.coordena)
 $$;
 
 -- Está alocado (ativo) no projeto?
@@ -1235,12 +1305,12 @@ returns boolean language sql stable security definer set search_path = public as
     select 1 from public.alocacoes a where a.pessoa_id = p_pessoa and public.coordena(a.projeto_id))
 $$;
 
--- Coordena algum projeto?
+-- Coordena (ou é vice de) algum projeto?
 create or replace function public.coordena_algum()
 returns boolean language sql stable security definer set search_path = public as $$
   select public.pode_editar() and exists (
     select 1 from public.alocacoes a
-     where a.pessoa_id = public.minha_pessoa() and a.coordena)
+     where a.pessoa_id = public.minha_pessoa() and (a.coordena or a.vice_coordena))
 $$;
 
 -- Pode editar dados do projeto: Direção, coordenador dele ou gerência com projetos_editar
@@ -1270,7 +1340,8 @@ create trigger protege_cronograma before update on public.cronograma
 create trigger protege_entrega before update on public.entregas
   for each row execute function public.tg_protege_entrega();
 
--- Só a Direção define coordenadores de projeto
+-- Só a Direção define coordenadores; a vice-coordenação pode ser definida
+-- pela Direção ou pelo coordenador titular do projeto
 create or replace function public.tg_protege_coordena()
 returns trigger language plpgsql as $$
 begin
@@ -1278,6 +1349,11 @@ begin
   if (tg_op = 'INSERT' and new.coordena)
      or (tg_op = 'UPDATE' and new.coordena is distinct from old.coordena) then
     raise exception 'Somente a Direção pode definir coordenadores de projeto';
+  end if;
+  if ((tg_op = 'INSERT' and new.vice_coordena)
+      or (tg_op = 'UPDATE' and new.vice_coordena is distinct from old.vice_coordena))
+     and not public.coordena_titular(new.projeto_id) then
+    raise exception 'Somente a Direção ou o coordenador do projeto podem definir a vice-coordenação';
   end if;
   return new;
 end $$;
@@ -1344,7 +1420,7 @@ create policy perfis_apagar on public.perfis for delete to authenticated
   using (public.e_direcao());
 
 -- Pessoas
-create policy pessoas_ver     on public.pessoas for select to authenticated using (public.tem_acesso());
+create policy pessoas_ver on public.pessoas for select to authenticated using (public.pode_editar() or id = public.minha_pessoa());
 create policy pessoas_incluir on public.pessoas for insert to authenticated
   with check (public.e_direcao() or public.tem_permissao('pessoas_gerir') or public.coordena_algum());
 create policy pessoas_editar  on public.pessoas for update to authenticated
@@ -1353,27 +1429,26 @@ create policy pessoas_editar  on public.pessoas for update to authenticated
 create policy pessoas_apagar  on public.pessoas for delete to authenticated using (public.e_direcao());
 
 -- Projetos
-create policy projetos_ver     on public.projetos for select to authenticated using (public.tem_acesso());
+create policy projetos_ver on public.projetos for select to authenticated using (public.ve_projeto(id));
 create policy projetos_incluir on public.projetos for insert to authenticated
   with check (public.e_direcao() or public.tem_permissao('projetos_criar'));
 create policy projetos_editar  on public.projetos for update to authenticated using (public.gere_projeto(id));
 create policy projetos_apagar  on public.projetos for delete to authenticated using (public.e_direcao());
 
 -- Alocações
-create policy alocacoes_ver   on public.alocacoes for select to authenticated using (public.tem_acesso());
+create policy alocacoes_ver on public.alocacoes for select to authenticated using (public.ve_projeto(projeto_id));
 create policy alocacoes_gerir on public.alocacoes for all to authenticated
   using (public.gere_projeto(projeto_id) or public.tem_permissao('alocacoes_gerir'))
   with check (public.gere_projeto(projeto_id) or public.tem_permissao('alocacoes_gerir'));
 
 -- Aditivos: todos veem; Direção, coordenação e Gerência de Projetos registram
-create policy aditivos_ver   on public.aditivos for select to authenticated using (public.tem_acesso());
+create policy aditivos_ver on public.aditivos for select to authenticated using (public.ve_projeto(projeto_id));
 create policy aditivos_gerir on public.aditivos for all to authenticated
   using (public.gere_projeto(projeto_id)) with check (public.gere_projeto(projeto_id));
 
 -- Entregas: todos veem; gestores do projeto cadastram; o responsável atualiza o andamento
 -- Documentos: todos veem (os restritos só quem vê o financeiro); a equipe do projeto inclui; gestores ou o autor editam
-create policy documentos_ver     on public.documentos for select to authenticated
-  using (public.tem_acesso() and (not restrito or public.ve_financeiro(projeto_id) or public.gere_projeto(projeto_id)));
+create policy documentos_ver on public.documentos for select to authenticated using (public.ve_projeto(projeto_id) and (not restrito or public.ve_financeiro(projeto_id) or public.gere_projeto(projeto_id)));
 create policy documentos_incluir on public.documentos for insert to authenticated
   with check (public.gere_projeto(projeto_id) or (public.pode_editar() and public.alocado(projeto_id) and not restrito));
 create policy documentos_editar  on public.documentos for update to authenticated
@@ -1382,7 +1457,7 @@ create policy documentos_editar  on public.documentos for update to authenticate
 create policy documentos_apagar  on public.documentos for delete to authenticated
   using (public.gere_projeto(projeto_id) or (public.pode_editar() and criado_por = auth.uid()));
 -- Pendências: todos veem; gestores do projeto criam e definem; o responsável atualiza
-create policy pendencias_ver     on public.pendencias for select to authenticated using (public.tem_acesso());
+create policy pendencias_ver on public.pendencias for select to authenticated using (public.ve_projeto(projeto_id));
 create policy pendencias_incluir on public.pendencias for insert to authenticated with check (public.gere_projeto(projeto_id));
 create policy pendencias_editar  on public.pendencias for update to authenticated
   using (public.gere_projeto(projeto_id) or (public.pode_editar() and responsavel_id = public.minha_pessoa()));
@@ -1401,14 +1476,14 @@ create policy pchk_ver   on public.pessoa_checklist for select to authenticated
 create policy pchk_gerir on public.pessoa_checklist for all to authenticated
   using (public.gere_pessoa(pessoa_id)) with check (public.gere_pessoa(pessoa_id));
 
-create policy entregas_ver     on public.entregas for select to authenticated using (public.tem_acesso());
+create policy entregas_ver on public.entregas for select to authenticated using (public.ve_projeto(projeto_id));
 create policy entregas_incluir on public.entregas for insert to authenticated with check (public.gere_projeto(projeto_id));
 create policy entregas_editar  on public.entregas for update to authenticated
   using (public.gere_projeto(projeto_id) or (public.pode_editar() and responsavel_id = public.minha_pessoa()));
 create policy entregas_apagar  on public.entregas for delete to authenticated using (public.gere_projeto(projeto_id));
 
 -- Cronograma físico: todos veem; gestores do projeto planejam; o responsável atualiza o andamento
-create policy crono_ver     on public.cronograma for select to authenticated using (public.tem_acesso());
+create policy crono_ver on public.cronograma for select to authenticated using (public.ve_projeto(projeto_id));
 create policy crono_incluir on public.cronograma for insert to authenticated with check (public.gere_projeto(projeto_id));
 create policy crono_editar  on public.cronograma for update to authenticated
   using (public.gere_projeto(projeto_id) or (public.pode_editar() and responsavel_id = public.minha_pessoa()));
@@ -1426,7 +1501,7 @@ create policy gmembros_gerir  on public.gerencia_membros for all to authenticate
 --   de projeto: Direção, coordenador, gerência com tarefas_gerir/projetos_editar;
 --               membro alocado cria as suas e edita as que criou ou é responsável
 --   de gerência: gerentes daquela gerência
-create policy tarefas_ver on public.tarefas for select to authenticated using (public.tem_acesso());
+create policy tarefas_ver on public.tarefas for select to authenticated using (public.tarefa_visivel(id));
 create policy tarefas_incluir on public.tarefas for insert to authenticated
   with check (
     (gerencia_id is null or public.gerencia(gerencia_id)) and
@@ -1452,7 +1527,7 @@ returns boolean language sql stable security definer set search_path = public as
          or (t.gerencia_id is not null and public.gerencia(t.gerencia_id))
          or (public.pode_editar() and t.criado_por = auth.uid())))
 $$;
-create policy resp_ver   on public.tarefa_responsaveis for select to authenticated using (public.tem_acesso());
+create policy resp_ver on public.tarefa_responsaveis for select to authenticated using (public.pode_editar() or pessoa_id = public.minha_pessoa() or public.tarefa_visivel(tarefa_id));
 create policy resp_gerir on public.tarefa_responsaveis for all to authenticated
   using (public.gere_tarefa(tarefa_id)) with check (public.gere_tarefa(tarefa_id));
 
@@ -1462,7 +1537,7 @@ create policy rubricas_gerir on public.rubricas for all to authenticated
   using (public.e_direcao()) with check (public.e_direcao());
 
 -- Financeiro: Direção, coordenadores do projeto e gerências com permissão financeira
-create policy equipe_plano_ver   on public.equipe_plano for select to authenticated using (public.tem_acesso());
+create policy equipe_plano_ver on public.equipe_plano for select to authenticated using (public.ve_projeto(projeto_id));
 create policy equipe_plano_gerir on public.equipe_plano for all to authenticated
   using (public.gere_projeto(projeto_id) or public.tem_permissao('alocacoes_gerir'))
   with check (public.gere_projeto(projeto_id) or public.tem_permissao('alocacoes_gerir'));
@@ -1493,12 +1568,12 @@ create or replace function public.gere_prospeccao()
 returns boolean language sql stable as $$
   select public.e_direcao() or public.tem_permissao('prospeccao_gerir') or public.coordena_algum()
 $$;
-create policy prosp_ver    on public.prospeccoes for select to authenticated using (public.tem_acesso());
+create policy prosp_ver on public.prospeccoes for select to authenticated using (public.pode_editar());
 create policy prosp_gerir  on public.prospeccoes for insert to authenticated with check (public.gere_prospeccao());
 create policy prosp_editar on public.prospeccoes for update to authenticated using (public.gere_prospeccao());
 create policy prosp_apagar on public.prospeccoes for delete to authenticated using (public.e_direcao());
 
-create policy aval_ver     on public.avaliacoes for select to authenticated using (public.tem_acesso());
+create policy aval_ver on public.avaliacoes for select to authenticated using (public.pode_editar());
 create policy aval_incluir on public.avaliacoes for insert to authenticated with check (public.gere_prospeccao());
 create policy aval_apagar  on public.avaliacoes for delete to authenticated using (public.e_direcao());
 
@@ -1557,19 +1632,19 @@ alter table public.infra_manutencoes  enable row level security;
 
 -- Itens e habilitações: todos veem; Direção, Gerência de Infraestrutura
 -- (e o responsável pelo item, na edição) gerenciam
-create policy infra_itens_ver     on public.infra_itens for select to authenticated using (public.tem_acesso());
+create policy infra_itens_ver on public.infra_itens for select to authenticated using (public.pode_editar());
 create policy infra_itens_incluir on public.infra_itens for insert to authenticated
   with check (public.e_direcao() or public.tem_permissao('infraestrutura_gerir'));
 create policy infra_itens_editar  on public.infra_itens for update to authenticated using (public.gere_infra(id));
 create policy infra_itens_apagar  on public.infra_itens for delete to authenticated
   using (public.e_direcao() or public.tem_permissao('infraestrutura_gerir'));
 
-create policy infra_hab_ver   on public.infra_habilitacoes for select to authenticated using (public.tem_acesso());
+create policy infra_hab_ver on public.infra_habilitacoes for select to authenticated using (public.pode_editar());
 create policy infra_hab_gerir on public.infra_habilitacoes for all to authenticated
   using (public.gere_infra(item_id)) with check (public.gere_infra(item_id));
 
 -- Reservas: todos veem a agenda; qualquer membro solicita; gestão confirma
-create policy infra_res_ver     on public.infra_reservas for select to authenticated using (public.tem_acesso());
+create policy infra_res_ver on public.infra_reservas for select to authenticated using (public.pode_editar());
 create policy infra_res_incluir on public.infra_reservas for insert to authenticated
   with check (public.pode_editar());
 create policy infra_res_editar  on public.infra_reservas for update to authenticated
@@ -1579,7 +1654,7 @@ create policy infra_res_apagar  on public.infra_reservas for delete to authentic
 
 -- Manutenções: todos veem; qualquer membro REPORTA defeito (corretiva planejada);
 -- gestão planeja, executa e conclui
-create policy infra_man_ver     on public.infra_manutencoes for select to authenticated using (public.tem_acesso());
+create policy infra_man_ver on public.infra_manutencoes for select to authenticated using (public.pode_editar());
 create policy infra_man_incluir on public.infra_manutencoes for insert to authenticated
   with check (public.gere_infra(item_id)
               or (public.pode_editar() and tipo = 'corretiva' and status = 'planejada'));
@@ -1764,6 +1839,29 @@ select r.item_id, i.nome as item, r.projeto_id, pr.sigla as projeto,
  where r.status = 'realizada'
  group by r.item_id, i.nome, r.projeto_id, pr.sigla, date_trunc('month', r.inicio at time zone 'America/Sao_Paulo');
 
+-- Cadastro de pessoas como o programa lê: para a Leitura, só as pessoas dos seus
+-- projetos, e sem dados pessoais (e-mail, Lattes, curso, semestre, ingresso, saída,
+-- resumo e observações) — exceto o próprio cadastro. Os demais perfis veem tudo.
+create or replace view public.v_pessoas with (security_barrier = true) as
+select p.id, p.nome,
+       case when x.completo then p.email end as email,
+       p.tipo, p.funcao,
+       case when x.completo then p.curso end as curso,
+       case when x.completo then p.semestre end as semestre,
+       p.foco, p.formacao,
+       case when x.completo then p.lattes end as lattes,
+       case when x.completo then p.ingresso end as ingresso,
+       case when x.completo then p.saida end as saida,
+       p.habilidades,
+       case when x.completo then p.resumo end as resumo,
+       p.disponibilidade_pct, p.perfil_disponibilidade,
+       case when x.completo then p.obs_disponibilidade end as obs_disponibilidade,
+       case when x.completo then p.risco_sobrecarga else false end as risco_sobrecarga,
+       p.ordem, p.ativo, p.criado_em, p.atualizado_em, p.atualizado_por
+  from public.pessoas p
+ cross join lateral (select public.pode_editar() or p.id = public.minha_pessoa() as completo) x
+ where public.pessoa_visivel(p.id);
+
 -- ────────────────────────────────────────────────────────────────────
 -- 13. Permissões de acesso pela API (Data API da Supabase)
 -- ────────────────────────────────────────────────────────────────────
@@ -1775,6 +1873,8 @@ select r.item_id, i.nome as item, r.projeto_id, pr.sigla as projeto,
 grant usage on schema public to authenticated, service_role;
 grant select, insert, update, delete on all tables in schema public to authenticated, service_role;
 grant usage, select on all sequences in schema public to authenticated, service_role;
+-- visões são só para consulta (a v_pessoas roda com os direitos do dono e já filtra o que cada um vê)
+revoke insert, update, delete, truncate, references, trigger on public.v_pessoas from authenticated, service_role;
 revoke all on all tables in schema public from anon;
 revoke execute on all functions in schema public from public, anon;
 grant execute on all functions in schema public to authenticated, service_role;
@@ -1805,6 +1905,6 @@ end $$;
 -- ────────────────────────────────────────────────────────────────────
 -- 14. Primeiro acesso
 -- ────────────────────────────────────────────────────────────────────
--- Os e-mails de public.emails_direcao_fixa() entram direto como Direção no
+-- Os e-mails de public.emails_suporte_tecnico() entram direto como Suporte técnico no
 -- primeiro login. Os demais usuários entram inativos e são liberados pela
 -- Direção em Configurações → Usuários e acessos.

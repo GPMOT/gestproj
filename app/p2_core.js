@@ -8,8 +8,8 @@
    - Modo online: preencha SUPABASE_CONFIG abaixo (ou em Configurações)
      e o programa passa a ler e gravar no banco Supabase, com login.
    ════════════════════════════════════════════════════════════════════ */
-const VERSAO = '2.19';
-const VERSAO_DATA = '29/09/2026';
+const VERSAO = '2.20';
+const VERSAO_DATA = '30/09/2026';
 const SUPABASE_CONFIG = { url: '', anonKey: '' };   // ← preencher na implantação
 
 /* ── utilidades ─────────────────────────────────────────────────── */
@@ -59,7 +59,7 @@ const PERMISSOES = [
   ['historico_ver', 'Consultar o histórico de alterações'],
   ['infraestrutura_gerir', 'Gerir infraestrutura (itens, agenda, manutenção, habilitações)'],
 ];
-const PAPEIS = [['direcao', 'Direção'], ['membro', 'Membro'], ['leitura', 'Leitura']];
+const PAPEIS = [['suporte', 'Suporte técnico'], ['direcao', 'Direção'], ['membro', 'Membro'], ['leitura', 'Leitura']];
 const TIPOS_VINC = [['bolsa', 'Bolsa'], ['tecnico', 'Pagamento técnico'], ['servico', 'Serviço'], ['externo', 'Apoio externo'], ['outro', 'Outro']];
 const ST_VINC = { previsto: ['Previsto', 'b-yellow'], ativo: ['Ativo', 'b-green'], suspenso: ['Suspenso', 'b-red'], encerrado: ['Encerrado', 'b-gray'] };
 const ESTAGIOS = [['aprovado', 'Aprovado'], ['previsto', 'Previsto / em andamento'], ['executado', 'Executado']];
@@ -125,7 +125,7 @@ const TABLES = {
    Ao mudar o esquema, atualize esta lista (o teste online confere as duas). */
 const COLUNAS = Object.fromEntries(Object.entries({
   aditivos: 'id projeto_id numero tipo data_assinatura fim_anterior novo_fim valor_anterior novo_valor justificativa documento criado_em atualizado_em atualizado_por',
-  alocacoes: 'id pessoa_id projeto_id nivel carga_pct coordena papel atribuicao desde status criado_em atualizado_em atualizado_por',
+  alocacoes: 'id pessoa_id projeto_id nivel carga_pct coordena vice_coordena papel atribuicao desde status criado_em atualizado_em atualizado_por',
   avaliacoes: 'id prospeccao_id avaliado_em avaliado_por filtros notas esforcos ia ie ip bloqueada quadrante parecer',
   candidatos: 'id vaga_id projeto_id nome email curso lattes origem status nota pessoa_id obs criado_em atualizado_em atualizado_por',
   checklist_itens: 'id fase nome descricao tipos obrigatorio ordem ativo',
@@ -159,7 +159,7 @@ const COLUNAS = Object.fromEntries(Object.entries({
 }).map(([t, c]) => [t, new Set(c.split(' '))]));
 /* Campos obrigatórios que têm valor padrão no banco. Dados antigos (de antes de o campo existir)
    chegam sem eles ou vazios; ao enviar ao banco, recebem o mesmo padrão que o banco usaria. */
-const PADRAO_BANCO = {"aditivos":{"tipo":"prazo"},"alocacoes":{"carga_pct":25,"coordena":false,"nivel":1,"status":"ativo"},"avaliacoes":{"avaliado_em":"@agora","bloqueada":false,"esforcos":{},"filtros":{},"notas":{}},"candidatos":{"status":"inscrito"},"checklist_itens":{"ativo":true,"obrigatorio":true,"ordem":0,"tipos":[]},"cronograma":{"ordem":0,"percentual":0,"status":"planejada"},"desembolso_rubricas":{"valor":0},"desembolsos":{"status":"prevista","valor_previsto":0},"documentos":{"restrito":false,"tipo":"outro"},"entregas":{"status":"pendente","tipo":"relatorio_parcial"},"equipe_plano":{"categoria":"outro","etapas":[],"ordem":0,"status":"vaga"},"equipe_plano_bolsas":{"meses":1,"rubrica":"1.1.1","valor_mensal":0},"gerencia_membros":{"desde":"@hoje","funcao":"titular"},"gerencias":{"ativa":true,"ordem":0,"permissoes":[]},"infra_habilitacoes":{"desde":"@hoje","nivel":"operador"},"infra_itens":{"categoria":"equipamento","especificacoes":{},"requer_habilitacao":false,"reservavel":true,"status":"operacional"},"infra_manutencoes":{"status":"planejada"},"infra_reservas":{"status":"solicitada"},"orcamento_rubricas":{"aprovado":0,"previsto":0},"pendencias":{"categoria":"administrativa","prioridade":"normal","status":"aberta"},"pessoa_checklist":{"data":"@hoje","feito":true},"pessoas":{"ativo":true,"disponibilidade_pct":100,"habilidades":[],"ordem":0,"perfil_disponibilidade":"interno","risco_sobrecarga":false,"tipo":"outro"},"plano_itens":{"moeda":"BRL","numero":0,"origem":"nacional","status":"previsto","valor_previsto":0},"projetos":{"contrapartida":0,"ordem":0,"placeholder":false,"situacao":"vigente","status":"pendente","tipo":"edital","valor_total":0},"prospeccoes":{"situacao":"avaliacao"},"rubricas":{"ordem":0,"planos":["edital","servico"]},"tarefas":{"concluida":false,"prioridade":"normal","titulo":""},"vinculos_financeiros":{"rubrica":"1.1.1","status":"previsto","tipo":"bolsa","valor_mensal":0}};
+const PADRAO_BANCO = {"aditivos":{"tipo":"prazo"},"alocacoes":{"carga_pct":25,"coordena":false,"nivel":1,"status":"ativo","vice_coordena":false},"avaliacoes":{"avaliado_em":"@agora","bloqueada":false,"esforcos":{},"filtros":{},"notas":{}},"candidatos":{"status":"inscrito"},"checklist_itens":{"ativo":true,"obrigatorio":true,"ordem":0,"tipos":[]},"cronograma":{"ordem":0,"percentual":0,"status":"planejada"},"desembolso_rubricas":{"valor":0},"desembolsos":{"status":"prevista","valor_previsto":0},"documentos":{"restrito":false,"tipo":"outro"},"entregas":{"status":"pendente","tipo":"relatorio_parcial"},"equipe_plano":{"categoria":"outro","etapas":[],"ordem":0,"status":"vaga"},"equipe_plano_bolsas":{"meses":1,"rubrica":"1.1.1","valor_mensal":0},"gerencia_membros":{"desde":"@hoje","funcao":"titular"},"gerencias":{"ativa":true,"ordem":0,"permissoes":[]},"infra_habilitacoes":{"desde":"@hoje","nivel":"operador"},"infra_itens":{"categoria":"equipamento","especificacoes":{},"requer_habilitacao":false,"reservavel":true,"status":"operacional"},"infra_manutencoes":{"status":"planejada"},"infra_reservas":{"status":"solicitada"},"orcamento_rubricas":{"aprovado":0,"previsto":0},"pendencias":{"categoria":"administrativa","prioridade":"normal","status":"aberta"},"pessoa_checklist":{"data":"@hoje","feito":true},"pessoas":{"ativo":true,"disponibilidade_pct":100,"habilidades":[],"ordem":0,"perfil_disponibilidade":"interno","risco_sobrecarga":false,"tipo":"outro"},"plano_itens":{"moeda":"BRL","numero":0,"origem":"nacional","status":"previsto","valor_previsto":0},"projetos":{"contrapartida":0,"ordem":0,"placeholder":false,"situacao":"vigente","status":"pendente","tipo":"edital","valor_total":0},"prospeccoes":{"situacao":"avaliacao"},"rubricas":{"ordem":0,"planos":["edital","servico"]},"tarefas":{"concluida":false,"prioridade":"normal","titulo":""},"vinculos_financeiros":{"rubrica":"1.1.1","status":"previsto","tipo":"bolsa","valor_mensal":0}};
 function completarObrigatorios(t, row) {
   const P = PADRAO_BANCO[t]; if (!P) return row;
   for (const [c, v] of Object.entries(P)) if (row[c] === undefined || row[c] === null || row[c] === '') {
@@ -190,7 +190,7 @@ const DEFAULTS = {
   checklist_itens: { tipos: [], obrigatorio: true, ordem: 0, ativo: true },
   pessoa_checklist: { feito: true },
   pendencias: { categoria: 'administrativa', prioridade: 'normal', status: 'aberta' },
-  alocacoes: { nivel: 1, carga_pct: 25, coordena: false, status: 'ativo' },
+  alocacoes: { nivel: 1, carga_pct: 25, coordena: false, vice_coordena: false, status: 'ativo' },
   equipe_plano: { categoria: 'outro', etapas: [], status: 'vaga', ordem: 0 },
   equipe_plano_bolsas: { rubrica: '1.1.1', valor_mensal: 0, meses: 1 },
   gerencias: { permissoes: [], ativa: true, ordem: 0 },
@@ -251,8 +251,9 @@ const siglaProjeto = id => (byId('projetos', id) || {}).sigla || '—';
 const ME = { uid: null, papel: null, pessoa_id: null, email: '', online: false };
 
 const Perm = {
-  dir: () => ME.papel === 'direcao',
-  podeEditar: () => ME.papel === 'direcao' || ME.papel === 'membro',
+  dir: () => ME.papel === 'direcao' || ME.papel === 'suporte',   // Suporte técnico = acesso irrestrito, como a Direção
+  suporte: () => ME.papel === 'suporte',
+  podeEditar: () => ['suporte', 'direcao', 'membro'].includes(ME.papel),
   temAcesso: () => !!ME.papel,
   gerenciasAtivas(pessoaId = ME.pessoa_id) {
     const t = hoje();
@@ -266,8 +267,12 @@ const Perm = {
   },
   tem: p => Perm.minhas().includes(p),
   gerencia: gid => Perm.dir() || (Perm.podeEditar() && Perm.gerenciasAtivas().some(g => g.id === gid)),
-  coordena: pid => Perm.podeEditar() && !!ME.pessoa_id && D.alocacoes.some(a => a.projeto_id === pid && a.pessoa_id === ME.pessoa_id && a.coordena),
-  coordenaAlgum: () => Perm.podeEditar() && !!ME.pessoa_id && D.alocacoes.some(a => a.pessoa_id === ME.pessoa_id && a.coordena),
+  coordena: pid => Perm.podeEditar() && !!ME.pessoa_id && D.alocacoes.some(a => a.projeto_id === pid && a.pessoa_id === ME.pessoa_id && (a.coordena || a.vice_coordena)),   // coordenador ou vice
+  coordenaTitular: pid => Perm.podeEditar() && !!ME.pessoa_id && D.alocacoes.some(a => a.projeto_id === pid && a.pessoa_id === ME.pessoa_id && a.coordena),
+  coordenaAlgum: () => Perm.podeEditar() && !!ME.pessoa_id && D.alocacoes.some(a => a.pessoa_id === ME.pessoa_id && (a.coordena || a.vice_coordena)),
+  /* participa: alocação ativa ou pausada, ou vaga do plano ocupada — é o que a Leitura enxerga */
+  participa: pid => !!ME.pessoa_id && (D.alocacoes.some(a => a.projeto_id === pid && a.pessoa_id === ME.pessoa_id && ['ativo', 'pausado'].includes(a.status)) || D.equipe_plano.some(e => e.projeto_id === pid && e.pessoa_id === ME.pessoa_id)),
+  veProjeto: pid => Perm.podeEditar() || Perm.participa(pid),
   alocado: pid => !!ME.pessoa_id && D.alocacoes.some(a => a.projeto_id === pid && a.pessoa_id === ME.pessoa_id),
   gereProjeto: pid => Perm.dir() || Perm.coordena(pid) || Perm.tem('projetos_editar'),
   veFin: pid => Perm.dir() || Perm.coordena(pid) || Perm.tem('financeiro_ver'),
@@ -302,7 +307,7 @@ const Perm = {
    quem decide é o banco; no modo local, estas funções fazem o papel dele. */
 const POLICY = {
   pessoas: { ins: () => Perm.gerePessoas(), upd: (n, o) => Perm.gerePessoas() || (Perm.podeEditar() && o.id === ME.pessoa_id), del: () => Perm.dir() },
-  perfis: { ins: () => Perm.dir(), upd: () => Perm.dir(), del: () => Perm.dir() },
+  perfis: { ins: () => Perm.dir(), upd: (n, o) => Perm.dir() && (Perm.suporte() || (o.papel !== 'suporte' && n.papel !== 'suporte')), del: (n, o) => Perm.dir() && (Perm.suporte() || o.papel !== 'suporte') },
   projetos: { ins: () => Perm.dir() || Perm.tem('projetos_criar'), upd: (n, o) => Perm.gereProjeto(o.id), del: () => Perm.dir() },
   alocacoes: { all: r => Perm.gereAlocacao(r.projeto_id) },
   equipe_plano: { all: r => Perm.gereAlocacao(r.projeto_id) },
@@ -349,6 +354,7 @@ function exigeData(v, nome, obrig) { if (!v) { if (obrig) falha(`Informe ${nome}
 function exigePeriodo(a, b, txt) { if (a && b && b < a) falha(txt || 'A data final não pode ser anterior à inicial.'); }
 
 function validar(t, r, old) {
+  if (t === 'alocacoes' && r.coordena && r.vice_coordena) falha('A pessoa não pode ser coordenadora e vice-coordenadora do projeto ao mesmo tempo.');
   switch (t) {
     case 'pessoas':
       if (!String(r.nome || '').trim()) falha('Informe o nome.');
@@ -551,6 +557,7 @@ function validarReserva(r, old) {
 function travas(t, n, o) {
   if (t === 'alocacoes' && !Perm.dir()) {
     if ((!o && n.coordena) || (o && !!n.coordena !== !!o.coordena)) falha('Somente a Direção pode definir coordenadores de projeto.');
+    if (((!o && n.vice_coordena) || (o && !!n.vice_coordena !== !!o.vice_coordena)) && !Perm.coordenaTitular(n.projeto_id)) falha('Somente a Direção ou o coordenador do projeto podem definir a vice-coordenação.');
   }
   if (t === 'cronograma' && o && !Perm.gereProjeto(o.projeto_id)) {
     for (const k of ['codigo', 'titulo', 'mes_inicio', 'mes_fim', 'responsavel_id', 'projeto_id', 'entrega', 'descricao'])
@@ -608,6 +615,7 @@ const Local = {
     if (!seeded) { seedPadrao(); this.persistAll(); try { localStorage.setItem(LS_PREFIX + '_seed', hoje()); } catch { } }
   },
   persist(t) {
+    if (D_TODOS) { console.warn('Visão restrita da Leitura: nada é gravado'); return; }
     try { localStorage.setItem(LS_PREFIX + t, JSON.stringify(D[t])); }
     catch (e) { flash('Não foi possível gravar no navegador (espaço cheio?). Exporte um backup.', true); throw e; }
   },
@@ -645,6 +653,31 @@ function seedPadrao() {
   if (!D.gerencias.length) D.gerencias = GERENCIAS_PADRAO.map(([nome, descricao, permissoes], i) => ({ ...DEFAULTS.gerencias, id: newId(), nome, descricao, permissoes, ordem: i + 1, criado_em: new Date().toISOString(), atualizado_em: new Date().toISOString() }));
 }
 
+/* ── visão da Leitura no modo local (no online, quem filtra é o banco) ───────── */
+let D_TODOS = null;   // dados completos enquanto a tela mostra a visão restrita
+function restaurarVisao() { if (D_TODOS) { Object.keys(D_TODOS).forEach(t => D[t] = D_TODOS[t]); D_TODOS = null; } }
+function aplicarVisaoLocal() {
+  restaurarVisao();
+  if (ME.online || ME.papel !== 'leitura') return;
+  D_TODOS = {}; Object.keys(TABLES).forEach(t => D_TODOS[t] = D[t]);
+  const eu = ME.pessoa_id, part = new Set(D.projetos.filter(p => Perm.participa(p.id)).map(p => p.id));
+  D.projetos = D.projetos.filter(p => part.has(p.id));
+  ['alocacoes', 'aditivos', 'documentos', 'pendencias', 'entregas', 'cronograma', 'equipe_plano'].forEach(t => D[t] = D[t].filter(r => part.has(r.projeto_id)));
+  D.documentos = D.documentos.filter(d => !d.restrito);
+  const minhas = new Set(D.tarefa_responsaveis.filter(r => eu && r.pessoa_id === eu).map(r => r.tarefa_id));
+  D.tarefas = D.tarefas.filter(t => (t.projeto_id && part.has(t.projeto_id)) || minhas.has(t.id));
+  const tids = new Set(D.tarefas.map(t => t.id));
+  D.tarefa_responsaveis = D.tarefa_responsaveis.filter(r => (eu && r.pessoa_id === eu) || tids.has(r.tarefa_id));
+  ['equipe_plano_bolsas', 'plano_itens', 'desembolsos', 'desembolso_rubricas', 'vinculos_financeiros', 'orcamento_rubricas', 'despesas', 'prospeccoes', 'avaliacoes',
+    'infra_itens', 'infra_habilitacoes', 'infra_reservas', 'infra_manutencoes', 'candidatos', 'historico'].forEach(t => D[t] = []);
+  D.pessoa_checklist = D.pessoa_checklist.filter(r => r.pessoa_id === eu);
+  D.perfis = D.perfis.filter(p => eu && p.pessoa_id === eu);
+  const vis = new Set([eu, ...D.alocacoes.map(a => a.pessoa_id), ...D.equipe_plano.map(e => e.pessoa_id), ...D.cronograma.map(c => c.responsavel_id),
+    ...D.entregas.map(x => x.responsavel_id), ...D.pendencias.map(x => x.responsavel_id), ...D.tarefa_responsaveis.map(r => r.pessoa_id)].filter(Boolean));
+  const MASC = ['email', 'curso', 'semestre', 'lattes', 'ingresso', 'saida', 'resumo', 'obs_disponibilidade'];   // igual à visão v_pessoas do banco
+  D.pessoas = D.pessoas.filter(p => vis.has(p.id)).map(p => p.id === eu ? p : { ...p, ...Object.fromEntries(MASC.map(k => [k, null])), risco_sobrecarga: false });
+}
+
 /* ── armazenamento online (Supabase) ────────────────────────────── */
 /* só o endereço do projeto (https://xxxx.supabase.co): o painel mostra a URL da API com /rest/v1/ no fim,
    e com esse caminho o login falha com "Invalid path specified in request URL" */
@@ -663,10 +696,13 @@ const SB = {
     this.client = mod.createClient(c.url, c.anonKey);
     return true;
   },
+  fonte: {},   // pessoas é lida pela visão v_pessoas (o banco esconde dados pessoais de terceiros da Leitura)
   async fetchAll(t) {
     const out = []; let from = 0;
+    const src = this.fonte[t] || (t === 'pessoas' ? 'v_pessoas' : t);
     for (; ;) {
-      const { data, error } = await this.client.from(t).select('*').range(from, from + 999);
+      const { data, error } = await this.client.from(src).select('*').range(from, from + 999);
+      if (error && src !== t && /does not exist|could not find|PGRST205|42P01/i.test((error.message || '') + (error.code || ''))) { this.fonte[t] = t; return this.fetchAll(t); }   // banco ainda na versão 1.3
       if (error) throw error;
       out.push(...data); if (data.length < 1000) break; from += 1000;
     }
@@ -885,6 +921,7 @@ const Calc = {
       .reduce((s, a) => s + num(a.carga_pct), 0);
   },
   coordenadores: pid => D.alocacoes.filter(a => a.projeto_id === pid && a.coordena).map(a => byId('pessoas', a.pessoa_id)).filter(Boolean),
+  vices: pid => D.alocacoes.filter(a => a.projeto_id === pid && a.vice_coordena).map(a => byId('pessoas', a.pessoa_id)).filter(Boolean),
   responsaveis: tid => D.tarefa_responsaveis.filter(r => r.tarefa_id === tid).map(r => byId('pessoas', r.pessoa_id)).filter(Boolean),
   atrasada: t => !t.concluida && t.prazo && t.prazo < hoje(),
   gerentes(gid) {

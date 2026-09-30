@@ -37,7 +37,7 @@ function montarRelatorio() {
     const s = sec('Saúde dos projetos'), SS = projs.map(p => Calc.saudeProjeto(p));
     T(s, ['Projeto', 'Vigência até', 'Físico (real / previsto)', 'Execução financeira', 'Entregas atrasadas', 'Vagas', 'Sinal', 'Motivos'], SS.map(x => [x.p.sigla, fmtD(x.p.fim), x.fis ? `${x.fis.pct}% / ${x.fis.prev}%` : '—', x.fin ? `${x.fin.pct}% (tempo ${x.tempoPct}%)` : '—', String(x.entAtr), String(x.eq.vagas), SINAL[x.sinal][0], [...x.mot.bad, ...x.mot.warn].join('; ')]));
   }
-  if (c.secoes.portfolio) { const s = sec('Portfólio de projetos'); T(s, ['Projeto', 'Tipo', 'Financiador', 'Valor', 'Vigência', 'Coordenação', 'Fase', 'Status'], projs.map(p => [p.sigla + (p.nome ? ' — ' + p.nome : ''), lbl(TIPOS_PROJ, p.tipo || 'edital'), p.financiador || '—', fmtBRL(p.valor_total), `${fmtD(p.inicio)} – ${fmtD(p.fim)}`, Calc.coordenadores(p.id).map(x => x.nome).join(', ') || '—', p.fase || '—', STATUS_PROJ[p.status][0]])); }
+  if (c.secoes.portfolio) { const s = sec('Portfólio de projetos'); T(s, ['Projeto', 'Tipo', 'Financiador', 'Valor', 'Vigência', 'Coordenação', 'Fase', 'Status'], projs.map(p => [p.sigla + (p.nome ? ' — ' + p.nome : ''), lbl(TIPOS_PROJ, p.tipo || 'edital'), p.financiador || '—', fmtBRL(p.valor_total), `${fmtD(p.inicio)} – ${fmtD(p.fim)}`, nomesCoordenacao(p.id) || '—', p.fase || '—', STATUS_PROJ[p.status][0]])); }
   if (c.secoes.financeiro) {
     const s = sec('Financeiro'); const vis = projs.filter(p => Perm.veFin(p.id));
     T(s, ['Projeto', 'Tipo', 'Valor contratado', 'Aprovado', 'Previsto', 'Executado', 'Saldo', '% exec.'], vis.map(p => { const t = Calc.totaisOrc(p.id); return [p.sigla, lbl(TIPOS_PROJ, p.tipo || 'edital'), fmtBRL(p.valor_total), fmtBRL(t.aprovado), fmtBRL(t.previsto), fmtBRL(t.executado), fmtBRL(t.saldo), t.aprovado ? (t.executado / t.aprovado * 100).toFixed(1) + '%' : '—']; }));
@@ -61,7 +61,7 @@ function montarRelatorio() {
     D.pessoas.filter(p => p.ativo !== false).sort(byName('nome')).forEach(pe => {
       const al = D.alocacoes.filter(a => a.pessoa_id === pe.id && ids.has(a.projeto_id)); if (!al.length && c.escopo === 'financiador') return; if (!al.length && pe.tipo === 'ic') return;
       H3(s, `${pe.risco_sobrecarga ? '⚠ ' : ''}${pe.nome} — ${pe.funcao || lbl(TIPOS_PESSOA, pe.tipo)} · carga ${Math.round(Calc.carga(pe.id))}% · disponibilidade ${num(pe.disponibilidade_pct)}%`);
-      if (al.length) T(s, ['Projeto', 'Papel', 'Nível', 'Carga', 'Atribuição'], al.map(a => [siglaProjeto(a.projeto_id) + (a.coordena ? ' (coord.)' : ''), a.papel || '—', NIVEIS[a.nivel], num(a.carga_pct) + '%', a.atribuicao || ''])); else P(s, 'Sem alocação nos projetos do escopo.');
+      if (al.length) T(s, ['Projeto', 'Papel', 'Nível', 'Carga', 'Atribuição'], al.map(a => [siglaProjeto(a.projeto_id) + (a.coordena ? ' (coord.)' : a.vice_coordena ? ' (vice-coord.)' : ''), a.papel || '—', NIVEIS[a.nivel], num(a.carga_pct) + '%', a.atribuicao || ''])); else P(s, 'Sem alocação nos projetos do escopo.');
     });
     const ics = D.pessoas.filter(p => p.ativo !== false && p.tipo === 'ic');
     if (ics.length) { H3(s, `Bolsistas IC (${ics.length})`); T(s, ['Nome', 'Curso', 'Foco', 'Projetos'], ics.sort(byName('nome')).map(p => [p.nome, (p.curso || '') + (p.semestre ? ' · ' + p.semestre + 'º' : ''), p.foco || '', D.alocacoes.filter(a => a.pessoa_id === p.id).map(a => siglaProjeto(a.projeto_id)).join(', ') || '—'])); }
@@ -117,10 +117,10 @@ VIEWS.config = () => {
   return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(380px,1fr))">
   ${!ME.online ? `<div class="card"><div class="bold mb">Usuário (modo local)</div>
     <div class="small muted mb">No modo local não há login. Escolha quem você é e com qual papel, para trabalhar e para testar o que cada perfil vê e pode fazer. No modo online isso vem do login.</div>
-    <div class="fgrid"><div><label class="fl">Pessoa</label><select id="sim_p"><option value="">— nenhuma (administrador) —</option>${optPessoas().map(([v, l]) => `<option value="${v}"${sim.pessoa_id === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
+    <div class="fgrid"><div><label class="fl">Pessoa</label><select id="sim_p"><option value="">— nenhuma (administrador) —</option>${(D_TODOS ? D_TODOS.pessoas : D.pessoas).filter(p => p.ativo !== false).slice().sort(byName('nome')).map(p => [p.id, p.nome]).map(([v, l]) => `<option value="${v}"${sim.pessoa_id === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
     <div><label class="fl">Papel</label><select id="sim_r">${PAPEIS.map(([v, l]) => `<option value="${v}"${sim.papel === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
     <div class="mactions"><button class="btn-p" data-a="simAplicar">Aplicar</button></div>
-    <div class="small muted">Permissões efetivas agora: ${Perm.minhas().map(p => `<span class="tag">${p}</span>`).join('') || '<i>nenhuma de gerência</i>'}${Perm.coordenaAlgum() ? ' + coordenação de ' + D.alocacoes.filter(a => a.pessoa_id === ME.pessoa_id && a.coordena).map(a => siglaProjeto(a.projeto_id)).join(', ') : ''}</div></div>` : ''}
+    <div class="small muted">Permissões efetivas agora: ${Perm.minhas().map(p => `<span class="tag">${p}</span>`).join('') || '<i>nenhuma de gerência</i>'}${Perm.coordenaAlgum() ? ' + coordenação de ' + D.alocacoes.filter(a => a.pessoa_id === ME.pessoa_id && (a.coordena || a.vice_coordena)).map(a => siglaProjeto(a.projeto_id)).join(', ') : ''}</div></div>` : ''}
 
   <div class="card"><div class="bold mb">Armazenamento</div>
     ${ME.online ? `<div class="alert ok">Conectado ao banco online: ${esc(cfg.url || '')}</div><div class="row mt"><button data-a="recarregar">↻ Recarregar dados</button></div>`
@@ -138,11 +138,11 @@ VIEWS.config = () => {
     <label class="row" style="cursor:pointer"><span style="border:1px solid #c8c6c0;border-radius:7px;padding:5px 12px;background:#fff">↑ Importar JSON do programa antigo</span><input type="file" accept=".json" style="display:none" onchange="importarArquivo(this.files[0],'v1');this.value=''"></label>` : ''}
     ${!ME.online && Perm.dir() ? `<div class="sec">Zona de risco</div><button class="btn-d" data-a="zerar">Apagar todos os dados deste navegador</button>` : ''}</div>
 
-  ${ME.online && Perm.dir() ? `<div class="card"><div class="bold mb">Usuários e acessos</div><div class="small muted mb">Novos logins entram sem acesso. Ligue cada usuário a uma pessoa do cadastro, escolha o papel e ative.</div>
-    ${D.perfis.sort(byName('email')).map(pf => `<div class="fgrid mb" style="grid-template-columns:1.2fr 1.2fr .8fr auto;align-items:end"><div class="small"><b>${esc(pf.email)}</b>${fixo(pf) ? '<br><span class="muted">Direção permanente</span>' : ''}</div>
+  ${ME.online && Perm.dir() ? `<div class="card"><div class="bold mb">Usuários e acessos</div><div class="small muted mb">Novos logins entram sem acesso. Ligue cada usuário a uma pessoa do cadastro, escolha o papel e ative. Bolsistas de IC que estão começando entram como <b>Leitura</b> (veem só os projetos de que participam, sem valores); com mais responsabilidades, passam a <b>Membro</b>.</div>
+    ${D.perfis.sort(byName('email')).map(pf => `<div class="fgrid mb" style="grid-template-columns:1.2fr 1.2fr .8fr auto;align-items:end"><div class="small"><b>${esc(pf.email)}</b>${fixo(pf) ? '<br><span class="muted">Suporte técnico permanente</span>' : pf.papel === 'suporte' ? '<br><span class="muted">Suporte técnico</span>' : ''}</div>
       <select onchange="run(()=>Data.update('perfis','${pf.id}',{pessoa_id:this.value||null}).then(render))"><option value="">— pessoa —</option>${optPessoas().map(([v, l]) => `<option value="${v}"${pf.pessoa_id === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>
-      <select ${fixo(pf) ? 'disabled title="Acesso permanente da Direção"' : ''} onchange="run(()=>Data.update('perfis','${pf.id}',{papel:this.value}).then(render))">${PAPEIS.map(([v, l]) => `<option value="${v}"${pf.papel === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
-      <label class="row small"><input type="checkbox" ${pf.ativo ? 'checked' : ''} ${fixo(pf) ? 'disabled' : ''} onchange="run(()=>Data.update('perfis','${pf.id}',{ativo:this.checked}).then(render))"> ativo</label></div>`).join('') || '<div class="empty">Nenhum usuário.</div>'}</div>` : ''}
+      <select ${travado(pf) ? `disabled title="${fixo(pf) ? 'Acesso permanente do Suporte técnico' : 'Só o Suporte técnico altera este perfil'}"` : ''} onchange="run(()=>Data.update('perfis','${pf.id}',{papel:this.value}).then(render))">${PAPEIS.filter(([v]) => v !== 'suporte' || Perm.suporte() || pf.papel === 'suporte').map(([v, l]) => `<option value="${v}"${pf.papel === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+      <label class="row small"><input type="checkbox" ${pf.ativo ? 'checked' : ''} ${travado(pf) ? 'disabled' : ''} onchange="run(()=>Data.update('perfis','${pf.id}',{ativo:this.checked}).then(render))"> ativo</label></div>`).join('') || '<div class="empty">Nenhum usuário.</div>'}</div>` : ''}
 
   ${Perm.tem('historico_ver') ? `<div class="card" style="grid-column:1/-1"><div class="between mb"><span class="bold">Histórico de alterações</span>${ME.online ? '<button class="btn-s" data-a="histCarregar">carregar últimas 300</button>' : ''}</div>
     ${D.historico.length ? D.historico.slice().sort((a, b) => String(b.em).localeCompare(String(a.em))).slice(0, 150).map(h => `<div class="small mb"><span class="muted">${fmtDT(h.em)} · ${esc(quem(h.usuario))}</span> — ${esc(descHist(h))}</div>`).join('') : '<div class="empty">Sem registros carregados.</div>'}</div>` : ''}
@@ -150,7 +150,7 @@ VIEWS.config = () => {
   </div>`;
 };
 function lerSim() { try { return JSON.parse(localStorage.getItem(LS_PREFIX + '_sim') || 'null') || { papel: 'direcao', pessoa_id: null }; } catch { return { papel: 'direcao', pessoa_id: null }; } }
-function aplicarSim(s) { ME.online = false; ME.papel = s.papel || 'direcao'; ME.pessoa_id = s.pessoa_id && byId('pessoas', s.pessoa_id) ? s.pessoa_id : null; ME.uid = 'local:' + (ME.pessoa_id || 'direcao'); ME.email = ''; }
+function aplicarSim(s) { restaurarVisao(); ME.online = false; ME.papel = PAPEIS.some(p => p[0] === s.papel) ? s.papel : 'direcao'; ME.pessoa_id = s.pessoa_id && byId('pessoas', s.pessoa_id) ? s.pessoa_id : null; ME.uid = 'local:' + (ME.pessoa_id || 'direcao'); ME.email = ''; aplicarVisaoLocal(); }
 A.simAplicar = () => { const s = { pessoa_id: document.getElementById('sim_p').value || null, papel: document.getElementById('sim_r').value }; try { localStorage.setItem(LS_PREFIX + '_sim', JSON.stringify(s)); } catch { } aplicarSim(s); render(); flash('Usuário alterado: ' + (s.pessoa_id ? nomePessoa(s.pessoa_id) : 'administrador') + ' · ' + lbl(PAPEIS, s.papel)); };
 A.sbConectar = async () => {
   const url = urlProjeto(document.getElementById('sb_url').value), key = document.getElementById('sb_key').value.trim();
@@ -384,8 +384,10 @@ async function confirmarCodigo() {
   if (error) { flash(traduzErro(error), true); return; }
   if (data && data.session && !ME.online) await entrarOnline(data.session);
 }
-/* logins da Direção permanente (definidos no banco: public.emails_direcao_fixa) */
+/* logins do Suporte técnico permanente (definidos no banco: public.emails_suporte_tecnico) */
 const fixo = pf => (ME.fixos || []).includes(String(pf.email || '').toLowerCase());
+/* linha travada em Usuários e acessos: Suporte permanente, ou perfil de Suporte visto por quem não é Suporte */
+const travado = pf => fixo(pf) || (pf.papel === 'suporte' && !Perm.suporte());
 function usarLocal() { try { localStorage.removeItem(LS_PREFIX + '_supabase'); } catch { } location.reload(); }
 async function entrarOnline(session) {
   ME.online = true; ME.uid = session.user.id; ME.email = session.user.email;
@@ -394,7 +396,10 @@ async function entrarOnline(session) {
   const pf = D.perfis.find(p => p.id === ME.uid);
   if (!pf || !pf.ativo) { telaSimples(`<div class="title mb">Acesso aguardando aprovação</div><div class="small">Seu login (${esc(ME.email)}) foi registrado. A Direção precisa ativar seu acesso e ligá-lo ao seu cadastro.</div><div class="mactions"><button onclick="A.sair()">Sair</button></div>`); return; }
   ME.papel = pf.papel; ME.pessoa_id = pf.pessoa_id;
-  try { const { data, error } = await SB.client.rpc('emails_direcao_fixa'); ME.fixos = !error && Array.isArray(data) ? data.map(e => String(e).toLowerCase()) : []; } catch { ME.fixos = []; }
+  ME.fixos = [];
+  for (const fn of ['emails_suporte_tecnico', 'emails_direcao_fixa']) {   // a segunda é da versão 1.3 do banco
+    try { const { data, error } = await SB.client.rpc(fn); if (!error && Array.isArray(data)) { ME.fixos = data.map(e => String(e).toLowerCase()); break; } } catch { }
+  }
   try {   // atualização em tempo real (se o Realtime estiver habilitado no Supabase)
     let pend = new Set(), tm = null;
     SB.client.channel('gpmot').on('postgres_changes', { event: '*', schema: 'public' }, p => {
