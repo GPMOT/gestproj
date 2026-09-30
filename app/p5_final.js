@@ -146,7 +146,6 @@ VIEWS.config = () => {
 
   ${Perm.tem('historico_ver') ? `<div class="card" style="grid-column:1/-1"><div class="between mb"><span class="bold">Histórico de alterações</span>${ME.online ? '<button class="btn-s" data-a="histCarregar">carregar últimas 300</button>' : ''}</div>
     ${D.historico.length ? D.historico.slice().sort((a, b) => String(b.em).localeCompare(String(a.em))).slice(0, 150).map(h => `<div class="small mb"><span class="muted">${fmtDT(h.em)} · ${esc(quem(h.usuario))}</span> — ${esc(descHist(h))}</div>`).join('') : '<div class="empty">Sem registros carregados.</div>'}</div>` : ''}
-  <div class="card" style="grid-column:1/-1"><div class="bold mb">Sobre</div>${sobreHTML(true)}</div>
   </div>`;
 };
 function lerSim() { try { return JSON.parse(localStorage.getItem(LS_PREFIX + '_sim') || 'null') || { papel: 'direcao', pessoa_id: null }; } catch { return { papel: 'direcao', pessoa_id: null }; } }
@@ -423,6 +422,18 @@ function sobreHTML(cfg) {
   const txt = `<h2>${SOBRE.titulo}</h2><div class="copy">© 2026 GPMOT/UFSM. Todos os direitos reservados.</div><p class="aviso">${SOBRE.aviso}</p>${dados}<div class="rodape">${esc(SOBRE.rodape)}</div>`;
   return cfg ? `<div class="sobre sobre-cfg">${MARCA.logo}<div>${txt}</div></div>` : `<div class="sobre">${MARCA.logo}${txt}<div class="barra"><i></i></div></div>`;
 }
+VIEWS.sobre = () => `<div class="card" style="max-width:980px">${sobreHTML(true)}</div>`;
+/* modo local: escolher quem você é (a Leitura não abre as Configurações, então a troca é por esta janela) */
+A.trocarUsuario = () => {
+  const sim = lerSim(), pessoas = (D_TODOS ? D_TODOS.pessoas : D.pessoas).filter(p => p.ativo !== false).slice().sort(byName('nome'));
+  openModal(`<h3>Trocar usuário (modo local)</h3><div class="small muted mb">No modo local não há login: escolha quem você é e com qual papel, para testar o que cada perfil vê e pode fazer.</div>
+    <div class="fgrid"><div><label class="fl">Pessoa</label><select id="tu_p"><option value="">— nenhuma (administrador) —</option>${pessoas.map(p => `<option value="${p.id}"${sim.pessoa_id === p.id ? ' selected' : ''}>${esc(p.nome)}</option>`).join('')}</select></div>
+    <div><label class="fl">Papel</label><select id="tu_r">${PAPEIS.map(([v, l]) => `<option value="${v}"${sim.papel === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
+    <div class="mactions"><button id="tu_n">Cancelar</button><button class="btn-p" id="tu_y">Aplicar</button></div>`);
+  document.getElementById('tu_n').onclick = closeModal;
+  document.getElementById('tu_y').onclick = () => { const s = { pessoa_id: document.getElementById('tu_p').value || null, papel: document.getElementById('tu_r').value };
+    try { localStorage.setItem(LS_PREFIX + '_sim', JSON.stringify(s)); } catch { } aplicarSim(s); closeModal(); render(); flash('Usuário: ' + (s.pessoa_id ? nomePessoa(s.pessoa_id) : 'administrador') + ' · ' + lbl(PAPEIS, s.papel)); };
+};
 function abertura() {   // 1 s na abertura; clicar pula. Não aparece nos testes automáticos (navigator.webdriver), salvo com ?abertura=1
   if (navigator.webdriver && !/[?&]abertura=1\b/.test(location.search)) return;
   const d = document.createElement('div'); d.id = 'abertura'; d.title = 'Clique para continuar'; d.innerHTML = sobreHTML(false);

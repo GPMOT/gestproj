@@ -57,12 +57,13 @@ const ICON = {
   infra: '<path d="M3 21V9l9-5 9 5v12"/><path d="M3 21h18"/><rect x="8" y="13" width="3" height="4"/><rect x="13" y="13" width="3" height="4"/>',
   relatorios: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 15.5h6M9 19h4"/>',
   config: '<path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
+  sobre: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
 };
 const ic = k => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[k] || ''}</svg>`;
-const TITULOS = { painel: 'Painel', projetos: 'Projetos', entregas: 'Entregas e prazos', cronograma: 'Cronograma', prospeccao: 'Prospecção', equipe: 'Equipe', tarefas: 'Tarefas', gerencias: 'Gerências', financeiro: 'Financeiro', infra: 'Infraestrutura', relatorios: 'Relatórios', config: 'Configurações' };
+const TITULOS = { painel: 'Painel', projetos: 'Projetos', entregas: 'Entregas e prazos', cronograma: 'Cronograma', prospeccao: 'Prospecção', equipe: 'Equipe', tarefas: 'Tarefas', gerencias: 'Gerências', financeiro: 'Financeiro', infra: 'Infraestrutura', relatorios: 'Relatórios', config: 'Configurações', sobre: 'Sobre' };
 function tabVisivel(t) {
   if (t === 'financeiro') return D.projetos.some(p => Perm.veFin(p.id));
-  if (ME.papel === 'leitura' && ['prospeccao', 'infra', 'gerencias'].includes(t)) return false;   // Leitura: só acompanha os próprios projetos
+  if (ME.papel === 'leitura' && ['prospeccao', 'infra', 'gerencias', 'relatorios', 'config'].includes(t)) return false;   // Leitura: só acompanha os próprios projetos
   return true;
 }
 function navItens() {
@@ -89,7 +90,7 @@ function navItens() {
       { t: 'financeiro', l: 'Financeiro', subs: SUBS_FIN.map(([v, l]) => ({ l, g: 'fin', v, on: UI.tab === 'financeiro' && (UI.sub.fin || 'resumo') === v })) },
       { t: 'infra', l: 'Infraestrutura', n: pend + alInfra, nc: alInfra ? 'bad' : 'warn', nt: `${pend} solicitação(ões) a confirmar · ${alInfra} alerta(s) grave(s)`,
         subs: [['itens', 'Itens'], ['agenda', 'Agenda de uso', pend], ['manut', 'Manutenções'], ['hab', 'Habilitações'], ['uso', 'Horas por projeto']].map(([v, l, n]) => ({ l, g: 'infra', v, n, on: UI.tab === 'infra' && (UI.sub.infra || 'itens') === v })) }] },
-    { grupo: 'Sistema', itens: [{ t: 'relatorios', l: 'Relatórios' }, { t: 'config', l: 'Configurações' }] },
+    { grupo: 'Sistema', itens: [{ t: 'relatorios', l: 'Relatórios' }, { t: 'config', l: 'Configurações' }, { t: 'sobre', l: 'Sobre' }] },
   ].map(g => ({ ...g, itens: g.itens.filter(i => tabVisivel(i.t)) })).filter(g => g.itens.length);
 }
 function lsGet(k, def) { try { const v = localStorage.getItem(LS_PREFIX + k); return v == null ? def : JSON.parse(v); } catch { return def; } }
@@ -114,7 +115,7 @@ function sidebar() {
     <div class="nv-foot">
       <div class="nv-user" title="${esc(papelTexto())}"><span class="av">${esc(ini || '?')}</span><span class="nv-l"><b>${esc(nome)}</b><br><span>${esc(papelTexto())}</span></span></div>
       <div class="nv-l nv-mode ${ME.online ? 'online' : ''}">${ME.online ? '● Online' : '● Local (este navegador)'}</div>
-      ${ME.online ? `<button class="nv-btn nv-l" data-a="sair">Sair</button>` : `<button class="nv-btn nv-l" data-a="nav" data-t="config">Trocar usuário</button>`}
+      ${ME.online ? `<button class="nv-btn nv-l" data-a="sair">Sair</button>` : `<button class="nv-btn nv-l" data-a="trocarUsuario">Trocar usuário</button>`}
     </div>`;
 }
 A.nav = d => {

@@ -232,7 +232,7 @@ const ignorar = t => /WebSocket|realtime|ERR_CONNECTION_REFUSED|status of 40[0-9
   ok(lt.papel === 'leitura' && lt.proj === LEITOR.projetos, `Leitura recebe do banco só os ${LEITOR.projetos} projeto(s) de que participa`, { recebeu: lt.proj });
   ok(lt.fin === 0 && lt.prosp === 0 && lt.infra === 0, 'banco não entrega valores, prospecção nem infraestrutura à Leitura');
   ok(lt.emailsTerceiros === 0 && lt.proprio && lt.pessoas < 30, 'banco entrega só as pessoas dos seus projetos, sem e-mail de terceiros; o próprio cadastro completo', { pessoas: lt.pessoas });
-  ok(!/Prospecção|Infraestrutura|Gerências|Financeiro/.test(lt.menu), 'menu da Leitura sem Prospecção, Infraestrutura, Gerências e Financeiro');
+  ok(!/Prospecção|Infraestrutura|Gerências|Financeiro|Relatórios|Configurações/.test(lt.menu) && /Sobre/.test(lt.menu), 'menu da Leitura sem Prospecção, Infraestrutura, Gerências, Financeiro, Relatórios e Configurações');
   const ltGrava = await u4.pg.evaluate(async () => { try { await SB.update('projetos', D.projetos[0].id, { resumo: 'leitura tentou' }, D.projetos[0]); return 'gravou'; } catch (e) { return traduzErro(e); } });
   ok(ltGrava !== 'gravou', 'banco recusa gravação da Leitura', ltGrava);
   const direto = await u4.pg.evaluate(async () => { const r = await SB.client.from('pessoas').select('*'); return r.data ? r.data.length : r.error.message; });
