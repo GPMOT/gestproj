@@ -8,7 +8,7 @@
    - Modo online: preencha SUPABASE_CONFIG abaixo (ou em Configurações)
      e o programa passa a ler e gravar no banco Supabase, com login.
    ════════════════════════════════════════════════════════════════════ */
-const VERSAO = '2.21';
+const VERSAO = '2.24';
 const VERSAO_DATA = '30/09/2026';
 const SUPABASE_CONFIG = { url: '', anonKey: '' };   // ← preencher na implantação
 
@@ -273,6 +273,9 @@ const Perm = {
   /* participa: alocação ativa ou pausada, ou vaga do plano ocupada — é o que a Leitura enxerga */
   participa: pid => !!ME.pessoa_id && (D.alocacoes.some(a => a.projeto_id === pid && a.pessoa_id === ME.pessoa_id && ['ativo', 'pausado'].includes(a.status)) || D.equipe_plano.some(e => e.projeto_id === pid && e.pessoa_id === ME.pessoa_id)),
   veProjeto: pid => Perm.podeEditar() || Perm.participa(pid),
+  /* vê valores de projeto (contrato, aditivos, portfólio): quem tem cargo — Direção, Suporte técnico, gerência, coordenação ou vice.
+     Membros sem cargo e Leitura veem valores só nas janelas financeiras (às quais, sem cargo, não têm acesso). */
+  veValores: () => Perm.dir() || (Perm.podeEditar() && (Perm.gerenciasAtivas().length > 0 || Perm.coordenaAlgum())),
   alocado: pid => !!ME.pessoa_id && D.alocacoes.some(a => a.projeto_id === pid && a.pessoa_id === ME.pessoa_id),
   gereProjeto: pid => Perm.dir() || Perm.coordena(pid) || Perm.tem('projetos_editar'),
   veFin: pid => Perm.dir() || Perm.coordena(pid) || Perm.tem('financeiro_ver'),

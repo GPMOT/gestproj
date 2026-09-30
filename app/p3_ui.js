@@ -90,7 +90,7 @@ function navItens() {
       { t: 'financeiro', l: 'Financeiro', subs: SUBS_FIN.map(([v, l]) => ({ l, g: 'fin', v, on: UI.tab === 'financeiro' && (UI.sub.fin || 'resumo') === v })) },
       { t: 'infra', l: 'Infraestrutura', n: pend + alInfra, nc: alInfra ? 'bad' : 'warn', nt: `${pend} solicitação(ões) a confirmar · ${alInfra} alerta(s) grave(s)`,
         subs: [['itens', 'Itens'], ['agenda', 'Agenda de uso', pend], ['manut', 'Manutenções'], ['hab', 'Habilitações'], ['uso', 'Horas por projeto']].map(([v, l, n]) => ({ l, g: 'infra', v, n, on: UI.tab === 'infra' && (UI.sub.infra || 'itens') === v })) }] },
-    { grupo: 'Sistema', itens: [{ t: 'relatorios', l: 'Relatórios' }, { t: 'config', l: 'Configurações' }, { t: 'sobre', l: 'Sobre' }] },
+    { grupo: 'Sistema', itens: [{ t: 'relatorios', l: 'Relatórios', subs: SUBS_REL.map(([v, l]) => ({ l, g: 'rel', v, on: UI.tab === 'relatorios' && (UI.sub.rel || 'projeto') === v })) }, { t: 'config', l: 'Configurações' }, { t: 'sobre', l: 'Sobre' }] },
   ].map(g => ({ ...g, itens: g.itens.filter(i => tabVisivel(i.t)) })).filter(g => g.itens.length);
 }
 function lsGet(k, def) { try { const v = localStorage.getItem(LS_PREFIX + k); return v == null ? def : JSON.parse(v); } catch { return def; } }
@@ -422,7 +422,7 @@ function painelPortfolio() {
   const nS = k => S.filter(x => x.sinal === k).length;
   const equipe = D.pessoas.filter(p => p.ativo !== false && p.tipo !== 'ic').length, ics = D.pessoas.filter(p => p.ativo !== false && p.tipo === 'ic').length;
   const vagas = D.equipe_plano.filter(e => ['vaga', 'selecao'].includes(e.status)).length;
-  const mets = [['Projetos vigentes', vig.filter(p => Calc.vigente(p)).length], ['Valor dos vigentes', fmtMi(vig.reduce((s, p) => s + num(p.valor_total), 0))],
+  const mets = [['Projetos vigentes', vig.filter(p => Calc.vigente(p)).length], ...(Perm.veValores() ? [['Valor dos vigentes', fmtMi(vig.reduce((s, p) => s + num(p.valor_total), 0))]] : []),
     ['Críticos / atenção', `${nS('bad')} / ${nS('warn')}`, nS('bad') ? 'color:var(--red)' : ''], ['Entregas atrasadas', S.reduce((s, x) => s + x.entAtr, 0), S.some(x => x.entAtr) ? 'color:var(--red)' : ''],
     ['Vagas abertas', vagas, vagas ? 'color:var(--yellow-txt)' : ''], ['Equipe / IC', `${equipe} / ${ics}`]];
   const algumFin = S.some(x => x.veF);
@@ -514,7 +514,7 @@ function cardProjeto(p) {
       ${p.placeholder ? badge('dados incompletos', 'b-gray') : ''}${Calc.vencido(p) ? badge('vigência vencida', 'b-red') : ''}${p.situacao !== 'vigente' ? badge(lbl(SITUACAO_PROJ, p.situacao), 'b-gray') : ''}</div></div>
     <div class="small muted mb">${esc(p.nome || '')}</div>
     <div class="kv mb"><span class="k">Financiador</span><span>${esc(p.financiador || '—')}</span>
-      <span class="k">Valor</span><span>${fmtMi(p.valor_total)}</span>
+      ${Perm.veValores() ? `<span class="k">Valor</span><span>${fmtMi(p.valor_total)}</span>` : ''}
       <span class="k">Período</span><span>${fmtMes(p.inicio)} → ${fmtMes(p.fim)}</span>
       <span class="k">Coordenação</span><span>${esc(coord || '—')}</span>
       <span class="k">Tarefas</span><span>${nT} aberta(s)${nA ? ` · <b style="color:var(--red)">${nA} atrasada(s)</b>` : ''}</span>
@@ -544,8 +544,8 @@ function camposProjeto(p) {
     { k: 'programa', l: 'Programa (ex.: Mover, Rota 2030)' }, { k: 'chamada', l: 'Chamada / edital' },
     { k: 'linha_tematica', l: 'Linha / área temática' }, { k: 'numero_contrato', l: 'Nº do convênio / contrato' },
     { k: 'data_assinatura', l: 'Data de assinatura', t: 'date' }, { k: '_sp', t: 'sec', l: '', hide: true },
-    { k: 'valor_total', l: 'Aporte do financiador — parte UFSM (R$)', t: 'money', min: 0 },
-    { k: 'contrapartida', l: 'Contrapartidas — parte UFSM (R$)', t: 'money', min: 0 },
+    { k: 'valor_total', l: 'Aporte do financiador — parte UFSM (R$)', t: 'money', min: 0, hide: !Perm.veValores() },
+    { k: 'contrapartida', l: 'Contrapartidas — parte UFSM (R$)', t: 'money', min: 0, hide: !Perm.veValores() },
     { k: 'inicio', l: 'Início da vigência', t: 'date', req: true },
     { k: 'fim', l: 'Término da vigência', t: 'date', req: true, help: p && Calc.aditivosDe(p.id).length ? 'Prorrogações: registre como aditivo (aba Contrato), não edite aqui.' : 'Prorrogações futuras: registre como aditivo (aba Contrato).' },
     { k: 'resumo', l: 'Resumo / objetivo', t: 'textarea', rows: 3 },
@@ -606,7 +606,7 @@ function projResumo(p) {
         ${p.programa || p.chamada ? `<span class="k">Programa / chamada</span><span>${esc([p.programa, p.chamada].filter(Boolean).join(' · '))}</span>` : ''}
         <span class="k">Fundação gestora</span><span>${esc(p.fundacao_apoio || '—')}</span>
         <span class="k">Coordenação</span><span>${esc(coord || '—')}</span>
-        <span class="k">Aporte (UFSM)</span><span>${fmtBRL(p.valor_total)}${num(p.contrapartida) ? ` + contrapartida ${fmtBRL(p.contrapartida)}` : ''}</span>
+        ${Perm.veValores() ? `<span class="k">Aporte (UFSM)</span><span>${fmtBRL(p.valor_total)}${num(p.contrapartida) ? ` + contrapartida ${fmtBRL(p.contrapartida)}` : ''}</span>` : ''}
         <span class="k">Vigência</span><span>${fmtD(p.inicio)} → ${fmtD(p.fim)} (${monthsIncl(p.inicio, p.fim)} meses)${vo !== p.fim ? `<br><span class="small muted">original até ${fmtD(vo)} · prorrogado por aditivo</span>` : ''}</span>
         <span class="k">Fase</span><span>${esc(p.fase || '—')}</span>
         ${(() => { const t = Calc.equipePlano(p).tot; return t.posicoes ? `<span class="k">Equipe do plano</span><span><button class="link" style="font-weight:400" data-a="projAba" data-v="equipe">${t.ocupadas} de ${t.posicoes} posições ocupadas${t.vagas ? ` · <b style="color:var(--yellow-txt)">${t.vagas} vaga(s) aberta(s)</b>` : ''}${t.selecao ? ` · ${t.selecao} em seleção` : ''}</button></span>` : ''; })()}
@@ -624,48 +624,48 @@ function projResumo(p) {
   </div>`;
 }
 function projContrato(p) {
-  const gere = Perm.gereProjeto(p.id), ads = Calc.aditivosDe(p.id);
+  const gere = Perm.gereProjeto(p.id), ads = Calc.aditivosDe(p.id), V = Perm.veValores();
   const vo = Calc.vigenciaOriginal(p), vl = Calc.valorOriginal(p);
   const kv = (k, v) => `<span class="k">${k}</span><span>${v}</span>`;
   return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(360px,1fr))">
     <div class="card"><div class="between mb"><span class="bold">Edital e contrato — parte UFSM</span>${gere ? `<button class="btn-s" data-a="projEditar" data-id="${p.id}">✎ editar</button>` : ''}</div>
       <div class="kv">${kv('Tipo', esc(lbl(TIPOS_PROJ, p.tipo || 'edital')))}${kv('Financiador', esc(p.financiador || '—'))}${kv('Programa', esc(p.programa || '—'))}${kv('Chamada / edital', esc(p.chamada || '—'))}
         ${kv('Linha / área temática', esc(p.linha_tematica || '—'))}${kv('Nº convênio / contrato', esc(p.numero_contrato || '—'))}${kv('Assinatura', fmtD(p.data_assinatura))}${kv('Fundação gestora', esc(p.fundacao_apoio || '—'))}</div></div>
-    <div class="card"><div class="bold mb">Valores e vigência</div>
-      <div class="kv">${kv('Aporte (UFSM)', fmtBRL2(p.valor_total) + (vl !== num(p.valor_total) ? ` <span class="small muted">(original ${fmtBRL2(vl)})</span>` : ''))}${kv('Contrapartidas (UFSM)', fmtBRL2(p.contrapartida))}
-        ${kv('Valor global (UFSM)', `<b>${fmtBRL2(num(p.valor_total) + num(p.contrapartida))}</b>`)}
+    <div class="card"><div class="bold mb">${V ? 'Valores e vigência' : 'Vigência'}</div>
+      <div class="kv">${V ? kv('Aporte (UFSM)', fmtBRL2(p.valor_total) + (vl !== num(p.valor_total) ? ` <span class="small muted">(original ${fmtBRL2(vl)})</span>` : '')) + kv('Contrapartidas (UFSM)', fmtBRL2(p.contrapartida))
+        + kv('Valor global (UFSM)', `<b>${fmtBRL2(num(p.valor_total) + num(p.contrapartida))}</b>`) : ''}
         ${kv('Vigência atual', `${fmtD(p.inicio)} → ${fmtD(p.fim)} (${monthsIncl(p.inicio, p.fim)} meses)`)}
         ${vo !== p.fim ? kv('Vigência original', `${fmtD(p.inicio)} → ${fmtD(vo)} (${monthsIncl(p.inicio, vo)} meses)`) : ''}
         ${kv('Tempo decorrido', (() => { const tot = toDate(p.fim) - toDate(p.inicio), dec = Math.min(Math.max(toDate(hoje()) - toDate(p.inicio), 0), tot); return tot > 0 ? `${barraExec(dec, tot).replace(/executado/, 'do prazo')} ` : '—'; })())}</div></div>
   </div>
   ${p.resumo ? `<div class="card mt"><div class="bold mb">Resumo / objetivo</div><div class="small" style="white-space:pre-line">${esc(p.resumo)}</div></div>` : ''}
   <div class="sec between"><span>Termos aditivos (${ads.length})</span>${gere ? `<button class="btn-s btn-p" data-a="aditivoNovo" data-projeto="${p.id}">+ Registrar aditivo</button>` : ''}</div>
-  <div class="card tw" style="padding:4px 8px">${ads.length ? `<table class="t"><tr><th>Aditivo</th><th>Tipo</th><th>Assinatura</th><th>Vigência</th><th class="num">Valor</th><th>Justificativa</th><th>Documento</th></tr>
+  <div class="card tw" style="padding:4px 8px">${ads.length ? `<table class="t"><tr><th>Aditivo</th><th>Tipo</th><th>Assinatura</th><th>Vigência</th>${V ? '<th class="num">Valor</th>' : ''}<th>Justificativa</th><th>Documento</th></tr>
     ${ads.map(a => `<tr class="${gere ? 'click' : ''}" ${gere ? `data-a="aditivoEditar" data-id="${a.id}"` : ''}><td><b>${esc(a.numero || '—')}</b></td><td class="small">${esc(lbl(TIPOS_ADITIVO, a.tipo))}</td><td class="small">${fmtD(a.data_assinatura)}</td>
-      <td class="small">${a.novo_fim ? `${fmtD(a.fim_anterior)} → <b>${fmtD(a.novo_fim)}</b>` : '—'}</td><td class="num small">${a.novo_valor != null && a.novo_valor !== '' ? `${fmtBRL(a.valor_anterior)} → <b>${fmtBRL(a.novo_valor)}</b>` : '—'}</td>
+      <td class="small">${a.novo_fim ? `${fmtD(a.fim_anterior)} → <b>${fmtD(a.novo_fim)}</b>` : '—'}</td>${V ? `<td class="num small">${a.novo_valor != null && a.novo_valor !== '' ? `${fmtBRL(a.valor_anterior)} → <b>${fmtBRL(a.novo_valor)}</b>` : '—'}</td>` : ''}
       <td class="small">${esc(a.justificativa || '')}</td><td class="small">${linkOuTexto(a.documento)}</td></tr>`).join('')}</table>` : '<div class="empty">Nenhum aditivo registrado.</div>'}</div>
-  <div class="small muted mt">Ao registrar um aditivo, o término e/ou o valor do projeto são atualizados e os anteriores ficam guardados aqui. Excluir o aditivo desfaz a alteração.</div>`;
+  <div class="small muted mt">Ao registrar um aditivo, o término${V ? ' e/ou o valor' : ''} do projeto ${V ? 'são atualizados e os anteriores ficam' : 'é atualizado e o anterior fica'} guardado${V ? 's' : ''} aqui. Excluir o aditivo desfaz a alteração.</div>`;
 }
 const linkOuTexto = s => !s ? '' : /^https?:\/\//i.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">abrir ↗</a>` : esc(s);
 function camposAditivo(p, a) {
   const n = Calc.aditivosDe(p.id).length + (a ? 0 : 1);
   return [{ k: 'numero', l: 'Identificação', ph: `${n}º Termo Aditivo` },
-  { k: 'tipo', l: 'Tipo', t: 'select', blank: false, req: true, opts: TIPOS_ADITIVO, ro: !!a },
+  { k: 'tipo', l: 'Tipo', t: 'select', blank: false, req: true, opts: a || Perm.veValores() ? TIPOS_ADITIVO : TIPOS_ADITIVO.filter(([k]) => !['valor', 'prazo_valor'].includes(k)), ro: !!a },
   { k: 'data_assinatura', l: 'Data de assinatura', t: 'date' },
   { k: 'novo_fim', l: `Novo término (atual: ${fmtD(p.fim)})`, t: 'date', ro: !!a },
-  { k: 'novo_valor', l: `Novo valor do aporte UFSM (atual: ${fmtBRL(p.valor_total)})`, t: 'money', min: 0, ro: !!a },
+  { k: 'novo_valor', l: Perm.veValores() ? `Novo valor do aporte UFSM (atual: ${fmtBRL(p.valor_total)})` : '', t: 'money', min: 0, ro: !!a, hide: !Perm.veValores() },
   { k: 'documento', l: 'Documento (nº do processo ou link)' },
   { k: 'justificativa', l: 'Justificativa', t: 'textarea', rows: 3 }];
 }
 A.aditivoNovo = d => { const p = byId('projetos', d.projeto); const n = Calc.aditivosDe(p.id).length + 1;
-  form({ title: 'Registrar aditivo — ' + p.sigla, fields: camposAditivo(p, null), values: { numero: `${n}º Termo Aditivo`, tipo: 'prazo' },
+  form({ title: 'Registrar aditivo — ' + p.sigla, fields: camposAditivo(p, null), values: { numero: `${n}º Termo Aditivo`, tipo: d.tipo || 'prazo' },
     intro: '<div class="note mb small">O novo término e/ou o novo valor passam a valer no projeto ao salvar. Deixe em branco o que não mudou.</div>',
     onSave: x => Data.insert('aditivos', { ...x, projeto_id: p.id }), okMsg: '✓ Aditivo registrado — vigência/valor do projeto atualizados' }); };
 A.aditivoEditar = d => { const a = byId('aditivos', d.id), p = byId('projetos', a.projeto_id);
   form({ title: (a.numero || 'Aditivo') + ' — ' + p.sigla, fields: camposAditivo(p, a), values: a,
     intro: '<div class="note mb small">Tipo, novo término e novo valor não se editam: para corrigir, exclua o aditivo (a alteração no projeto é desfeita) e registre de novo.</div>',
     onSave: x => { ['tipo', 'novo_fim', 'novo_valor'].forEach(k => delete x[k]); return Data.update('aditivos', a.id, x); },
-    onDelete: () => Data.remove('aditivos', a.id), deleteConfirm: `Excluir ${a.numero || 'o aditivo'}?\nSe o projeto ainda estiver com o término/valor deste aditivo, eles voltam para ${a.novo_fim ? fmtD(a.fim_anterior) : ''}${a.novo_fim && a.novo_valor != null ? ' e ' : ''}${a.novo_valor != null && a.novo_valor !== '' ? fmtBRL(a.valor_anterior) : ''}.` }); };
+    onDelete: () => Data.remove('aditivos', a.id), deleteConfirm: `Excluir ${a.numero || 'o aditivo'}?\nSe o projeto ainda estiver com o término/valor deste aditivo, eles voltam para ${a.novo_fim ? fmtD(a.fim_anterior) : ''}${a.novo_fim && a.novo_valor != null ? ' e ' : ''}${a.novo_valor != null && a.novo_valor !== '' ? (Perm.veValores() ? fmtBRL(a.valor_anterior) : 'o valor anterior') : ''}.` }); };
 
 /* entregas e prazos do projeto */
 function tabelaEntregas(list, o = {}) {
@@ -1121,10 +1121,27 @@ function projTarefas(p) {
 }
 function projFinanceiro(p) {
   const v = UI.sub.projFin || 'orcamento';
-  return `<div class="toolbar"><div class="row"><button class="chip${v === 'orcamento' ? ' on' : ''}" data-a="sub" data-g="projFin" data-v="orcamento">Orçamento por rubrica</button><button class="chip${v === 'plano' ? ' on' : ''}" data-a="sub" data-g="projFin" data-v="plano">Plano de aplicação${(() => { const n = D.plano_itens.filter(i => i.projeto_id === p.id && i.status !== 'cancelado').length; return n ? ` <span class="small muted">(${n})</span>` : ''; })()}</button><button class="chip${v === 'desembolso' ? ' on' : ''}" data-a="sub" data-g="projFin" data-v="desembolso">Desembolso${(() => { const t = Calc.desembolso(p).tot; return t.atrasadas.length ? ` <span class="nv-n bad" style="margin-left:4px">${t.atrasadas.length}</span>` : ''; })()}</button></div>
+  return `<div class="toolbar"><div class="row"><button class="chip${v === 'contrato' ? ' on' : ''}" data-a="sub" data-g="projFin" data-v="contrato">Valores do contrato</button><button class="chip${v === 'orcamento' ? ' on' : ''}" data-a="sub" data-g="projFin" data-v="orcamento">Orçamento por rubrica</button><button class="chip${v === 'plano' ? ' on' : ''}" data-a="sub" data-g="projFin" data-v="plano">Plano de aplicação${(() => { const n = D.plano_itens.filter(i => i.projeto_id === p.id && i.status !== 'cancelado').length; return n ? ` <span class="small muted">(${n})</span>` : ''; })()}</button><button class="chip${v === 'desembolso' ? ' on' : ''}" data-a="sub" data-g="projFin" data-v="desembolso">Desembolso${(() => { const t = Calc.desembolso(p).tot; return t.atrasadas.length ? ` <span class="nv-n bad" style="margin-left:4px">${t.atrasadas.length}</span>` : ''; })()}</button></div>
     <div class="row"><button class="btn-s" data-a="despVer" data-projeto="${p.id}">Despesas</button><button class="btn-s" data-a="finAbrirBolsas" data-id="${p.id}">Bolsas e pagamentos</button>${Perm.editaFin(p.id) ? `<button class="btn-p" data-a="despNova" data-projeto="${p.id}">+ Lançar gasto</button>` : ''}</div></div>
-  ${v === 'plano' ? finPlano(p) : v === 'desembolso' ? finDesembolso(p) : orcTabela(p)}`;
+  ${v === 'contrato' ? finContrato(p) : v === 'plano' ? finPlano(p) : v === 'desembolso' ? finDesembolso(p) : orcTabela(p)}`;
 }
+/* Valores do contrato (parte UFSM) e aditivos de valor — só aqui aparecem os valores do projeto */
+function finContrato(p) {
+  const gere = Perm.gereProjeto(p.id), vl = Calc.valorOriginal(p), ads = Calc.aditivosDe(p.id).filter(a => a.novo_valor != null && a.novo_valor !== '');
+  const kv = (k, v) => `<span class="k">${k}</span><span>${v}</span>`;
+  return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(360px,1fr))">
+    <div class="card"><div class="between mb"><span class="bold">Valores do contrato — parte UFSM</span>${gere ? `<button class="btn-s" data-a="projValores" data-id="${p.id}">✎ editar</button>` : ''}</div>
+      <div class="kv">${kv('Aporte do financiador', fmtBRL2(p.valor_total) + (vl !== num(p.valor_total) ? ` <span class="small muted">(original ${fmtBRL2(vl)})</span>` : ''))}${kv('Contrapartidas', fmtBRL2(p.contrapartida))}
+        ${kv('Valor global', `<b>${fmtBRL2(num(p.valor_total) + num(p.contrapartida))}</b>`)}</div></div>
+    <div class="card"><div class="between mb"><span class="bold">Aditivos de valor (${ads.length})</span>${gere ? `<button class="btn-s btn-p" data-a="aditivoNovo" data-projeto="${p.id}" data-tipo="valor">+ Aditivo de valor</button>` : ''}</div>
+      ${ads.length ? `<table class="t"><tr><th>Aditivo</th><th>Assinatura</th><th class="num">Valor</th></tr>${ads.map(a => `<tr class="${gere ? 'click' : ''}" ${gere ? `data-a="aditivoEditar" data-id="${a.id}"` : ''}><td><b>${esc(a.numero || '—')}</b><div class="small muted">${esc(lbl(TIPOS_ADITIVO, a.tipo))}</div></td><td class="small">${fmtD(a.data_assinatura)}</td><td class="num small">${fmtBRL(a.valor_anterior)} → <b>${fmtBRL(a.novo_valor)}</b></td></tr>`).join('')}</table>` : '<div class="empty" style="padding:4px 0">Nenhum aditivo de valor.</div>'}</div>
+  </div>`;
+}
+A.projValores = d => { const p = byId('projetos', d.id);
+  form({ title: 'Valores do contrato — ' + p.sigla, fields: [
+    { k: 'valor_total', l: 'Aporte do financiador — parte UFSM (R$)', t: 'money', min: 0, help: Calc.aditivosDe(p.id).some(a => a.novo_valor != null && a.novo_valor !== '') ? 'Mudanças de valor por termo aditivo: registre como aditivo de valor, não edite aqui.' : '' },
+    { k: 'contrapartida', l: 'Contrapartidas — parte UFSM (R$)', t: 'money', min: 0 }], values: p,
+    onSave: x => Data.update('projetos', p.id, fixProj(x)) }); };
 A.finAbrirBolsas = d => { UI.tab = 'financeiro'; UI.f.finProj = d.id; UI.sub.fin = 'bolsas'; UI.projeto = null; window.scrollTo(0, 0); render(); };
 function projHistorico(p) {
   return historicoBloco(r => r.registro_id === p.id || (r.alteracoes && (r.alteracoes.projeto_id === p.id || (Array.isArray(r.alteracoes.projeto_id) && r.alteracoes.projeto_id.includes(p.id)))), 200) || '<div class="empty">Sem registros.</div>';

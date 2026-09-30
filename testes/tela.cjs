@@ -155,11 +155,14 @@ const TESTES = {
     const log = (...a) => console.log(...a);
     // 1. novo projeto via formulário
     await pg.click('.nv-a[data-t="projetos"]'); await pg.click('[data-a="projNovo"]');
-    await pg.fill('#fld_sigla', 'HIDRO-X'); await pg.fill('#fld_nome', 'Hidrogênio em motores pesados'); await pg.fill('#fld_valor_total', '1250000');
+    await pg.fill('#fld_sigla', 'HIDRO-X'); await pg.fill('#fld_nome', 'Hidrogênio em motores pesados');
     await pg.fill('#fld_inicio', '2026-11-01'); await pg.click('#m_ok'); await pg.waitForTimeout(150);
     log('erro esperado (sem término):', await pg.textContent('#m_err'));
     await pg.fill('#fld_fim', '2028-10-31'); await pg.click('#m_ok'); await pg.waitForTimeout(200);
     log('projeto criado, detalhe aberto:', await pg.textContent('.title[style]'));
+    // valores do contrato: só na aba Financeiro do projeto
+    await pg.evaluate(() => A.projValores({ id: UI.projeto })); await pg.fill('#fld_valor_total', '1250000'); await pg.click('#m_ok'); await pg.waitForTimeout(150);
+    log('valor do contrato (Financeiro):', await pg.evaluate(() => byId('projetos', UI.projeto).valor_total));
     // 2. alocar pessoa como coordenadora
     await pg.click('.ptab[data-v="equipe"]'); await pg.click('[data-a="alocNova"]'); await pg.selectOption('#fld_pessoa_id', { label: 'Lucas Giuliani Scherer' }); await pg.selectOption('#fld_nivel', '3'); await pg.fill('#fld_papel', 'COG'); await pg.selectOption('#fld__coord', 'coord'); await pg.click('#m_ok'); await pg.waitForTimeout(150);
     log('alocação:', await pg.evaluate(() => D.alocacoes.filter(a => a.projeto_id === UI.projeto).map(a => [nomePessoa(a.pessoa_id), a.nivel, a.carga_pct, a.coordena])));
@@ -374,8 +377,9 @@ const TESTES = {
     // 1) editar dados do contrato
     await pg.evaluate(id => A.projAbrir({ id }), G); await pg.click('.ptab[data-v="contrato"]'); await pg.click('[data-a="projEditar"]');
     await pg.fill('#fld_programa', 'Rota 2030'); await pg.fill('#fld_chamada', 'Linha V — Biocombustíveis'); await pg.fill('#fld_numero_contrato', 'FDMS 045/2023');
-    await pg.fill('#fld_fundacao_apoio', 'FDMS'); await pg.fill('#fld_contrapartida', '120000'); await pg.fill('#fld_data_assinatura', '2023-12-15'); await pg.fill('#fld_resumo', 'Desenvolvimento de sistema glowplug para motor diesel/etanol.');
+    await pg.fill('#fld_fundacao_apoio', 'FDMS'); await pg.fill('#fld_data_assinatura', '2023-12-15'); await pg.fill('#fld_resumo', 'Desenvolvimento de sistema glowplug para motor diesel/etanol.');
     await pg.click('#m_ok'); await pg.waitForTimeout(150);
+    await pg.evaluate(id => A.projValores({ id }), G); await pg.fill('#fld_contrapartida', '120000'); await pg.click('#m_ok'); await pg.waitForTimeout(150);
     log('1) contrato:', await pg.evaluate(id => { const p = byId('projetos', id); return [p.programa, p.numero_contrato, p.contrapartida, p.data_assinatura]; }, G));
     // 2) aditivo de prazo pelo formulário
     await pg.click('[data-a="aditivoNovo"]'); await pg.fill('#fld_data_assinatura', '2025-11-20'); await pg.fill('#fld_novo_fim', '2026-12-31'); await pg.fill('#fld_justificativa', 'Atraso no recebimento do motor e dos componentes importados.'); await pg.click('#m_ok'); await pg.waitForTimeout(150);
@@ -525,7 +529,9 @@ const TESTES = {
     await pg.click('#m_ok'); await pg.waitForTimeout(200); log('flash:', await pg.textContent('#flash'));
     // editar bolsa prevista pelo formulário
     const G = await pg.evaluate(id => D.equipe_plano.find(e => e.projeto_id === id && e.nome_plano.startsWith('Bolsista de Graduação 1')).id, P);
-    await pg.click(`tr[data-a="vagaEditar"][data-id="${G}"]`); await pg.fill('#fld_b_valor', '1200'); await pg.fill('#fld_b_meses', '36'); await pg.selectOption('#fld_status', 'selecao'); await pg.click('#m_ok'); await pg.waitForTimeout(200);
+    await pg.click(`tr[data-a="vagaEditar"][data-id="${G}"]`); await pg.selectOption('#fld_status', 'selecao'); await pg.click('#m_ok'); await pg.waitForTimeout(200);
+    // o valor da bolsa prevista é editado no Financeiro › Plano de aplicação
+    await pg.evaluate(g => A.bolsaPlanoEditar({ id: g }), G); await pg.fill('#fld_valor_mensal', '1200'); await pg.fill('#fld_meses', '36'); await pg.click('#m_ok'); await pg.waitForTimeout(200);
     log('edição:', await pg.evaluate(g => { const r = linhaVaga(g); return [r.e.status, r.bolsa.valor_mensal, r.bolsa.meses]; }, G));
     log('conferência:', await pg.evaluate(() => (document.querySelector('.note.small.mb') || {}).innerText || '—'));
     // membro sem permissão
@@ -1049,6 +1055,25 @@ const TESTES = {
     await pg.selectOption('#fld__coord', 'coord'); await pg.click('#m_ok'); await pg.waitForTimeout(200);
     ok(/Somente a Direção pode definir coordenadores/.test(await pg.textContent('.merr, #flash').catch(() => '')) || await pg.evaluate(id => !byId('alocacoes', id).coordena, pj.outros[1].id), 'o titular não nomeia outro coordenador');
     await pg.evaluate(() => closeModal && closeModal());
+    // valores de projeto: quem tem cargo (Direção, Suporte, gerência, coordenação/vice) vê como antes;
+    // Membro sem cargo e Leitura só veriam valores nas janelas financeiras (às quais não têm acesso)
+    const varre = () => { const re = /R\$\s?[\d.,]+|\d+,\d+ ?mi\b/g, fora = [];
+      const conta = n => { const m = document.getElementById('app').innerText.match(re); if (m) fora.push(n + ': ' + m.slice(0, 2).join(' ')); };
+      for (const t of ['painel', 'projetos', 'entregas', 'cronograma', 'prospeccao', 'tarefas', 'gerencias', 'infra', 'relatorios', 'config', 'sobre']) { UI.projeto = null; A.nav({ t }); if (UI.tab === t) conta(t); }
+      UI.sub.painel = 'portfolio'; A.nav({ t: 'painel' }); conta('painel/portfólio');
+      for (const v of ['matriz', 'pessoas', 'vagas', 'bolsas', 'entrada']) { UI.sub.equipe = v; A.nav({ t: 'equipe' }); conta('equipe/' + v); }
+      for (const p of D.projetos) for (const aba of ['resumo', 'contrato', 'cronograma', 'entregas', 'docs', 'equipe', 'tarefas']) { A.projAbrir({ id: p.id, aba }); conta(p.sigla + '/' + aba); }
+      UI.projeto = null; return fora; };
+    const semCargo = await pg.evaluate(() => D.pessoas.find(pe => !D.alocacoes.some(a => a.pessoa_id === pe.id && (a.coordena || a.vice_coordena)) && !D.gerencia_membros.some(g => g.pessoa_id === pe.id) && D.alocacoes.some(a => a.pessoa_id === pe.id && a.status === 'ativo')).id);
+    const rMembro = await pg.evaluate(new Function('id', `aplicarSim({ papel: 'membro', pessoa_id: id }); const r = { ve: Perm.veValores(), fora: (${varre.toString()})() }; return r;`), semCargo);
+    ok(!rMembro.ve && !rMembro.fora.length, 'Membro sem cargo não vê valores de projeto fora do Financeiro', rMembro.fora.slice(0, 4));
+    const rLeitura = await pg.evaluate(new Function('id', `aplicarSim({ papel: 'leitura', pessoa_id: id }); const r = { ve: Perm.veValores(), fora: (${varre.toString()})() }; aplicarSim({ papel: 'direcao', pessoa_id: null }); return r;`), alvo.id);
+    ok(!rLeitura.ve && !rLeitura.fora.length, 'Leitura não vê valores de projeto', rLeitura.fora.slice(0, 4));
+    const rDir = await pg.evaluate(() => { aplicarSim({ papel: 'direcao', pessoa_id: null }); UI.sub.painel = 'portfolio'; A.nav({ t: 'painel' }); const painel = /Valor dos vigentes/.test(document.getElementById('app').innerText);
+      A.projAbrir({ id: D.projetos.find(p => p.valor_total > 0).id, aba: 'contrato' }); const contrato = /Aporte \(UFSM\)/.test(document.getElementById('app').innerText); UI.projeto = null; return { painel, contrato }; });
+    ok(rDir.painel && rDir.contrato, 'Direção continua vendo os valores como antes (Painel e Contrato)', rDir);
+    const rCoord = await pg.evaluate(o => { aplicarSim({ papel: 'membro', pessoa_id: o }); const r = Perm.veValores(); aplicarSim({ papel: 'direcao', pessoa_id: null }); return r; }, pj.titular);
+    ok(rCoord, 'coordenador (membro com cargo) vê valores como antes');
     console.log(errs.join('\n') || 'no page errors'); await b.close();
     process.exit(falhas || errs.length ? 1 : 0);
   })();

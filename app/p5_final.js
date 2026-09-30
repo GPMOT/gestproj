@@ -4,18 +4,21 @@
    ════════════════════════════════════════════════════════════════════ */
 UI.rel = { escopo: 'completo', financiador: '', secoes: { resumo: true, saude: true, portfolio: true, financeiro: true, cronograma: true, equipe: true, gerencias: true, infra: true, prospeccao: true } };
 const SECOES_REL = [['resumo', 'Resumo executivo'], ['saude', 'Saúde dos projetos (físico × financeiro)'], ['portfolio', 'Portfólio'], ['financeiro', 'Financeiro'], ['cronograma', 'Cronograma, aditivos e entregas'], ['equipe', 'Equipe e atribuições'], ['gerencias', 'Gerências e demandas'], ['infra', 'Infraestrutura'], ['prospeccao', 'Prospecção']];
+const SUBS_REL = [['projeto', 'Relatório de projeto'], ['lab', 'Relatório do laboratório']];
+const barraGerarRel = (acao, nota) => `<div class="card mt"><div class="between" style="gap:16px;flex-wrap:wrap"><div class="small muted" style="max-width:760px">Abre uma prévia com opções de imprimir / salvar em PDF, Word (.docx) e Markdown. ${nota}</div><button class="btn-p" data-a="${acao}">Gerar relatório →</button></div></div>`;
 VIEWS.relatorios = () => {
   const tipo = UI.sub.rel || 'projeto';
-  const chips = `<div class="subtabs">${[['projeto', 'Relatório de projeto (físico-financeiro)'], ['lab', 'Relatório do laboratório']].map(([k, l]) => `<button class="chip${tipo === k ? ' on' : ''}" data-a="sub" data-g="rel" data-v="${k}">${l}</button>`).join('')}</div>`;
+  const chips = `<div class="subtabs">${SUBS_REL.map(([k, l]) => `<button class="chip${tipo === k ? ' on' : ''}" data-a="sub" data-g="rel" data-v="${k}">${l}</button>`).join('')}</div>`;
   if (tipo === 'projeto') return chips + relProjetoForm();
   const c = UI.rel, fins = [...new Set(D.projetos.map(p => p.financiador).filter(Boolean))].sort();
-  return chips + `<div class="card" style="max-width:720px">
-    <div class="bold mb">Relatório do laboratório (portfólio)</div>
-    <div class="fgrid"><div><label class="fl">Escopo</label><select onchange="UI.rel.escopo=this.value;render()"><option value="completo"${c.escopo === 'completo' ? ' selected' : ''}>Portfólio completo (vigentes)</option><option value="financiador"${c.escopo === 'financiador' ? ' selected' : ''}>Por financiador</option><option value="todos"${c.escopo === 'todos' ? ' selected' : ''}>Todos os projetos (inclui encerrados)</option></select></div>
-    ${c.escopo === 'financiador' ? `<div><label class="fl">Financiador</label><select onchange="UI.rel.financiador=this.value">${fins.map(f => `<option${c.financiador === f ? ' selected' : ''}>${esc(f)}</option>`).join('')}</select></div>` : '<div></div>'}</div>
-    <label class="fl mt">Seções</label><div class="checks">${SECOES_REL.map(([k, l]) => `<label><input type="checkbox" ${c.secoes[k] ? 'checked' : ''} onchange="UI.rel.secoes['${k}']=this.checked"> ${l}</label>`).join('')}</div>
-    <div class="mactions"><button class="btn-p" data-a="relGerar">Gerar relatório →</button></div>
-    <div class="small muted">Abre uma prévia com opções de imprimir / salvar em PDF, Word (.docx) e Markdown. O relatório respeita suas permissões: valores financeiros só aparecem para projetos que você pode ver.</div></div>`;
+  return chips + `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(380px,1fr))">
+    <div class="card"><div class="bold mb">Escopo</div>
+      <div class="fgrid"><div class="full"><label class="fl">Projetos incluídos</label><select onchange="UI.rel.escopo=this.value;render()"><option value="completo"${c.escopo === 'completo' ? ' selected' : ''}>Portfólio completo (vigentes)</option><option value="financiador"${c.escopo === 'financiador' ? ' selected' : ''}>Por financiador</option><option value="todos"${c.escopo === 'todos' ? ' selected' : ''}>Todos os projetos (inclui encerrados)</option></select></div>
+      ${c.escopo === 'financiador' ? `<div class="full"><label class="fl">Financiador</label><select onchange="UI.rel.financiador=this.value">${fins.map(f => `<option${c.financiador === f ? ' selected' : ''}>${esc(f)}</option>`).join('')}</select></div>` : ''}</div>
+      <div class="small muted mt">Relatório geral do laboratório: portfólio, saúde dos projetos, cronogramas, equipe, gerências e infraestrutura.</div></div>
+    <div class="card"><div class="bold mb">Seções do relatório</div><div class="checks">${SECOES_REL.map(([k, l]) => `<label><input type="checkbox" ${c.secoes[k] ? 'checked' : ''} onchange="UI.rel.secoes['${k}']=this.checked"> ${l}${k === 'financeiro' && !D.projetos.some(p => Perm.veFin(p.id)) ? ' (sem acesso)' : ''}</label>`).join('')}</div></div>
+  </div>
+  ${barraGerarRel('relGerar', 'Valores financeiros só aparecem na seção Financeiro, e apenas dos projetos cujo financeiro você pode ver.')}`;
 };
 function montarRelatorio() {
   const c = UI.rel; if (c.escopo === 'financiador' && !c.financiador) c.financiador = [...new Set(D.projetos.map(p => p.financiador).filter(Boolean))].sort()[0] || '';
@@ -26,7 +29,7 @@ function montarRelatorio() {
   const P = (s, txt) => s.blocks.push({ p: txt }); const T = (s, head, rows) => s.blocks.push({ head, rows }); const H3 = (s, txt) => s.blocks.push({ h3: txt });
   if (c.secoes.resumo) {
     const s = sec('Resumo executivo'); const cnt = k => projs.filter(p => p.status === k).length;
-    P(s, `${projs.length} projeto(s) no escopo · valor contratado ${fmtBRL(projs.reduce((a, p) => a + num(p.valor_total), 0))}.`);
+    P(s, `${projs.length} projeto(s) no escopo${Perm.veValores() ? ` · valor contratado ${fmtBRL(projs.reduce((a, p) => a + num(p.valor_total), 0))}` : ''}.`);
     P(s, `Status: ${cnt('em_dia')} em dia · ${cnt('atencao')} em atenção · ${cnt('critico')} crítico(s) · ${cnt('pendente')} pendente(s).`);
     const venc = projs.filter(Calc.vencido); if (venc.length) P(s, `Vigência vencida sem encerramento: ${venc.map(p => p.sigla).join(', ')}.`);
     const al = projs.filter(p => ['critico', 'atencao'].includes(p.status));
@@ -37,7 +40,7 @@ function montarRelatorio() {
     const s = sec('Saúde dos projetos'), SS = projs.map(p => Calc.saudeProjeto(p));
     T(s, ['Projeto', 'Vigência até', 'Físico (real / previsto)', 'Execução financeira', 'Entregas atrasadas', 'Vagas', 'Sinal', 'Motivos'], SS.map(x => [x.p.sigla, fmtD(x.p.fim), x.fis ? `${x.fis.pct}% / ${x.fis.prev}%` : '—', x.fin ? `${x.fin.pct}% (tempo ${x.tempoPct}%)` : '—', String(x.entAtr), String(x.eq.vagas), SINAL[x.sinal][0], [...x.mot.bad, ...x.mot.warn].join('; ')]));
   }
-  if (c.secoes.portfolio) { const s = sec('Portfólio de projetos'); T(s, ['Projeto', 'Tipo', 'Financiador', 'Valor', 'Vigência', 'Coordenação', 'Fase', 'Status'], projs.map(p => [p.sigla + (p.nome ? ' — ' + p.nome : ''), lbl(TIPOS_PROJ, p.tipo || 'edital'), p.financiador || '—', fmtBRL(p.valor_total), `${fmtD(p.inicio)} – ${fmtD(p.fim)}`, nomesCoordenacao(p.id) || '—', p.fase || '—', STATUS_PROJ[p.status][0]])); }
+  if (c.secoes.portfolio) { const s = sec('Portfólio de projetos'); const V = Perm.veValores(); T(s, ['Projeto', 'Tipo', 'Financiador', ...(V ? ['Valor'] : []), 'Vigência', 'Coordenação', 'Fase', 'Status'], projs.map(p => [p.sigla + (p.nome ? ' — ' + p.nome : ''), lbl(TIPOS_PROJ, p.tipo || 'edital'), p.financiador || '—', ...(V ? [fmtBRL(p.valor_total)] : []), `${fmtD(p.inicio)} – ${fmtD(p.fim)}`, nomesCoordenacao(p.id) || '—', p.fase || '—', STATUS_PROJ[p.status][0]])); }
   if (c.secoes.financeiro) {
     const s = sec('Financeiro'); const vis = projs.filter(p => Perm.veFin(p.id));
     T(s, ['Projeto', 'Tipo', 'Valor contratado', 'Aprovado', 'Previsto', 'Executado', 'Saldo', '% exec.'], vis.map(p => { const t = Calc.totaisOrc(p.id); return [p.sigla, lbl(TIPOS_PROJ, p.tipo || 'edital'), fmtBRL(p.valor_total), fmtBRL(t.aprovado), fmtBRL(t.previsto), fmtBRL(t.executado), fmtBRL(t.saldo), t.aprovado ? (t.executado / t.aprovado * 100).toFixed(1) + '%' : '—']; }));
@@ -111,10 +114,38 @@ A.relGerar = () => {
 /* ════════════════════════════════════════════════════════════════════
    CONFIGURAÇÕES — usuário, armazenamento, backup, importação
    ════════════════════════════════════════════════════════════════════ */
+/* cargos da pessoa (determinam o que ela vê além do papel): gerências em exercício e coordenação/vice */
+function cargosDe(pessoaId) {
+  if (!pessoaId) return [];
+  const t = hoje(), c = [];
+  D.gerencia_membros.filter(gm => gm.pessoa_id === pessoaId && (!gm.desde || gm.desde <= t) && (!gm.ate || gm.ate >= t)).forEach(gm => { const g = byId('gerencias', gm.gerencia_id); if (g && g.ativa) c.push(g.nome.replace(/^Gerência (de |d[ao] )?/, 'Ger. ') + (gm.funcao === 'adjunto' ? ' (adj.)' : '')); });
+  D.alocacoes.filter(a => a.pessoa_id === pessoaId && (a.coordena || a.vice_coordena)).forEach(a => c.push((a.coordena ? 'Coord. ' : 'Vice-coord. ') + siglaProjeto(a.projeto_id)));
+  return c;
+}
+A.setf = d => { UI.f[d.f] = d.v; render(); };
+function cardUsuarios() {
+  const fil = UI.f.usrFil || 'todos';
+  const lista = D.perfis.slice().sort((a, b) => (a.ativo - b.ativo) || String(a.email).localeCompare(String(b.email)));
+  const pend = lista.filter(pf => !pf.ativo).length, semPessoa = lista.filter(pf => pf.ativo && !pf.pessoa_id).length;
+  const vis = lista.filter(pf => fil === 'todos' || (fil === 'pendentes' ? !pf.ativo : fil === 'ativos' ? pf.ativo : pf.papel === fil));
+  const linha = pf => `<tr${!pf.ativo ? ' style="background:var(--yellow-bg)"' : ''}>
+      <td><b>${esc(pf.email)}</b>${fixo(pf) ? '<div class="small muted">Suporte técnico permanente</div>' : ''}${!pf.ativo ? '<div class="small" style="color:var(--yellow-txt);font-weight:600">aguardando aprovação</div>' : ''}</td>
+      <td style="min-width:220px"><select onchange="run(()=>Data.update('perfis','${pf.id}',{pessoa_id:this.value||null}).then(render))"><option value="">— ligar a uma pessoa —</option>${optPessoas().map(([v, l]) => `<option value="${v}"${pf.pessoa_id === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>${pf.ativo && !pf.pessoa_id ? '<div class="small" style="color:var(--yellow-txt)">sem pessoa: não aparece como responsável nem vê "Minha semana"</div>' : ''}</td>
+      <td style="min-width:170px"><select ${travado(pf) ? `disabled title="${fixo(pf) ? 'Acesso permanente do Suporte técnico' : 'Só o Suporte técnico altera este perfil'}"` : ''} onchange="run(()=>Data.update('perfis','${pf.id}',{papel:this.value}).then(render))">${PAPEIS.filter(([v]) => v !== 'suporte' || Perm.suporte() || pf.papel === 'suporte').map(([v, l]) => `<option value="${v}"${pf.papel === v ? ' selected' : ''}>${l}</option>`).join('')}</select></td>
+      <td class="small">${cargosDe(pf.pessoa_id).map(c => `<span class="tag">${esc(c)}</span>`).join(' ') || '<span class="faint">—</span>'}</td>
+      <td style="text-align:center"><input type="checkbox" style="width:auto" ${pf.ativo ? 'checked' : ''} ${travado(pf) ? 'disabled' : ''} title="${pf.ativo ? 'Acesso liberado' : 'Liberar acesso'}" onchange="run(()=>Data.update('perfis','${pf.id}',{ativo:this.checked}).then(render))"></td>
+      <td class="small muted">${fmtD(String(pf.criado_em || '').slice(0, 10))}</td></tr>`;
+  return `<div class="card" style="grid-column:1/-1"><div class="between mb" style="flex-wrap:wrap;gap:8px"><span class="bold">Usuários e acessos <span class="small muted" style="font-weight:400">· ${lista.length} login(s)${pend ? ` · <b style="color:var(--yellow-txt)">${pend} aguardando aprovação</b>` : ''}${semPessoa ? ` · ${semPessoa} sem pessoa ligada` : ''}</span></span>
+      <div class="row">${[['todos', 'Todos'], ['pendentes', 'Aguardando'], ['ativos', 'Ativos'], ...PAPEIS].map(([v, l]) => `<button class="chip${fil === v ? ' on' : ''}" data-a="setf" data-f="usrFil" data-v="${v}">${l}</button>`).join('')}</div></div>
+    <div class="small muted mb">Novos logins entram sem acesso: ligue cada um a uma pessoa do cadastro, escolha o papel e marque <b>Ativo</b>. <b>Leitura</b>: bolsistas que estão começando (só os projetos de que participam, sem valores). <b>Membro</b>: equipe com responsabilidades de gestão. Os <b>cargos</b> (gerências, coordenação e vice) vêm dos cadastros de Gerências e das alocações e ampliam o acesso.</div>
+    <div class="tw"><table class="t"><tr><th>Login (e-mail)</th><th>Pessoa do cadastro</th><th>Papel</th><th>Cargos</th><th style="text-align:center">Ativo</th><th>Desde</th></tr>
+      ${vis.map(linha).join('') || '<tr><td colspan="6" class="empty">Nenhum usuário neste filtro.</td></tr>'}</table></div></div>`;
+}
 VIEWS.config = () => {
   const cfg = SB.cfg() || {};
   const sim = lerSim();
   return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(380px,1fr))">
+  ${ME.online && Perm.dir() ? cardUsuarios() : ''}
   ${!ME.online ? `<div class="card"><div class="bold mb">Usuário (modo local)</div>
     <div class="small muted mb">No modo local não há login. Escolha quem você é e com qual papel, para trabalhar e para testar o que cada perfil vê e pode fazer. No modo online isso vem do login.</div>
     <div class="fgrid"><div><label class="fl">Pessoa</label><select id="sim_p"><option value="">— nenhuma (administrador) —</option>${(D_TODOS ? D_TODOS.pessoas : D.pessoas).filter(p => p.ativo !== false).slice().sort(byName('nome')).map(p => [p.id, p.nome]).map(([v, l]) => `<option value="${v}"${sim.pessoa_id === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
@@ -122,32 +153,29 @@ VIEWS.config = () => {
     <div class="mactions"><button class="btn-p" data-a="simAplicar">Aplicar</button></div>
     <div class="small muted">Permissões efetivas agora: ${Perm.minhas().map(p => `<span class="tag">${p}</span>`).join('') || '<i>nenhuma de gerência</i>'}${Perm.coordenaAlgum() ? ' + coordenação de ' + D.alocacoes.filter(a => a.pessoa_id === ME.pessoa_id && (a.coordena || a.vice_coordena)).map(a => siglaProjeto(a.projeto_id)).join(', ') : ''}</div></div>` : ''}
 
-  <div class="card"><div class="bold mb">Armazenamento</div>
-    ${ME.online ? `<div class="alert ok">Conectado ao banco online: ${esc(cfg.url || '')}</div><div class="row mt"><button data-a="recarregar">↻ Recarregar dados</button></div>`
-      : `<div class="alert warn">Modo local: os dados ficam só neste navegador. Exporte backups com frequência.</div>
+  <div class="card"><div class="bold mb">Armazenamento <span class="small muted" style="font-weight:400">· onde ficam os dados</span></div>
+    ${ME.online ? `<div class="alert ok">Online: os dados ficam no banco do laboratório (Supabase) e são compartilhados por toda a equipe.<div class="small mt">${esc(cfg.url || '')}</div></div>
+      <div class="small muted mb">As alterações de outras pessoas aparecem sozinhas em alguns segundos. Se algo parecer desatualizado, recarregue.</div><div class="row"><button data-a="recarregar">↻ Recarregar dados do banco</button></div>`
+      : `<div class="alert warn">Modo local: os dados ficam só neste navegador, neste computador. Exporte backups com frequência.</div>
     <div class="small muted mb">Para usar o banco online (Supabase), crie o projeto, rode o arquivo <b>gpmot_schema.sql</b> no SQL Editor e informe abaixo a URL do projeto e a chave <b>pública</b> (Project Settings → API Keys: a <i>publishable key</i>, que começa com <code>sb_publishable_</code>, ou a antiga <i>anon key</i>). Nunca use a chave secreta (<code>sb_secret_</code> / service_role).</div>
     <div class="fgrid"><div class="full"><label class="fl">URL do projeto Supabase</label><input id="sb_url" placeholder="https://xxxx.supabase.co" value="${esc(cfg.url || '')}"></div>
     <div class="full"><label class="fl">Chave pública (publishable / anon)</label><input id="sb_key" placeholder="sb_publishable_…" value="${esc(cfg.anonKey || '')}"></div></div>
     <div class="mactions"><button class="btn-p" data-a="sbConectar">Conectar ao banco online</button></div>`}</div>
 
-  <div class="card"><div class="bold mb">Backup</div>
-    <div class="small muted mb">Arquivo JSON com todas as tabelas. ${ME.online ? 'No modo online, “Enviar backup” grava o conteúdo do arquivo no banco (use para migrar os dados locais).' : 'Importar substitui todos os dados deste navegador.'}</div>
+  <div class="card"><div class="bold mb">Backup <span class="small muted" style="font-weight:400">· cópia de segurança em arquivo</span></div>
+    <div class="small muted mb">${ME.online ? 'Baixa um arquivo JSON com os dados que você pode ver. Guarde uma cópia com frequência — no plano gratuito da Supabase não há backup automático.' : 'Baixa um arquivo JSON com todos os dados deste navegador.'}</div>
     <div class="row"><button data-a="bkExportar">↓ Exportar backup</button>
       ${Perm.dir() ? `<label class="row" style="cursor:pointer"><span class="btn" style="border:1px solid #c8c6c0;border-radius:7px;padding:5px 12px;background:#fff">↑ ${ME.online ? 'Enviar backup ao banco' : 'Importar backup'}</span><input type="file" accept=".json" style="display:none" onchange="importarArquivo(this.files[0],'backup');this.value=''"></label>` : ''}</div>
-    ${Perm.dir() ? `<div class="sec">Dados da versão anterior</div><div class="small muted mb">Converte o JSON exportado pelo programa antigo (gpmot-portfolio-*.json) para a nova estrutura. Você verá um resumo antes de confirmar.</div>
+    ${Perm.dir() ? `<div class="small muted mt">${ME.online ? '<b>Enviar backup ao banco</b> grava no banco o conteúdo do arquivo: registros com o mesmo identificador são sobrescritos pela versão do arquivo e os que não existem são criados; nada é apagado. Serve para migrar dados ou recuperar registros.' : '<b>Importar backup</b> substitui todos os dados deste navegador pelos do arquivo.'}</div>
+    <div class="sec">Dados da versão anterior</div><div class="small muted mb">Converte o JSON exportado pelo programa antigo (gpmot-portfolio-*.json) para a nova estrutura. Você verá um resumo antes de confirmar.</div>
     <label class="row" style="cursor:pointer"><span style="border:1px solid #c8c6c0;border-radius:7px;padding:5px 12px;background:#fff">↑ Importar JSON do programa antigo</span><input type="file" accept=".json" style="display:none" onchange="importarArquivo(this.files[0],'v1');this.value=''"></label>` : ''}
     ${!ME.online && Perm.dir() ? `<div class="sec">Zona de risco</div><button class="btn-d" data-a="zerar">Apagar todos os dados deste navegador</button>` : ''}</div>
-
-  ${ME.online && Perm.dir() ? `<div class="card"><div class="bold mb">Usuários e acessos</div><div class="small muted mb">Novos logins entram sem acesso. Ligue cada usuário a uma pessoa do cadastro, escolha o papel e ative. Bolsistas de IC que estão começando entram como <b>Leitura</b> (veem só os projetos de que participam, sem valores); com mais responsabilidades, passam a <b>Membro</b>.</div>
-    ${D.perfis.sort(byName('email')).map(pf => `<div class="fgrid mb" style="grid-template-columns:1.2fr 1.2fr .8fr auto;align-items:end"><div class="small"><b>${esc(pf.email)}</b>${fixo(pf) ? '<br><span class="muted">Suporte técnico permanente</span>' : pf.papel === 'suporte' ? '<br><span class="muted">Suporte técnico</span>' : ''}</div>
-      <select onchange="run(()=>Data.update('perfis','${pf.id}',{pessoa_id:this.value||null}).then(render))"><option value="">— pessoa —</option>${optPessoas().map(([v, l]) => `<option value="${v}"${pf.pessoa_id === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>
-      <select ${travado(pf) ? `disabled title="${fixo(pf) ? 'Acesso permanente do Suporte técnico' : 'Só o Suporte técnico altera este perfil'}"` : ''} onchange="run(()=>Data.update('perfis','${pf.id}',{papel:this.value}).then(render))">${PAPEIS.filter(([v]) => v !== 'suporte' || Perm.suporte() || pf.papel === 'suporte').map(([v, l]) => `<option value="${v}"${pf.papel === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
-      <label class="row small"><input type="checkbox" ${pf.ativo ? 'checked' : ''} ${travado(pf) ? 'disabled' : ''} onchange="run(()=>Data.update('perfis','${pf.id}',{ativo:this.checked}).then(render))"> ativo</label></div>`).join('') || '<div class="empty">Nenhum usuário.</div>'}</div>` : ''}
 
   ${Perm.tem('historico_ver') ? `<div class="card" style="grid-column:1/-1"><div class="between mb"><span class="bold">Histórico de alterações</span>${ME.online ? '<button class="btn-s" data-a="histCarregar">carregar últimas 300</button>' : ''}</div>
     ${D.historico.length ? D.historico.slice().sort((a, b) => String(b.em).localeCompare(String(a.em))).slice(0, 150).map(h => `<div class="small mb"><span class="muted">${fmtDT(h.em)} · ${esc(quem(h.usuario))}</span> — ${esc(descHist(h))}</div>`).join('') : '<div class="empty">Sem registros carregados.</div>'}</div>` : ''}
   </div>`;
 };
+
 function lerSim() { try { return JSON.parse(localStorage.getItem(LS_PREFIX + '_sim') || 'null') || { papel: 'direcao', pessoa_id: null }; } catch { return { papel: 'direcao', pessoa_id: null }; } }
 function aplicarSim(s) { restaurarVisao(); ME.online = false; ME.papel = PAPEIS.some(p => p[0] === s.papel) ? s.papel : 'direcao'; ME.pessoa_id = s.pessoa_id && byId('pessoas', s.pessoa_id) ? s.pessoa_id : null; ME.uid = 'local:' + (ME.pessoa_id || 'direcao'); ME.email = ''; aplicarVisaoLocal(); }
 A.simAplicar = () => { const s = { pessoa_id: document.getElementById('sim_p').value || null, papel: document.getElementById('sim_r').value }; try { localStorage.setItem(LS_PREFIX + '_sim', JSON.stringify(s)); } catch { } aplicarSim(s); render(); flash('Usuário alterado: ' + (s.pessoa_id ? nomePessoa(s.pessoa_id) : 'administrador') + ' · ' + lbl(PAPEIS, s.papel)); };

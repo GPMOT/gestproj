@@ -213,18 +213,20 @@ function relProjetoForm() {
   const p = byId('projetos', c.pid), fin = Perm.veFin(p.id);
   if (!c.de) { c.de = [p.inicio, addDays(hoje(), -182)].sort().pop(); c.ate = hoje(); }
   const t = c.txt[p.id] = c.txt[p.id] || {};
-  return `<div class="card" style="max-width:860px">
-    <div class="bold mb">Relatório de acompanhamento físico-financeiro do projeto</div>
-    <div class="fgrid"><div><label class="fl">Projeto</label><select id="rp_proj">${projs.map(x => `<option value="${x.id}"${x.id === p.id ? ' selected' : ''}>${esc(x.sigla)}${x.situacao !== 'vigente' ? ' (' + lbl(SITUACAO_PROJ, x.situacao) + ')' : ''}</option>`).join('')}</select></div>
-      <div class="row" style="align-items:end;gap:6px"><div><label class="fl">De</label><input type="date" id="rp_de" value="${c.de}"></div><div><label class="fl">Até</label><input type="date" id="rp_ate" value="${c.ate}"></div></div>
-      <div class="full row small" style="gap:6px"><span class="muted">Período rápido:</span>${[['sem', 'Últimos 6 meses'], ['ano', 'Últimos 12 meses'], ['ano_civil', 'Ano anterior'], ['tudo', 'Desde o início']].map(([k, l]) => `<button class="btn-s" data-a="rpPeriodo" data-v="${k}">${l}</button>`).join('')}</div></div>
-    <label class="fl mt">Seções</label><div class="checks">${SECOES_PROJ.map(([k, l, f]) => `<label style="${f && !fin ? 'opacity:.5' : ''}"><input type="checkbox" data-rps="${k}" ${c.secoes[k] ? 'checked' : ''} ${f && !fin ? 'disabled' : ''}> ${l}${f && !fin ? ' (sem acesso ao financeiro)' : ''}</label>`).join('')}</div>
-    <label class="fl mt">Resumo das atividades do período <span class="muted">(texto da coordenação, opcional)</span></label><textarea id="rp_t1" rows="4" placeholder="Principais resultados e atividades realizadas no período…">${esc(t.resumo || '')}</textarea>
-    <label class="fl mt">Dificuldades encontradas e soluções adotadas</label><textarea id="rp_t2" rows="3">${esc(t.dif || '')}</textarea>
-    <label class="fl mt">Próximas etapas</label><textarea id="rp_t3" rows="3">${esc(t.prox || '')}</textarea>
-    <label class="row small mt"><input type="checkbox" id="rp_ass" ${c.assinar ? 'checked' : ''}> incluir local, data e espaço para assinatura da coordenação</label>
-    <div class="mactions"><button class="btn-p" data-a="relProjGerar">Gerar relatório →</button></div>
-    <div class="small muted">Abre uma prévia com opções de imprimir / salvar em PDF, Word (.docx) e Markdown. Os textos ficam guardados neste navegador enquanto você prepara o relatório. Valores financeiros só aparecem se você tiver acesso ao financeiro do projeto.</div></div>`;
+  return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(380px,1fr))">
+    <div class="card"><div class="bold mb">Projeto e período</div>
+      <div class="fgrid"><div class="full"><label class="fl">Projeto</label><select id="rp_proj">${projs.map(x => `<option value="${x.id}"${x.id === p.id ? ' selected' : ''}>${esc(x.sigla)}${x.situacao !== 'vigente' ? ' (' + lbl(SITUACAO_PROJ, x.situacao) + ')' : ''}</option>`).join('')}</select></div>
+        <div><label class="fl">De</label><input type="date" id="rp_de" value="${c.de}"></div><div><label class="fl">Até</label><input type="date" id="rp_ate" value="${c.ate}"></div>
+        <div class="full row small" style="gap:6px;flex-wrap:wrap"><span class="muted">Período rápido:</span>${[['sem', 'Últimos 6 meses'], ['ano', 'Últimos 12 meses'], ['ano_civil', 'Ano anterior'], ['tudo', 'Desde o início']].map(([k, l]) => `<button class="btn-s" data-a="rpPeriodo" data-v="${k}">${l}</button>`).join('')}</div></div></div>
+    <div class="card"><div class="bold mb">Seções do relatório</div><div class="checks">${SECOES_PROJ.map(([k, l, f]) => `<label style="${f && !fin ? 'opacity:.5' : ''}"><input type="checkbox" data-rps="${k}" ${c.secoes[k] ? 'checked' : ''} ${f && !fin ? 'disabled' : ''}> ${l}${f && !fin ? ' (sem acesso ao financeiro)' : ''}</label>`).join('')}</div>
+      <label class="row small mt"><input type="checkbox" id="rp_ass" ${c.assinar ? 'checked' : ''}> incluir local, data e espaço para assinatura da coordenação</label></div>
+  </div>
+  <div class="card mt"><div class="bold mb">Textos da coordenação <span class="small muted" style="font-weight:400">(opcionais — ficam guardados neste navegador enquanto você prepara o relatório)</span></div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+      <div><label class="fl">Resumo das atividades do período</label><textarea id="rp_t1" rows="6" placeholder="Principais resultados e atividades realizadas no período…">${esc(t.resumo || '')}</textarea></div>
+      <div><label class="fl">Dificuldades encontradas e soluções adotadas</label><textarea id="rp_t2" rows="6">${esc(t.dif || '')}</textarea></div>
+      <div><label class="fl">Próximas etapas</label><textarea id="rp_t3" rows="6">${esc(t.prox || '')}</textarea></div></div></div>
+  ${barraGerarRel('relProjGerar', 'Valores financeiros só aparecem se você tiver acesso ao financeiro do projeto.')}`;
 }
 const lerFormRelP = () => { const c = UI.relP, g = id => document.getElementById(id); if (!g('rp_proj')) return c;
   const t = c.txt[c.pid] = c.txt[c.pid] || {}; t.resumo = g('rp_t1').value; t.dif = g('rp_t2').value; t.prox = g('rp_t3').value;

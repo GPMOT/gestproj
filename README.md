@@ -2,7 +2,7 @@
 
 Programa de gestão de projetos, equipe, financeiro e infraestrutura do laboratório.
 O produto final é **um único arquivo HTML** (funciona offline, sem instalar nada), montado a partir das partes em `app/`.
-Versão do programa: **2.21** · versão do esquema do banco: **1.4**. Implantação no Supabase: veja `../Guia de implantação online (Supabase).docx`.
+Versão do programa: **2.24** · versão do esquema do banco: **1.4**. Implantação no Supabase: veja `../Guia de implantação online (Supabase).docx`.
 
 ```
 Software de Gestão/
@@ -81,7 +81,7 @@ Abre `app/gpmot.html` no Chromium, carrega os dados do programa antigo e, quando
 | t10–t14 | equipe do plano, plano de aplicação, desembolso, documentos e pendências, Equipe (seleção e contratação) |
 | t15–t18 | Painel, relatório físico-financeiro (.docx), Cronograma do portfólio, Financeiro geral |
 | t19 | tela de abertura (1 s) e janela Sobre |
-| t20 | perfis: Suporte técnico, Leitura (só os próprios projetos, sem valores nem dados pessoais) e vice-coordenação |
+| t20 | perfis (Suporte técnico, Leitura, vice-coordenação) e valores de projeto: visíveis a quem tem cargo; Membro sem cargo e Leitura não veem |
 | `desempenho` | diagnóstico: tempo de cada tela com ≈ 11 mil registros (`node tela.cjs desempenho`) |
 | `celular` | diagnóstico: telas num celular de 390 px (`node tela.cjs celular`) |
 

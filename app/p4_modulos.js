@@ -785,18 +785,41 @@ function infraUso() {
 }
 
 /* ── Plano de aplicação: itens previstos por rubrica × execução ──────── */
+/* bolsas/pessoal previstos nas posições da equipe do plano — valores só aqui (Financeiro) */
+function bolsasPlanoRubrica(p, cod, pode) {
+  const vagas = D.equipe_plano.filter(e => e.projeto_id === p.id).sort((a, b) => num(a.ordem) - num(b.ordem));
+  const com = vagas.map(e => ({ e, b: D.equipe_plano_bolsas.find(q => q.vaga_id === e.id) })).filter(x => x.b && x.b.rubrica === cod);
+  const sem = cod === '1.1.1' && pode ? vagas.filter(e => !D.equipe_plano_bolsas.some(q => q.vaga_id === e.id) && !['encerrada', 'cancelada'].includes(e.status)) : [];
+  if (!com.length && !sem.length) return '';
+  const tot = com.reduce((s, x) => s + num(x.b.valor_mensal) * num(x.b.meses), 0);
+  return `<tr><td></td><td colspan="${pode ? 8 : 7}" class="small"><div class="muted mb">Bolsas/pessoal previstos nas posições da <button class="link" data-a="projAbrir" data-id="${p.id}" data-aba="equipe">equipe do plano de trabalho</button>${com.length ? `: <b>${fmtBRL2(tot)}</b>` : ''}</div>
+    ${com.map(({ e, b }) => `<div class="row mb ${pode ? 'click' : ''}" ${pode ? `data-a="bolsaPlanoEditar" data-id="${e.id}"` : ''} style="gap:10px"><span style="min-width:220px"><b>${esc(e.nome_plano)}</b>${e.pessoa_id ? ` <span class="muted">· ${esc(nomePessoa(e.pessoa_id))}</span>` : ''}</span><span class="muted">${esc(b.modalidade || 'bolsa')}</span><span>${fmtBRL2(b.valor_mensal)}/mês × ${b.meses} = <b>${fmtBRL2(num(b.valor_mensal) * num(b.meses))}</b></span></div>`).join('')}
+    ${sem.length ? `<div class="muted">Posições sem bolsa prevista: ${sem.map(e => `<button class="link" data-a="bolsaPlanoEditar" data-id="${e.id}">${esc(e.nome_plano)} +</button>`).join(' · ')}</div>` : ''}</td></tr>`;
+}
+A.bolsaPlanoEditar = d => {
+  const e = byId('equipe_plano', d.id), b = D.equipe_plano_bolsas.find(q => q.vaga_id === e.id), pid = e.projeto_id;
+  const folhas = D.rubricas.filter(r => r.codigo.startsWith('1.1') && !D.rubricas.some(x => x.pai === r.codigo)).sort(by('ordem'));
+  form({ title: 'Bolsa prevista — ' + e.nome_plano, fields: [
+      { k: 'modalidade', l: 'Modalidade', ph: 'ex.: Mestrado (BM), Coord. geral (COG)' },
+      { k: 'valor_mensal', l: 'Valor mensal (R$)', t: 'money', min: 0, req: true },
+      { k: 'meses', l: 'Duração (meses)', t: 'number', min: 1, max: 120, req: true },
+      { k: 'rubrica', l: 'Rubrica', t: 'select', blank: false, opts: folhas.map(r => [r.codigo, r.codigo + ' ' + r.nome]) }],
+    values: b || { rubrica: '1.1.1', meses: 12 },
+    onSave: x => b ? Data.update('equipe_plano_bolsas', b.id, x) : Data.insert('equipe_plano_bolsas', { ...x, vaga_id: e.id, projeto_id: pid }),
+    onDelete: b ? () => Data.remove('equipe_plano_bolsas', b.id) : null, deleteLabel: 'Retirar a bolsa prevista', deleteConfirm: 'Retirar a bolsa prevista desta posição?' });
+};
 function finPlano(p) {
   const { grupos, tot } = Calc.planoAplicacao(p), pode = Perm.editaFin(p.id), fs = UI.f.paSt || 'todos';
   const eqB = Calc.equipePlano(p).tot.porRubrica;
   const passa = x => fs === 'todos' || (fs === 'pendentes' ? ['previsto', 'em_aquisicao'].includes(x.i.status) : x.i.status === fs);
   const moeda = i => i.moeda && i.moeda !== 'BRL' ? `${esc(i.moeda)} ${fmtNum2(i.valor_unitario)} × câmbio ${String(i.cambio ?? '?').replace('.', ',')}` : fmtBRL2(i.valor_unitario);
-  const blocos = grupos.filter(g => g.itens.length || g.aprovado || g.executado || eqB[g.r.codigo]).map(g => {
+  const blocos = grupos.filter(g => g.itens.length || g.aprovado || g.executado || eqB[g.r.codigo] || (pode && g.r.codigo === '1.1.1' && D.equipe_plano.some(e => e.projeto_id === p.id))).map(g => {
     const its = g.itens.filter(passa);
     const aviso = g.itens.length && Math.abs(g.dif) > 0.5 ? `<span class="small" style="color:var(--yellow-txt)" title="Soma dos itens ≠ aprovado na rubrica">⚠ itens ${g.dif > 0 ? 'acima' : 'abaixo'} do aprovado em ${fmtBRL2(Math.abs(g.dif))}</span>` : '';
     const head = `<tr class="grp"><td class="cod">${esc(g.r.codigo)}</td><td colspan="2"><b>${esc(g.r.nome)}</b> <span class="small muted">· ${g.itens.length} item(ns)</span> ${aviso}</td>
       <td class="num" style="white-space:nowrap">${fmtBRL(g.aprovado)}</td><td class="num small muted" style="white-space:nowrap">${g.itens.length ? fmtBRL(g.previstoItens) : ''}</td><td class="num">${g.n ? `<span class="execlink" data-a="despVer" data-projeto="${p.id}" data-rubrica="${g.r.codigo}">${fmtBRL(g.executado)}</span>` : fmtBRL(0)}</td>
       <td class="num" style="color:${g.aprovado - g.executado < -0.005 ? 'var(--red)' : 'inherit'}">${fmtBRL(g.aprovado - g.executado)}</td><td></td>${pode ? `<td>${g.r.codigo.startsWith('1.1') ? '' : `<button class="btn-s" data-a="itemPlanoNovo" data-projeto="${p.id}" data-rubrica="${g.r.codigo}">+ item</button>`}</td>` : ''}</tr>`;
-    const bolsas = eqB[g.r.codigo] ? `<tr><td></td><td colspan="${pode ? 8 : 7}" class="small muted">Bolsas/pessoal planejados na <button class="link" data-a="projAbrir" data-id="${p.id}" data-aba="equipe">Equipe do plano de trabalho</button>: <b>${fmtBRL2(eqB[g.r.codigo])}</b></td></tr>` : '';
+    const bolsas = bolsasPlanoRubrica(p, g.r.codigo, pode);
     const linhas = its.map(x => { const i = x.i, st = ST_ITEM[i.status] || [i.status, 'b-gray'];
       const infra = i.infra_item_id && byId('infra_itens', i.infra_item_id) ? ` <button class="link small" data-a="itemInfraVer" data-id="${i.infra_item_id}" title="Ver na Infraestrutura">🔧 ${esc(byId('infra_itens', i.infra_item_id).codigo || 'infraestrutura')}</button>` : '';
       const podeInfra = pode && Perm.gereInfraGeral() && g.r.codigo.startsWith('2.1') && i.status === 'adquirido' && !i.infra_item_id;

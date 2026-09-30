@@ -276,7 +276,7 @@ input[type=range]{padding:0;border:none;box-shadow:none}
    - Modo online: preencha SUPABASE_CONFIG abaixo (ou em Configurações)
      e o programa passa a ler e gravar no banco Supabase, com login.
    ════════════════════════════════════════════════════════════════════ */
-const VERSAO = '2.21';
+const VERSAO = '2.24';
 const VERSAO_DATA = '30/09/2026';
 const SUPABASE_CONFIG = { url: "https://wsmvuqldcxuosdfisjob.supabase.co", anonKey: "sb_publishable_LpOyzRZfKrq3uQB2G1ChxA_hd8EaJ89" };   // ← preencher na implantação
 
@@ -541,6 +541,9 @@ const Perm = {
   /* participa: alocação ativa ou pausada, ou vaga do plano ocupada — é o que a Leitura enxerga */
   participa: pid => !!ME.pessoa_id && (D.alocacoes.some(a => a.projeto_id === pid && a.pessoa_id === ME.pessoa_id && ['ativo', 'pausado'].includes(a.status)) || D.equipe_plano.some(e => e.projeto_id === pid && e.pessoa_id === ME.pessoa_id)),
   veProjeto: pid => Perm.podeEditar() || Perm.participa(pid),
+  /* vê valores de projeto (contrato, aditivos, portfólio): quem tem cargo — Direção, Suporte técnico, gerência, coordenação ou vice.
+     Membros sem cargo e Leitura veem valores só nas janelas financeiras (às quais, sem cargo, não têm acesso). */
+  veValores: () => Perm.dir() || (Perm.podeEditar() && (Perm.gerenciasAtivas().length > 0 || Perm.coordenaAlgum())),
   alocado: pid => !!ME.pessoa_id && D.alocacoes.some(a => a.projeto_id === pid && a.pessoa_id === ME.pessoa_id),
   gereProjeto: pid => Perm.dir() || Perm.coordena(pid) || Perm.tem('projetos_editar'),
   veFin: pid => Perm.dir() || Perm.coordena(pid) || Perm.tem('financeiro_ver'),
@@ -1566,7 +1569,7 @@ function navItens() {
       { t: 'financeiro', l: 'Financeiro', subs: SUBS_FIN.map(([v, l]) => ({ l, g: 'fin', v, on: UI.tab === 'financeiro' && (UI.sub.fin || 'resumo') === v })) },
       { t: 'infra', l: 'Infraestrutura', n: pend + alInfra, nc: alInfra ? 'bad' : 'warn', nt: `${pend} solicitação(ões) a confirmar · ${alInfra} alerta(s) grave(s)`,
         subs: [['itens', 'Itens'], ['agenda', 'Agenda de uso', pend], ['manut', 'Manutenções'], ['hab', 'Habilitações'], ['uso', 'Horas por projeto']].map(([v, l, n]) => ({ l, g: 'infra', v, n, on: UI.tab === 'infra' && (UI.sub.infra || 'itens') === v })) }] },
-    { grupo: 'Sistema', itens: [{ t: 'relatorios', l: 'Relatórios' }, { t: 'config', l: 'Configurações' }, { t: 'sobre', l: 'Sobre' }] },
+    { grupo: 'Sistema', itens: [{ t: 'relatorios', l: 'Relatórios', subs: SUBS_REL.map(([v, l]) => ({ l, g: 'rel', v, on: UI.tab === 'relatorios' && (UI.sub.rel || 'projeto') === v })) }, { t: 'config', l: 'Configurações' }, { t: 'sobre', l: 'Sobre' }] },
   ].map(g => ({ ...g, itens: g.itens.filter(i => tabVisivel(i.t)) })).filter(g => g.itens.length);
 }
 function lsGet(k, def) { try { const v = localStorage.getItem(LS_PREFIX + k); return v == null ? def : JSON.parse(v); } catch { return def; } }
@@ -1898,7 +1901,7 @@ function painelPortfolio() {
   const nS = k => S.filter(x => x.sinal === k).length;
   const equipe = D.pessoas.filter(p => p.ativo !== false && p.tipo !== 'ic').length, ics = D.pessoas.filter(p => p.ativo !== false && p.tipo === 'ic').length;
   const vagas = D.equipe_plano.filter(e => ['vaga', 'selecao'].includes(e.status)).length;
-  const mets = [['Projetos vigentes', vig.filter(p => Calc.vigente(p)).length], ['Valor dos vigentes', fmtMi(vig.reduce((s, p) => s + num(p.valor_total), 0))],
+  const mets = [['Projetos vigentes', vig.filter(p => Calc.vigente(p)).length], ...(Perm.veValores() ? [['Valor dos vigentes', fmtMi(vig.reduce((s, p) => s + num(p.valor_total), 0))]] : []),
     ['Críticos / atenção', `${nS('bad')} / ${nS('warn')}`, nS('bad') ? 'color:var(--red)' : ''], ['Entregas atrasadas', S.reduce((s, x) => s + x.entAtr, 0), S.some(x => x.entAtr) ? 'color:var(--red)' : ''],
     ['Vagas abertas', vagas, vagas ? 'color:var(--yellow-txt)' : ''], ['Equipe / IC', `${equipe} / ${ics}`]];
   const algumFin = S.some(x => x.veF);
@@ -1990,7 +1993,7 @@ function cardProjeto(p) {
       ${p.placeholder ? badge('dados incompletos', 'b-gray') : ''}${Calc.vencido(p) ? badge('vigência vencida', 'b-red') : ''}${p.situacao !== 'vigente' ? badge(lbl(SITUACAO_PROJ, p.situacao), 'b-gray') : ''}</div></div>
     <div class="small muted mb">${esc(p.nome || '')}</div>
     <div class="kv mb"><span class="k">Financiador</span><span>${esc(p.financiador || '—')}</span>
-      <span class="k">Valor</span><span>${fmtMi(p.valor_total)}</span>
+      ${Perm.veValores() ? `<span class="k">Valor</span><span>${fmtMi(p.valor_total)}</span>` : ''}
       <span class="k">Período</span><span>${fmtMes(p.inicio)} → ${fmtMes(p.fim)}</span>
       <span class="k">Coordenação</span><span>${esc(coord || '—')}</span>
       <span class="k">Tarefas</span><span>${nT} aberta(s)${nA ? ` · <b style="color:var(--red)">${nA} atrasada(s)</b>` : ''}</span>
@@ -2020,8 +2023,8 @@ function camposProjeto(p) {
     { k: 'programa', l: 'Programa (ex.: Mover, Rota 2030)' }, { k: 'chamada', l: 'Chamada / edital' },
     { k: 'linha_tematica', l: 'Linha / área temática' }, { k: 'numero_contrato', l: 'Nº do convênio / contrato' },
     { k: 'data_assinatura', l: 'Data de assinatura', t: 'date' }, { k: '_sp', t: 'sec', l: '', hide: true },
-    { k: 'valor_total', l: 'Aporte do financiador — parte UFSM (R$)', t: 'money', min: 0 },
-    { k: 'contrapartida', l: 'Contrapartidas — parte UFSM (R$)', t: 'money', min: 0 },
+    { k: 'valor_total', l: 'Aporte do financiador — parte UFSM (R$)', t: 'money', min: 0, hide: !Perm.veValores() },
+    { k: 'contrapartida', l: 'Contrapartidas — parte UFSM (R$)', t: 'money', min: 0, hide: !Perm.veValores() },
     { k: 'inicio', l: 'Início da vigência', t: 'date', req: true },
     { k: 'fim', l: 'Término da vigência', t: 'date', req: true, help: p && Calc.aditivosDe(p.id).length ? 'Prorrogações: registre como aditivo (aba Contrato), não edite aqui.' : 'Prorrogações futuras: registre como aditivo (aba Contrato).' },
     { k: 'resumo', l: 'Resumo / objetivo', t: 'textarea', rows: 3 },
@@ -2082,7 +2085,7 @@ function projResumo(p) {
         ${p.programa || p.chamada ? `<span class="k">Programa / chamada</span><span>${esc([p.programa, p.chamada].filter(Boolean).join(' · '))}</span>` : ''}
         <span class="k">Fundação gestora</span><span>${esc(p.fundacao_apoio || '—')}</span>
         <span class="k">Coordenação</span><span>${esc(coord || '—')}</span>
-        <span class="k">Aporte (UFSM)</span><span>${fmtBRL(p.valor_total)}${num(p.contrapartida) ? ` + contrapartida ${fmtBRL(p.contrapartida)}` : ''}</span>
+        ${Perm.veValores() ? `<span class="k">Aporte (UFSM)</span><span>${fmtBRL(p.valor_total)}${num(p.contrapartida) ? ` + contrapartida ${fmtBRL(p.contrapartida)}` : ''}</span>` : ''}
         <span class="k">Vigência</span><span>${fmtD(p.inicio)} → ${fmtD(p.fim)} (${monthsIncl(p.inicio, p.fim)} meses)${vo !== p.fim ? `<br><span class="small muted">original até ${fmtD(vo)} · prorrogado por aditivo</span>` : ''}</span>
         <span class="k">Fase</span><span>${esc(p.fase || '—')}</span>
         ${(() => { const t = Calc.equipePlano(p).tot; return t.posicoes ? `<span class="k">Equipe do plano</span><span><button class="link" style="font-weight:400" data-a="projAba" data-v="equipe">${t.ocupadas} de ${t.posicoes} posições ocupadas${t.vagas ? ` · <b style="color:var(--yellow-txt)">${t.vagas} vaga(s) aberta(s)</b>` : ''}${t.selecao ? ` · ${t.selecao} em seleção` : ''}</button></span>` : ''; })()}
@@ -2100,48 +2103,48 @@ function projResumo(p) {
   </div>`;
 }
 function projContrato(p) {
-  const gere = Perm.gereProjeto(p.id), ads = Calc.aditivosDe(p.id);
+  const gere = Perm.gereProjeto(p.id), ads = Calc.aditivosDe(p.id), V = Perm.veValores();
   const vo = Calc.vigenciaOriginal(p), vl = Calc.valorOriginal(p);
   const kv = (k, v) => `<span class="k">${k}</span><span>${v}</span>`;
   return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(360px,1fr))">
     <div class="card"><div class="between mb"><span class="bold">Edital e contrato — parte UFSM</span>${gere ? `<button class="btn-s" data-a="projEditar" data-id="${p.id}">✎ editar</button>` : ''}</div>
       <div class="kv">${kv('Tipo', esc(lbl(TIPOS_PROJ, p.tipo || 'edital')))}${kv('Financiador', esc(p.financiador || '—'))}${kv('Programa', esc(p.programa || '—'))}${kv('Chamada / edital', esc(p.chamada || '—'))}
         ${kv('Linha / área temática', esc(p.linha_tematica || '—'))}${kv('Nº convênio / contrato', esc(p.numero_contrato || '—'))}${kv('Assinatura', fmtD(p.data_assinatura))}${kv('Fundação gestora', esc(p.fundacao_apoio || '—'))}</div></div>
-    <div class="card"><div class="bold mb">Valores e vigência</div>
-      <div class="kv">${kv('Aporte (UFSM)', fmtBRL2(p.valor_total) + (vl !== num(p.valor_total) ? ` <span class="small muted">(original ${fmtBRL2(vl)})</span>` : ''))}${kv('Contrapartidas (UFSM)', fmtBRL2(p.contrapartida))}
-        ${kv('Valor global (UFSM)', `<b>${fmtBRL2(num(p.valor_total) + num(p.contrapartida))}</b>`)}
+    <div class="card"><div class="bold mb">${V ? 'Valores e vigência' : 'Vigência'}</div>
+      <div class="kv">${V ? kv('Aporte (UFSM)', fmtBRL2(p.valor_total) + (vl !== num(p.valor_total) ? ` <span class="small muted">(original ${fmtBRL2(vl)})</span>` : '')) + kv('Contrapartidas (UFSM)', fmtBRL2(p.contrapartida))
+        + kv('Valor global (UFSM)', `<b>${fmtBRL2(num(p.valor_total) + num(p.contrapartida))}</b>`) : ''}
         ${kv('Vigência atual', `${fmtD(p.inicio)} → ${fmtD(p.fim)} (${monthsIncl(p.inicio, p.fim)} meses)`)}
         ${vo !== p.fim ? kv('Vigência original', `${fmtD(p.inicio)} → ${fmtD(vo)} (${monthsIncl(p.inicio, vo)} meses)`) : ''}
         ${kv('Tempo decorrido', (() => { const tot = toDate(p.fim) - toDate(p.inicio), dec = Math.min(Math.max(toDate(hoje()) - toDate(p.inicio), 0), tot); return tot > 0 ? `${barraExec(dec, tot).replace(/executado/, 'do prazo')} ` : '—'; })())}</div></div>
   </div>
   ${p.resumo ? `<div class="card mt"><div class="bold mb">Resumo / objetivo</div><div class="small" style="white-space:pre-line">${esc(p.resumo)}</div></div>` : ''}
   <div class="sec between"><span>Termos aditivos (${ads.length})</span>${gere ? `<button class="btn-s btn-p" data-a="aditivoNovo" data-projeto="${p.id}">+ Registrar aditivo</button>` : ''}</div>
-  <div class="card tw" style="padding:4px 8px">${ads.length ? `<table class="t"><tr><th>Aditivo</th><th>Tipo</th><th>Assinatura</th><th>Vigência</th><th class="num">Valor</th><th>Justificativa</th><th>Documento</th></tr>
+  <div class="card tw" style="padding:4px 8px">${ads.length ? `<table class="t"><tr><th>Aditivo</th><th>Tipo</th><th>Assinatura</th><th>Vigência</th>${V ? '<th class="num">Valor</th>' : ''}<th>Justificativa</th><th>Documento</th></tr>
     ${ads.map(a => `<tr class="${gere ? 'click' : ''}" ${gere ? `data-a="aditivoEditar" data-id="${a.id}"` : ''}><td><b>${esc(a.numero || '—')}</b></td><td class="small">${esc(lbl(TIPOS_ADITIVO, a.tipo))}</td><td class="small">${fmtD(a.data_assinatura)}</td>
-      <td class="small">${a.novo_fim ? `${fmtD(a.fim_anterior)} → <b>${fmtD(a.novo_fim)}</b>` : '—'}</td><td class="num small">${a.novo_valor != null && a.novo_valor !== '' ? `${fmtBRL(a.valor_anterior)} → <b>${fmtBRL(a.novo_valor)}</b>` : '—'}</td>
+      <td class="small">${a.novo_fim ? `${fmtD(a.fim_anterior)} → <b>${fmtD(a.novo_fim)}</b>` : '—'}</td>${V ? `<td class="num small">${a.novo_valor != null && a.novo_valor !== '' ? `${fmtBRL(a.valor_anterior)} → <b>${fmtBRL(a.novo_valor)}</b>` : '—'}</td>` : ''}
       <td class="small">${esc(a.justificativa || '')}</td><td class="small">${linkOuTexto(a.documento)}</td></tr>`).join('')}</table>` : '<div class="empty">Nenhum aditivo registrado.</div>'}</div>
-  <div class="small muted mt">Ao registrar um aditivo, o término e/ou o valor do projeto são atualizados e os anteriores ficam guardados aqui. Excluir o aditivo desfaz a alteração.</div>`;
+  <div class="small muted mt">Ao registrar um aditivo, o término${V ? ' e/ou o valor' : ''} do projeto ${V ? 'são atualizados e os anteriores ficam' : 'é atualizado e o anterior fica'} guardado${V ? 's' : ''} aqui. Excluir o aditivo desfaz a alteração.</div>`;
 }
 const linkOuTexto = s => !s ? '' : /^https?:\/\//i.test(s) ? `<a href="${esc(s)}" target="_blank" rel="noopener">abrir ↗</a>` : esc(s);
 function camposAditivo(p, a) {
   const n = Calc.aditivosDe(p.id).length + (a ? 0 : 1);
   return [{ k: 'numero', l: 'Identificação', ph: `${n}º Termo Aditivo` },
-  { k: 'tipo', l: 'Tipo', t: 'select', blank: false, req: true, opts: TIPOS_ADITIVO, ro: !!a },
+  { k: 'tipo', l: 'Tipo', t: 'select', blank: false, req: true, opts: a || Perm.veValores() ? TIPOS_ADITIVO : TIPOS_ADITIVO.filter(([k]) => !['valor', 'prazo_valor'].includes(k)), ro: !!a },
   { k: 'data_assinatura', l: 'Data de assinatura', t: 'date' },
   { k: 'novo_fim', l: `Novo término (atual: ${fmtD(p.fim)})`, t: 'date', ro: !!a },
-  { k: 'novo_valor', l: `Novo valor do aporte UFSM (atual: ${fmtBRL(p.valor_total)})`, t: 'money', min: 0, ro: !!a },
+  { k: 'novo_valor', l: Perm.veValores() ? `Novo valor do aporte UFSM (atual: ${fmtBRL(p.valor_total)})` : '', t: 'money', min: 0, ro: !!a, hide: !Perm.veValores() },
   { k: 'documento', l: 'Documento (nº do processo ou link)' },
   { k: 'justificativa', l: 'Justificativa', t: 'textarea', rows: 3 }];
 }
 A.aditivoNovo = d => { const p = byId('projetos', d.projeto); const n = Calc.aditivosDe(p.id).length + 1;
-  form({ title: 'Registrar aditivo — ' + p.sigla, fields: camposAditivo(p, null), values: { numero: `${n}º Termo Aditivo`, tipo: 'prazo' },
+  form({ title: 'Registrar aditivo — ' + p.sigla, fields: camposAditivo(p, null), values: { numero: `${n}º Termo Aditivo`, tipo: d.tipo || 'prazo' },
     intro: '<div class="note mb small">O novo término e/ou o novo valor passam a valer no projeto ao salvar. Deixe em branco o que não mudou.</div>',
     onSave: x => Data.insert('aditivos', { ...x, projeto_id: p.id }), okMsg: '✓ Aditivo registrado — vigência/valor do projeto atualizados' }); };
 A.aditivoEditar = d => { const a = byId('aditivos', d.id), p = byId('projetos', a.projeto_id);
   form({ title: (a.numero || 'Aditivo') + ' — ' + p.sigla, fields: camposAditivo(p, a), values: a,
     intro: '<div class="note mb small">Tipo, novo término e novo valor não se editam: para corrigir, exclua o aditivo (a alteração no projeto é desfeita) e registre de novo.</div>',
     onSave: x => { ['tipo', 'novo_fim', 'novo_valor'].forEach(k => delete x[k]); return Data.update('aditivos', a.id, x); },
-    onDelete: () => Data.remove('aditivos', a.id), deleteConfirm: `Excluir ${a.numero || 'o aditivo'}?\nSe o projeto ainda estiver com o término/valor deste aditivo, eles voltam para ${a.novo_fim ? fmtD(a.fim_anterior) : ''}${a.novo_fim && a.novo_valor != null ? ' e ' : ''}${a.novo_valor != null && a.novo_valor !== '' ? fmtBRL(a.valor_anterior) : ''}.` }); };
+    onDelete: () => Data.remove('aditivos', a.id), deleteConfirm: `Excluir ${a.numero || 'o aditivo'}?\nSe o projeto ainda estiver com o término/valor deste aditivo, eles voltam para ${a.novo_fim ? fmtD(a.fim_anterior) : ''}${a.novo_fim && a.novo_valor != null ? ' e ' : ''}${a.novo_valor != null && a.novo_valor !== '' ? (Perm.veValores() ? fmtBRL(a.valor_anterior) : 'o valor anterior') : ''}.` }); };
 
 /* entregas e prazos do projeto */
 function tabelaEntregas(list, o = {}) {
@@ -2597,10 +2600,27 @@ function projTarefas(p) {
 }
 function projFinanceiro(p) {
   const v = UI.sub.projFin || 'orcamento';
-  return `<div class="toolbar"><div class="row"><button class="chip${v === 'orcamento' ? ' on' : ''}" data-a="sub" data-g="projFin" data-v="orcamento">Orçamento por rubrica</button><button class="chip${v === 'plano' ? ' on' : ''}" data-a="sub" data-g="projFin" data-v="plano">Plano de aplicação${(() => { const n = D.plano_itens.filter(i => i.projeto_id === p.id && i.status !== 'cancelado').length; return n ? ` <span class="small muted">(${n})</span>` : ''; })()}</button><button class="chip${v === 'desembolso' ? ' on' : ''}" data-a="sub" data-g="projFin" data-v="desembolso">Desembolso${(() => { const t = Calc.desembolso(p).tot; return t.atrasadas.length ? ` <span class="nv-n bad" style="margin-left:4px">${t.atrasadas.length}</span>` : ''; })()}</button></div>
+  return `<div class="toolbar"><div class="row"><button class="chip${v === 'contrato' ? ' on' : ''}" data-a="sub" data-g="projFin" data-v="contrato">Valores do contrato</button><button class="chip${v === 'orcamento' ? ' on' : ''}" data-a="sub" data-g="projFin" data-v="orcamento">Orçamento por rubrica</button><button class="chip${v === 'plano' ? ' on' : ''}" data-a="sub" data-g="projFin" data-v="plano">Plano de aplicação${(() => { const n = D.plano_itens.filter(i => i.projeto_id === p.id && i.status !== 'cancelado').length; return n ? ` <span class="small muted">(${n})</span>` : ''; })()}</button><button class="chip${v === 'desembolso' ? ' on' : ''}" data-a="sub" data-g="projFin" data-v="desembolso">Desembolso${(() => { const t = Calc.desembolso(p).tot; return t.atrasadas.length ? ` <span class="nv-n bad" style="margin-left:4px">${t.atrasadas.length}</span>` : ''; })()}</button></div>
     <div class="row"><button class="btn-s" data-a="despVer" data-projeto="${p.id}">Despesas</button><button class="btn-s" data-a="finAbrirBolsas" data-id="${p.id}">Bolsas e pagamentos</button>${Perm.editaFin(p.id) ? `<button class="btn-p" data-a="despNova" data-projeto="${p.id}">+ Lançar gasto</button>` : ''}</div></div>
-  ${v === 'plano' ? finPlano(p) : v === 'desembolso' ? finDesembolso(p) : orcTabela(p)}`;
+  ${v === 'contrato' ? finContrato(p) : v === 'plano' ? finPlano(p) : v === 'desembolso' ? finDesembolso(p) : orcTabela(p)}`;
 }
+/* Valores do contrato (parte UFSM) e aditivos de valor — só aqui aparecem os valores do projeto */
+function finContrato(p) {
+  const gere = Perm.gereProjeto(p.id), vl = Calc.valorOriginal(p), ads = Calc.aditivosDe(p.id).filter(a => a.novo_valor != null && a.novo_valor !== '');
+  const kv = (k, v) => `<span class="k">${k}</span><span>${v}</span>`;
+  return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(360px,1fr))">
+    <div class="card"><div class="between mb"><span class="bold">Valores do contrato — parte UFSM</span>${gere ? `<button class="btn-s" data-a="projValores" data-id="${p.id}">✎ editar</button>` : ''}</div>
+      <div class="kv">${kv('Aporte do financiador', fmtBRL2(p.valor_total) + (vl !== num(p.valor_total) ? ` <span class="small muted">(original ${fmtBRL2(vl)})</span>` : ''))}${kv('Contrapartidas', fmtBRL2(p.contrapartida))}
+        ${kv('Valor global', `<b>${fmtBRL2(num(p.valor_total) + num(p.contrapartida))}</b>`)}</div></div>
+    <div class="card"><div class="between mb"><span class="bold">Aditivos de valor (${ads.length})</span>${gere ? `<button class="btn-s btn-p" data-a="aditivoNovo" data-projeto="${p.id}" data-tipo="valor">+ Aditivo de valor</button>` : ''}</div>
+      ${ads.length ? `<table class="t"><tr><th>Aditivo</th><th>Assinatura</th><th class="num">Valor</th></tr>${ads.map(a => `<tr class="${gere ? 'click' : ''}" ${gere ? `data-a="aditivoEditar" data-id="${a.id}"` : ''}><td><b>${esc(a.numero || '—')}</b><div class="small muted">${esc(lbl(TIPOS_ADITIVO, a.tipo))}</div></td><td class="small">${fmtD(a.data_assinatura)}</td><td class="num small">${fmtBRL(a.valor_anterior)} → <b>${fmtBRL(a.novo_valor)}</b></td></tr>`).join('')}</table>` : '<div class="empty" style="padding:4px 0">Nenhum aditivo de valor.</div>'}</div>
+  </div>`;
+}
+A.projValores = d => { const p = byId('projetos', d.id);
+  form({ title: 'Valores do contrato — ' + p.sigla, fields: [
+    { k: 'valor_total', l: 'Aporte do financiador — parte UFSM (R$)', t: 'money', min: 0, help: Calc.aditivosDe(p.id).some(a => a.novo_valor != null && a.novo_valor !== '') ? 'Mudanças de valor por termo aditivo: registre como aditivo de valor, não edite aqui.' : '' },
+    { k: 'contrapartida', l: 'Contrapartidas — parte UFSM (R$)', t: 'money', min: 0 }], values: p,
+    onSave: x => Data.update('projetos', p.id, fixProj(x)) }); };
 A.finAbrirBolsas = d => { UI.tab = 'financeiro'; UI.f.finProj = d.id; UI.sub.fin = 'bolsas'; UI.projeto = null; window.scrollTo(0, 0); render(); };
 function projHistorico(p) {
   return historicoBloco(r => r.registro_id === p.id || (r.alteracoes && (r.alteracoes.projeto_id === p.id || (Array.isArray(r.alteracoes.projeto_id) && r.alteracoes.projeto_id.includes(p.id)))), 200) || '<div class="empty">Sem registros.</div>';
@@ -4073,18 +4093,41 @@ function infraUso() {
 }
 
 /* ── Plano de aplicação: itens previstos por rubrica × execução ──────── */
+/* bolsas/pessoal previstos nas posições da equipe do plano — valores só aqui (Financeiro) */
+function bolsasPlanoRubrica(p, cod, pode) {
+  const vagas = D.equipe_plano.filter(e => e.projeto_id === p.id).sort((a, b) => num(a.ordem) - num(b.ordem));
+  const com = vagas.map(e => ({ e, b: D.equipe_plano_bolsas.find(q => q.vaga_id === e.id) })).filter(x => x.b && x.b.rubrica === cod);
+  const sem = cod === '1.1.1' && pode ? vagas.filter(e => !D.equipe_plano_bolsas.some(q => q.vaga_id === e.id) && !['encerrada', 'cancelada'].includes(e.status)) : [];
+  if (!com.length && !sem.length) return '';
+  const tot = com.reduce((s, x) => s + num(x.b.valor_mensal) * num(x.b.meses), 0);
+  return `<tr><td></td><td colspan="${pode ? 8 : 7}" class="small"><div class="muted mb">Bolsas/pessoal previstos nas posições da <button class="link" data-a="projAbrir" data-id="${p.id}" data-aba="equipe">equipe do plano de trabalho</button>${com.length ? `: <b>${fmtBRL2(tot)}</b>` : ''}</div>
+    ${com.map(({ e, b }) => `<div class="row mb ${pode ? 'click' : ''}" ${pode ? `data-a="bolsaPlanoEditar" data-id="${e.id}"` : ''} style="gap:10px"><span style="min-width:220px"><b>${esc(e.nome_plano)}</b>${e.pessoa_id ? ` <span class="muted">· ${esc(nomePessoa(e.pessoa_id))}</span>` : ''}</span><span class="muted">${esc(b.modalidade || 'bolsa')}</span><span>${fmtBRL2(b.valor_mensal)}/mês × ${b.meses} = <b>${fmtBRL2(num(b.valor_mensal) * num(b.meses))}</b></span></div>`).join('')}
+    ${sem.length ? `<div class="muted">Posições sem bolsa prevista: ${sem.map(e => `<button class="link" data-a="bolsaPlanoEditar" data-id="${e.id}">${esc(e.nome_plano)} +</button>`).join(' · ')}</div>` : ''}</td></tr>`;
+}
+A.bolsaPlanoEditar = d => {
+  const e = byId('equipe_plano', d.id), b = D.equipe_plano_bolsas.find(q => q.vaga_id === e.id), pid = e.projeto_id;
+  const folhas = D.rubricas.filter(r => r.codigo.startsWith('1.1') && !D.rubricas.some(x => x.pai === r.codigo)).sort(by('ordem'));
+  form({ title: 'Bolsa prevista — ' + e.nome_plano, fields: [
+      { k: 'modalidade', l: 'Modalidade', ph: 'ex.: Mestrado (BM), Coord. geral (COG)' },
+      { k: 'valor_mensal', l: 'Valor mensal (R$)', t: 'money', min: 0, req: true },
+      { k: 'meses', l: 'Duração (meses)', t: 'number', min: 1, max: 120, req: true },
+      { k: 'rubrica', l: 'Rubrica', t: 'select', blank: false, opts: folhas.map(r => [r.codigo, r.codigo + ' ' + r.nome]) }],
+    values: b || { rubrica: '1.1.1', meses: 12 },
+    onSave: x => b ? Data.update('equipe_plano_bolsas', b.id, x) : Data.insert('equipe_plano_bolsas', { ...x, vaga_id: e.id, projeto_id: pid }),
+    onDelete: b ? () => Data.remove('equipe_plano_bolsas', b.id) : null, deleteLabel: 'Retirar a bolsa prevista', deleteConfirm: 'Retirar a bolsa prevista desta posição?' });
+};
 function finPlano(p) {
   const { grupos, tot } = Calc.planoAplicacao(p), pode = Perm.editaFin(p.id), fs = UI.f.paSt || 'todos';
   const eqB = Calc.equipePlano(p).tot.porRubrica;
   const passa = x => fs === 'todos' || (fs === 'pendentes' ? ['previsto', 'em_aquisicao'].includes(x.i.status) : x.i.status === fs);
   const moeda = i => i.moeda && i.moeda !== 'BRL' ? `${esc(i.moeda)} ${fmtNum2(i.valor_unitario)} × câmbio ${String(i.cambio ?? '?').replace('.', ',')}` : fmtBRL2(i.valor_unitario);
-  const blocos = grupos.filter(g => g.itens.length || g.aprovado || g.executado || eqB[g.r.codigo]).map(g => {
+  const blocos = grupos.filter(g => g.itens.length || g.aprovado || g.executado || eqB[g.r.codigo] || (pode && g.r.codigo === '1.1.1' && D.equipe_plano.some(e => e.projeto_id === p.id))).map(g => {
     const its = g.itens.filter(passa);
     const aviso = g.itens.length && Math.abs(g.dif) > 0.5 ? `<span class="small" style="color:var(--yellow-txt)" title="Soma dos itens ≠ aprovado na rubrica">⚠ itens ${g.dif > 0 ? 'acima' : 'abaixo'} do aprovado em ${fmtBRL2(Math.abs(g.dif))}</span>` : '';
     const head = `<tr class="grp"><td class="cod">${esc(g.r.codigo)}</td><td colspan="2"><b>${esc(g.r.nome)}</b> <span class="small muted">· ${g.itens.length} item(ns)</span> ${aviso}</td>
       <td class="num" style="white-space:nowrap">${fmtBRL(g.aprovado)}</td><td class="num small muted" style="white-space:nowrap">${g.itens.length ? fmtBRL(g.previstoItens) : ''}</td><td class="num">${g.n ? `<span class="execlink" data-a="despVer" data-projeto="${p.id}" data-rubrica="${g.r.codigo}">${fmtBRL(g.executado)}</span>` : fmtBRL(0)}</td>
       <td class="num" style="color:${g.aprovado - g.executado < -0.005 ? 'var(--red)' : 'inherit'}">${fmtBRL(g.aprovado - g.executado)}</td><td></td>${pode ? `<td>${g.r.codigo.startsWith('1.1') ? '' : `<button class="btn-s" data-a="itemPlanoNovo" data-projeto="${p.id}" data-rubrica="${g.r.codigo}">+ item</button>`}</td>` : ''}</tr>`;
-    const bolsas = eqB[g.r.codigo] ? `<tr><td></td><td colspan="${pode ? 8 : 7}" class="small muted">Bolsas/pessoal planejados na <button class="link" data-a="projAbrir" data-id="${p.id}" data-aba="equipe">Equipe do plano de trabalho</button>: <b>${fmtBRL2(eqB[g.r.codigo])}</b></td></tr>` : '';
+    const bolsas = bolsasPlanoRubrica(p, g.r.codigo, pode);
     const linhas = its.map(x => { const i = x.i, st = ST_ITEM[i.status] || [i.status, 'b-gray'];
       const infra = i.infra_item_id && byId('infra_itens', i.infra_item_id) ? ` <button class="link small" data-a="itemInfraVer" data-id="${i.infra_item_id}" title="Ver na Infraestrutura">🔧 ${esc(byId('infra_itens', i.infra_item_id).codigo || 'infraestrutura')}</button>` : '';
       const podeInfra = pode && Perm.gereInfraGeral() && g.r.codigo.startsWith('2.1') && i.status === 'adquirido' && !i.infra_item_id;
@@ -4906,18 +4949,20 @@ function relProjetoForm() {
   const p = byId('projetos', c.pid), fin = Perm.veFin(p.id);
   if (!c.de) { c.de = [p.inicio, addDays(hoje(), -182)].sort().pop(); c.ate = hoje(); }
   const t = c.txt[p.id] = c.txt[p.id] || {};
-  return `<div class="card" style="max-width:860px">
-    <div class="bold mb">Relatório de acompanhamento físico-financeiro do projeto</div>
-    <div class="fgrid"><div><label class="fl">Projeto</label><select id="rp_proj">${projs.map(x => `<option value="${x.id}"${x.id === p.id ? ' selected' : ''}>${esc(x.sigla)}${x.situacao !== 'vigente' ? ' (' + lbl(SITUACAO_PROJ, x.situacao) + ')' : ''}</option>`).join('')}</select></div>
-      <div class="row" style="align-items:end;gap:6px"><div><label class="fl">De</label><input type="date" id="rp_de" value="${c.de}"></div><div><label class="fl">Até</label><input type="date" id="rp_ate" value="${c.ate}"></div></div>
-      <div class="full row small" style="gap:6px"><span class="muted">Período rápido:</span>${[['sem', 'Últimos 6 meses'], ['ano', 'Últimos 12 meses'], ['ano_civil', 'Ano anterior'], ['tudo', 'Desde o início']].map(([k, l]) => `<button class="btn-s" data-a="rpPeriodo" data-v="${k}">${l}</button>`).join('')}</div></div>
-    <label class="fl mt">Seções</label><div class="checks">${SECOES_PROJ.map(([k, l, f]) => `<label style="${f && !fin ? 'opacity:.5' : ''}"><input type="checkbox" data-rps="${k}" ${c.secoes[k] ? 'checked' : ''} ${f && !fin ? 'disabled' : ''}> ${l}${f && !fin ? ' (sem acesso ao financeiro)' : ''}</label>`).join('')}</div>
-    <label class="fl mt">Resumo das atividades do período <span class="muted">(texto da coordenação, opcional)</span></label><textarea id="rp_t1" rows="4" placeholder="Principais resultados e atividades realizadas no período…">${esc(t.resumo || '')}</textarea>
-    <label class="fl mt">Dificuldades encontradas e soluções adotadas</label><textarea id="rp_t2" rows="3">${esc(t.dif || '')}</textarea>
-    <label class="fl mt">Próximas etapas</label><textarea id="rp_t3" rows="3">${esc(t.prox || '')}</textarea>
-    <label class="row small mt"><input type="checkbox" id="rp_ass" ${c.assinar ? 'checked' : ''}> incluir local, data e espaço para assinatura da coordenação</label>
-    <div class="mactions"><button class="btn-p" data-a="relProjGerar">Gerar relatório →</button></div>
-    <div class="small muted">Abre uma prévia com opções de imprimir / salvar em PDF, Word (.docx) e Markdown. Os textos ficam guardados neste navegador enquanto você prepara o relatório. Valores financeiros só aparecem se você tiver acesso ao financeiro do projeto.</div></div>`;
+  return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(380px,1fr))">
+    <div class="card"><div class="bold mb">Projeto e período</div>
+      <div class="fgrid"><div class="full"><label class="fl">Projeto</label><select id="rp_proj">${projs.map(x => `<option value="${x.id}"${x.id === p.id ? ' selected' : ''}>${esc(x.sigla)}${x.situacao !== 'vigente' ? ' (' + lbl(SITUACAO_PROJ, x.situacao) + ')' : ''}</option>`).join('')}</select></div>
+        <div><label class="fl">De</label><input type="date" id="rp_de" value="${c.de}"></div><div><label class="fl">Até</label><input type="date" id="rp_ate" value="${c.ate}"></div>
+        <div class="full row small" style="gap:6px;flex-wrap:wrap"><span class="muted">Período rápido:</span>${[['sem', 'Últimos 6 meses'], ['ano', 'Últimos 12 meses'], ['ano_civil', 'Ano anterior'], ['tudo', 'Desde o início']].map(([k, l]) => `<button class="btn-s" data-a="rpPeriodo" data-v="${k}">${l}</button>`).join('')}</div></div></div>
+    <div class="card"><div class="bold mb">Seções do relatório</div><div class="checks">${SECOES_PROJ.map(([k, l, f]) => `<label style="${f && !fin ? 'opacity:.5' : ''}"><input type="checkbox" data-rps="${k}" ${c.secoes[k] ? 'checked' : ''} ${f && !fin ? 'disabled' : ''}> ${l}${f && !fin ? ' (sem acesso ao financeiro)' : ''}</label>`).join('')}</div>
+      <label class="row small mt"><input type="checkbox" id="rp_ass" ${c.assinar ? 'checked' : ''}> incluir local, data e espaço para assinatura da coordenação</label></div>
+  </div>
+  <div class="card mt"><div class="bold mb">Textos da coordenação <span class="small muted" style="font-weight:400">(opcionais — ficam guardados neste navegador enquanto você prepara o relatório)</span></div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px">
+      <div><label class="fl">Resumo das atividades do período</label><textarea id="rp_t1" rows="6" placeholder="Principais resultados e atividades realizadas no período…">${esc(t.resumo || '')}</textarea></div>
+      <div><label class="fl">Dificuldades encontradas e soluções adotadas</label><textarea id="rp_t2" rows="6">${esc(t.dif || '')}</textarea></div>
+      <div><label class="fl">Próximas etapas</label><textarea id="rp_t3" rows="6">${esc(t.prox || '')}</textarea></div></div></div>
+  ${barraGerarRel('relProjGerar', 'Valores financeiros só aparecem se você tiver acesso ao financeiro do projeto.')}`;
 }
 const lerFormRelP = () => { const c = UI.relP, g = id => document.getElementById(id); if (!g('rp_proj')) return c;
   const t = c.txt[c.pid] = c.txt[c.pid] || {}; t.resumo = g('rp_t1').value; t.dif = g('rp_t2').value; t.prox = g('rp_t3').value;
@@ -4942,18 +4987,21 @@ try { const x = JSON.parse(localStorage.getItem(LS_PREFIX + '_relTxt') || 'null'
    ════════════════════════════════════════════════════════════════════ */
 UI.rel = { escopo: 'completo', financiador: '', secoes: { resumo: true, saude: true, portfolio: true, financeiro: true, cronograma: true, equipe: true, gerencias: true, infra: true, prospeccao: true } };
 const SECOES_REL = [['resumo', 'Resumo executivo'], ['saude', 'Saúde dos projetos (físico × financeiro)'], ['portfolio', 'Portfólio'], ['financeiro', 'Financeiro'], ['cronograma', 'Cronograma, aditivos e entregas'], ['equipe', 'Equipe e atribuições'], ['gerencias', 'Gerências e demandas'], ['infra', 'Infraestrutura'], ['prospeccao', 'Prospecção']];
+const SUBS_REL = [['projeto', 'Relatório de projeto'], ['lab', 'Relatório do laboratório']];
+const barraGerarRel = (acao, nota) => `<div class="card mt"><div class="between" style="gap:16px;flex-wrap:wrap"><div class="small muted" style="max-width:760px">Abre uma prévia com opções de imprimir / salvar em PDF, Word (.docx) e Markdown. ${nota}</div><button class="btn-p" data-a="${acao}">Gerar relatório →</button></div></div>`;
 VIEWS.relatorios = () => {
   const tipo = UI.sub.rel || 'projeto';
-  const chips = `<div class="subtabs">${[['projeto', 'Relatório de projeto (físico-financeiro)'], ['lab', 'Relatório do laboratório']].map(([k, l]) => `<button class="chip${tipo === k ? ' on' : ''}" data-a="sub" data-g="rel" data-v="${k}">${l}</button>`).join('')}</div>`;
+  const chips = `<div class="subtabs">${SUBS_REL.map(([k, l]) => `<button class="chip${tipo === k ? ' on' : ''}" data-a="sub" data-g="rel" data-v="${k}">${l}</button>`).join('')}</div>`;
   if (tipo === 'projeto') return chips + relProjetoForm();
   const c = UI.rel, fins = [...new Set(D.projetos.map(p => p.financiador).filter(Boolean))].sort();
-  return chips + `<div class="card" style="max-width:720px">
-    <div class="bold mb">Relatório do laboratório (portfólio)</div>
-    <div class="fgrid"><div><label class="fl">Escopo</label><select onchange="UI.rel.escopo=this.value;render()"><option value="completo"${c.escopo === 'completo' ? ' selected' : ''}>Portfólio completo (vigentes)</option><option value="financiador"${c.escopo === 'financiador' ? ' selected' : ''}>Por financiador</option><option value="todos"${c.escopo === 'todos' ? ' selected' : ''}>Todos os projetos (inclui encerrados)</option></select></div>
-    ${c.escopo === 'financiador' ? `<div><label class="fl">Financiador</label><select onchange="UI.rel.financiador=this.value">${fins.map(f => `<option${c.financiador === f ? ' selected' : ''}>${esc(f)}</option>`).join('')}</select></div>` : '<div></div>'}</div>
-    <label class="fl mt">Seções</label><div class="checks">${SECOES_REL.map(([k, l]) => `<label><input type="checkbox" ${c.secoes[k] ? 'checked' : ''} onchange="UI.rel.secoes['${k}']=this.checked"> ${l}</label>`).join('')}</div>
-    <div class="mactions"><button class="btn-p" data-a="relGerar">Gerar relatório →</button></div>
-    <div class="small muted">Abre uma prévia com opções de imprimir / salvar em PDF, Word (.docx) e Markdown. O relatório respeita suas permissões: valores financeiros só aparecem para projetos que você pode ver.</div></div>`;
+  return chips + `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(380px,1fr))">
+    <div class="card"><div class="bold mb">Escopo</div>
+      <div class="fgrid"><div class="full"><label class="fl">Projetos incluídos</label><select onchange="UI.rel.escopo=this.value;render()"><option value="completo"${c.escopo === 'completo' ? ' selected' : ''}>Portfólio completo (vigentes)</option><option value="financiador"${c.escopo === 'financiador' ? ' selected' : ''}>Por financiador</option><option value="todos"${c.escopo === 'todos' ? ' selected' : ''}>Todos os projetos (inclui encerrados)</option></select></div>
+      ${c.escopo === 'financiador' ? `<div class="full"><label class="fl">Financiador</label><select onchange="UI.rel.financiador=this.value">${fins.map(f => `<option${c.financiador === f ? ' selected' : ''}>${esc(f)}</option>`).join('')}</select></div>` : ''}</div>
+      <div class="small muted mt">Relatório geral do laboratório: portfólio, saúde dos projetos, cronogramas, equipe, gerências e infraestrutura.</div></div>
+    <div class="card"><div class="bold mb">Seções do relatório</div><div class="checks">${SECOES_REL.map(([k, l]) => `<label><input type="checkbox" ${c.secoes[k] ? 'checked' : ''} onchange="UI.rel.secoes['${k}']=this.checked"> ${l}${k === 'financeiro' && !D.projetos.some(p => Perm.veFin(p.id)) ? ' (sem acesso)' : ''}</label>`).join('')}</div></div>
+  </div>
+  ${barraGerarRel('relGerar', 'Valores financeiros só aparecem na seção Financeiro, e apenas dos projetos cujo financeiro você pode ver.')}`;
 };
 function montarRelatorio() {
   const c = UI.rel; if (c.escopo === 'financiador' && !c.financiador) c.financiador = [...new Set(D.projetos.map(p => p.financiador).filter(Boolean))].sort()[0] || '';
@@ -4964,7 +5012,7 @@ function montarRelatorio() {
   const P = (s, txt) => s.blocks.push({ p: txt }); const T = (s, head, rows) => s.blocks.push({ head, rows }); const H3 = (s, txt) => s.blocks.push({ h3: txt });
   if (c.secoes.resumo) {
     const s = sec('Resumo executivo'); const cnt = k => projs.filter(p => p.status === k).length;
-    P(s, `${projs.length} projeto(s) no escopo · valor contratado ${fmtBRL(projs.reduce((a, p) => a + num(p.valor_total), 0))}.`);
+    P(s, `${projs.length} projeto(s) no escopo${Perm.veValores() ? ` · valor contratado ${fmtBRL(projs.reduce((a, p) => a + num(p.valor_total), 0))}` : ''}.`);
     P(s, `Status: ${cnt('em_dia')} em dia · ${cnt('atencao')} em atenção · ${cnt('critico')} crítico(s) · ${cnt('pendente')} pendente(s).`);
     const venc = projs.filter(Calc.vencido); if (venc.length) P(s, `Vigência vencida sem encerramento: ${venc.map(p => p.sigla).join(', ')}.`);
     const al = projs.filter(p => ['critico', 'atencao'].includes(p.status));
@@ -4975,7 +5023,7 @@ function montarRelatorio() {
     const s = sec('Saúde dos projetos'), SS = projs.map(p => Calc.saudeProjeto(p));
     T(s, ['Projeto', 'Vigência até', 'Físico (real / previsto)', 'Execução financeira', 'Entregas atrasadas', 'Vagas', 'Sinal', 'Motivos'], SS.map(x => [x.p.sigla, fmtD(x.p.fim), x.fis ? `${x.fis.pct}% / ${x.fis.prev}%` : '—', x.fin ? `${x.fin.pct}% (tempo ${x.tempoPct}%)` : '—', String(x.entAtr), String(x.eq.vagas), SINAL[x.sinal][0], [...x.mot.bad, ...x.mot.warn].join('; ')]));
   }
-  if (c.secoes.portfolio) { const s = sec('Portfólio de projetos'); T(s, ['Projeto', 'Tipo', 'Financiador', 'Valor', 'Vigência', 'Coordenação', 'Fase', 'Status'], projs.map(p => [p.sigla + (p.nome ? ' — ' + p.nome : ''), lbl(TIPOS_PROJ, p.tipo || 'edital'), p.financiador || '—', fmtBRL(p.valor_total), `${fmtD(p.inicio)} – ${fmtD(p.fim)}`, nomesCoordenacao(p.id) || '—', p.fase || '—', STATUS_PROJ[p.status][0]])); }
+  if (c.secoes.portfolio) { const s = sec('Portfólio de projetos'); const V = Perm.veValores(); T(s, ['Projeto', 'Tipo', 'Financiador', ...(V ? ['Valor'] : []), 'Vigência', 'Coordenação', 'Fase', 'Status'], projs.map(p => [p.sigla + (p.nome ? ' — ' + p.nome : ''), lbl(TIPOS_PROJ, p.tipo || 'edital'), p.financiador || '—', ...(V ? [fmtBRL(p.valor_total)] : []), `${fmtD(p.inicio)} – ${fmtD(p.fim)}`, nomesCoordenacao(p.id) || '—', p.fase || '—', STATUS_PROJ[p.status][0]])); }
   if (c.secoes.financeiro) {
     const s = sec('Financeiro'); const vis = projs.filter(p => Perm.veFin(p.id));
     T(s, ['Projeto', 'Tipo', 'Valor contratado', 'Aprovado', 'Previsto', 'Executado', 'Saldo', '% exec.'], vis.map(p => { const t = Calc.totaisOrc(p.id); return [p.sigla, lbl(TIPOS_PROJ, p.tipo || 'edital'), fmtBRL(p.valor_total), fmtBRL(t.aprovado), fmtBRL(t.previsto), fmtBRL(t.executado), fmtBRL(t.saldo), t.aprovado ? (t.executado / t.aprovado * 100).toFixed(1) + '%' : '—']; }));
@@ -5049,10 +5097,38 @@ A.relGerar = () => {
 /* ════════════════════════════════════════════════════════════════════
    CONFIGURAÇÕES — usuário, armazenamento, backup, importação
    ════════════════════════════════════════════════════════════════════ */
+/* cargos da pessoa (determinam o que ela vê além do papel): gerências em exercício e coordenação/vice */
+function cargosDe(pessoaId) {
+  if (!pessoaId) return [];
+  const t = hoje(), c = [];
+  D.gerencia_membros.filter(gm => gm.pessoa_id === pessoaId && (!gm.desde || gm.desde <= t) && (!gm.ate || gm.ate >= t)).forEach(gm => { const g = byId('gerencias', gm.gerencia_id); if (g && g.ativa) c.push(g.nome.replace(/^Gerência (de |d[ao] )?/, 'Ger. ') + (gm.funcao === 'adjunto' ? ' (adj.)' : '')); });
+  D.alocacoes.filter(a => a.pessoa_id === pessoaId && (a.coordena || a.vice_coordena)).forEach(a => c.push((a.coordena ? 'Coord. ' : 'Vice-coord. ') + siglaProjeto(a.projeto_id)));
+  return c;
+}
+A.setf = d => { UI.f[d.f] = d.v; render(); };
+function cardUsuarios() {
+  const fil = UI.f.usrFil || 'todos';
+  const lista = D.perfis.slice().sort((a, b) => (a.ativo - b.ativo) || String(a.email).localeCompare(String(b.email)));
+  const pend = lista.filter(pf => !pf.ativo).length, semPessoa = lista.filter(pf => pf.ativo && !pf.pessoa_id).length;
+  const vis = lista.filter(pf => fil === 'todos' || (fil === 'pendentes' ? !pf.ativo : fil === 'ativos' ? pf.ativo : pf.papel === fil));
+  const linha = pf => `<tr${!pf.ativo ? ' style="background:var(--yellow-bg)"' : ''}>
+      <td><b>${esc(pf.email)}</b>${fixo(pf) ? '<div class="small muted">Suporte técnico permanente</div>' : ''}${!pf.ativo ? '<div class="small" style="color:var(--yellow-txt);font-weight:600">aguardando aprovação</div>' : ''}</td>
+      <td style="min-width:220px"><select onchange="run(()=>Data.update('perfis','${pf.id}',{pessoa_id:this.value||null}).then(render))"><option value="">— ligar a uma pessoa —</option>${optPessoas().map(([v, l]) => `<option value="${v}"${pf.pessoa_id === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>${pf.ativo && !pf.pessoa_id ? '<div class="small" style="color:var(--yellow-txt)">sem pessoa: não aparece como responsável nem vê "Minha semana"</div>' : ''}</td>
+      <td style="min-width:170px"><select ${travado(pf) ? `disabled title="${fixo(pf) ? 'Acesso permanente do Suporte técnico' : 'Só o Suporte técnico altera este perfil'}"` : ''} onchange="run(()=>Data.update('perfis','${pf.id}',{papel:this.value}).then(render))">${PAPEIS.filter(([v]) => v !== 'suporte' || Perm.suporte() || pf.papel === 'suporte').map(([v, l]) => `<option value="${v}"${pf.papel === v ? ' selected' : ''}>${l}</option>`).join('')}</select></td>
+      <td class="small">${cargosDe(pf.pessoa_id).map(c => `<span class="tag">${esc(c)}</span>`).join(' ') || '<span class="faint">—</span>'}</td>
+      <td style="text-align:center"><input type="checkbox" style="width:auto" ${pf.ativo ? 'checked' : ''} ${travado(pf) ? 'disabled' : ''} title="${pf.ativo ? 'Acesso liberado' : 'Liberar acesso'}" onchange="run(()=>Data.update('perfis','${pf.id}',{ativo:this.checked}).then(render))"></td>
+      <td class="small muted">${fmtD(String(pf.criado_em || '').slice(0, 10))}</td></tr>`;
+  return `<div class="card" style="grid-column:1/-1"><div class="between mb" style="flex-wrap:wrap;gap:8px"><span class="bold">Usuários e acessos <span class="small muted" style="font-weight:400">· ${lista.length} login(s)${pend ? ` · <b style="color:var(--yellow-txt)">${pend} aguardando aprovação</b>` : ''}${semPessoa ? ` · ${semPessoa} sem pessoa ligada` : ''}</span></span>
+      <div class="row">${[['todos', 'Todos'], ['pendentes', 'Aguardando'], ['ativos', 'Ativos'], ...PAPEIS].map(([v, l]) => `<button class="chip${fil === v ? ' on' : ''}" data-a="setf" data-f="usrFil" data-v="${v}">${l}</button>`).join('')}</div></div>
+    <div class="small muted mb">Novos logins entram sem acesso: ligue cada um a uma pessoa do cadastro, escolha o papel e marque <b>Ativo</b>. <b>Leitura</b>: bolsistas que estão começando (só os projetos de que participam, sem valores). <b>Membro</b>: equipe com responsabilidades de gestão. Os <b>cargos</b> (gerências, coordenação e vice) vêm dos cadastros de Gerências e das alocações e ampliam o acesso.</div>
+    <div class="tw"><table class="t"><tr><th>Login (e-mail)</th><th>Pessoa do cadastro</th><th>Papel</th><th>Cargos</th><th style="text-align:center">Ativo</th><th>Desde</th></tr>
+      ${vis.map(linha).join('') || '<tr><td colspan="6" class="empty">Nenhum usuário neste filtro.</td></tr>'}</table></div></div>`;
+}
 VIEWS.config = () => {
   const cfg = SB.cfg() || {};
   const sim = lerSim();
   return `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(380px,1fr))">
+  ${ME.online && Perm.dir() ? cardUsuarios() : ''}
   ${!ME.online ? `<div class="card"><div class="bold mb">Usuário (modo local)</div>
     <div class="small muted mb">No modo local não há login. Escolha quem você é e com qual papel, para trabalhar e para testar o que cada perfil vê e pode fazer. No modo online isso vem do login.</div>
     <div class="fgrid"><div><label class="fl">Pessoa</label><select id="sim_p"><option value="">— nenhuma (administrador) —</option>${(D_TODOS ? D_TODOS.pessoas : D.pessoas).filter(p => p.ativo !== false).slice().sort(byName('nome')).map(p => [p.id, p.nome]).map(([v, l]) => `<option value="${v}"${sim.pessoa_id === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
@@ -5060,32 +5136,29 @@ VIEWS.config = () => {
     <div class="mactions"><button class="btn-p" data-a="simAplicar">Aplicar</button></div>
     <div class="small muted">Permissões efetivas agora: ${Perm.minhas().map(p => `<span class="tag">${p}</span>`).join('') || '<i>nenhuma de gerência</i>'}${Perm.coordenaAlgum() ? ' + coordenação de ' + D.alocacoes.filter(a => a.pessoa_id === ME.pessoa_id && (a.coordena || a.vice_coordena)).map(a => siglaProjeto(a.projeto_id)).join(', ') : ''}</div></div>` : ''}
 
-  <div class="card"><div class="bold mb">Armazenamento</div>
-    ${ME.online ? `<div class="alert ok">Conectado ao banco online: ${esc(cfg.url || '')}</div><div class="row mt"><button data-a="recarregar">↻ Recarregar dados</button></div>`
-      : `<div class="alert warn">Modo local: os dados ficam só neste navegador. Exporte backups com frequência.</div>
+  <div class="card"><div class="bold mb">Armazenamento <span class="small muted" style="font-weight:400">· onde ficam os dados</span></div>
+    ${ME.online ? `<div class="alert ok">Online: os dados ficam no banco do laboratório (Supabase) e são compartilhados por toda a equipe.<div class="small mt">${esc(cfg.url || '')}</div></div>
+      <div class="small muted mb">As alterações de outras pessoas aparecem sozinhas em alguns segundos. Se algo parecer desatualizado, recarregue.</div><div class="row"><button data-a="recarregar">↻ Recarregar dados do banco</button></div>`
+      : `<div class="alert warn">Modo local: os dados ficam só neste navegador, neste computador. Exporte backups com frequência.</div>
     <div class="small muted mb">Para usar o banco online (Supabase), crie o projeto, rode o arquivo <b>gpmot_schema.sql</b> no SQL Editor e informe abaixo a URL do projeto e a chave <b>pública</b> (Project Settings → API Keys: a <i>publishable key</i>, que começa com <code>sb_publishable_</code>, ou a antiga <i>anon key</i>). Nunca use a chave secreta (<code>sb_secret_</code> / service_role).</div>
     <div class="fgrid"><div class="full"><label class="fl">URL do projeto Supabase</label><input id="sb_url" placeholder="https://xxxx.supabase.co" value="${esc(cfg.url || '')}"></div>
     <div class="full"><label class="fl">Chave pública (publishable / anon)</label><input id="sb_key" placeholder="sb_publishable_…" value="${esc(cfg.anonKey || '')}"></div></div>
     <div class="mactions"><button class="btn-p" data-a="sbConectar">Conectar ao banco online</button></div>`}</div>
 
-  <div class="card"><div class="bold mb">Backup</div>
-    <div class="small muted mb">Arquivo JSON com todas as tabelas. ${ME.online ? 'No modo online, “Enviar backup” grava o conteúdo do arquivo no banco (use para migrar os dados locais).' : 'Importar substitui todos os dados deste navegador.'}</div>
+  <div class="card"><div class="bold mb">Backup <span class="small muted" style="font-weight:400">· cópia de segurança em arquivo</span></div>
+    <div class="small muted mb">${ME.online ? 'Baixa um arquivo JSON com os dados que você pode ver. Guarde uma cópia com frequência — no plano gratuito da Supabase não há backup automático.' : 'Baixa um arquivo JSON com todos os dados deste navegador.'}</div>
     <div class="row"><button data-a="bkExportar">↓ Exportar backup</button>
       ${Perm.dir() ? `<label class="row" style="cursor:pointer"><span class="btn" style="border:1px solid #c8c6c0;border-radius:7px;padding:5px 12px;background:#fff">↑ ${ME.online ? 'Enviar backup ao banco' : 'Importar backup'}</span><input type="file" accept=".json" style="display:none" onchange="importarArquivo(this.files[0],'backup');this.value=''"></label>` : ''}</div>
-    ${Perm.dir() ? `<div class="sec">Dados da versão anterior</div><div class="small muted mb">Converte o JSON exportado pelo programa antigo (gpmot-portfolio-*.json) para a nova estrutura. Você verá um resumo antes de confirmar.</div>
+    ${Perm.dir() ? `<div class="small muted mt">${ME.online ? '<b>Enviar backup ao banco</b> grava no banco o conteúdo do arquivo: registros com o mesmo identificador são sobrescritos pela versão do arquivo e os que não existem são criados; nada é apagado. Serve para migrar dados ou recuperar registros.' : '<b>Importar backup</b> substitui todos os dados deste navegador pelos do arquivo.'}</div>
+    <div class="sec">Dados da versão anterior</div><div class="small muted mb">Converte o JSON exportado pelo programa antigo (gpmot-portfolio-*.json) para a nova estrutura. Você verá um resumo antes de confirmar.</div>
     <label class="row" style="cursor:pointer"><span style="border:1px solid #c8c6c0;border-radius:7px;padding:5px 12px;background:#fff">↑ Importar JSON do programa antigo</span><input type="file" accept=".json" style="display:none" onchange="importarArquivo(this.files[0],'v1');this.value=''"></label>` : ''}
     ${!ME.online && Perm.dir() ? `<div class="sec">Zona de risco</div><button class="btn-d" data-a="zerar">Apagar todos os dados deste navegador</button>` : ''}</div>
-
-  ${ME.online && Perm.dir() ? `<div class="card"><div class="bold mb">Usuários e acessos</div><div class="small muted mb">Novos logins entram sem acesso. Ligue cada usuário a uma pessoa do cadastro, escolha o papel e ative. Bolsistas de IC que estão começando entram como <b>Leitura</b> (veem só os projetos de que participam, sem valores); com mais responsabilidades, passam a <b>Membro</b>.</div>
-    ${D.perfis.sort(byName('email')).map(pf => `<div class="fgrid mb" style="grid-template-columns:1.2fr 1.2fr .8fr auto;align-items:end"><div class="small"><b>${esc(pf.email)}</b>${fixo(pf) ? '<br><span class="muted">Suporte técnico permanente</span>' : pf.papel === 'suporte' ? '<br><span class="muted">Suporte técnico</span>' : ''}</div>
-      <select onchange="run(()=>Data.update('perfis','${pf.id}',{pessoa_id:this.value||null}).then(render))"><option value="">— pessoa —</option>${optPessoas().map(([v, l]) => `<option value="${v}"${pf.pessoa_id === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>
-      <select ${travado(pf) ? `disabled title="${fixo(pf) ? 'Acesso permanente do Suporte técnico' : 'Só o Suporte técnico altera este perfil'}"` : ''} onchange="run(()=>Data.update('perfis','${pf.id}',{papel:this.value}).then(render))">${PAPEIS.filter(([v]) => v !== 'suporte' || Perm.suporte() || pf.papel === 'suporte').map(([v, l]) => `<option value="${v}"${pf.papel === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
-      <label class="row small"><input type="checkbox" ${pf.ativo ? 'checked' : ''} ${travado(pf) ? 'disabled' : ''} onchange="run(()=>Data.update('perfis','${pf.id}',{ativo:this.checked}).then(render))"> ativo</label></div>`).join('') || '<div class="empty">Nenhum usuário.</div>'}</div>` : ''}
 
   ${Perm.tem('historico_ver') ? `<div class="card" style="grid-column:1/-1"><div class="between mb"><span class="bold">Histórico de alterações</span>${ME.online ? '<button class="btn-s" data-a="histCarregar">carregar últimas 300</button>' : ''}</div>
     ${D.historico.length ? D.historico.slice().sort((a, b) => String(b.em).localeCompare(String(a.em))).slice(0, 150).map(h => `<div class="small mb"><span class="muted">${fmtDT(h.em)} · ${esc(quem(h.usuario))}</span> — ${esc(descHist(h))}</div>`).join('') : '<div class="empty">Sem registros carregados.</div>'}</div>` : ''}
   </div>`;
 };
+
 function lerSim() { try { return JSON.parse(localStorage.getItem(LS_PREFIX + '_sim') || 'null') || { papel: 'direcao', pessoa_id: null }; } catch { return { papel: 'direcao', pessoa_id: null }; } }
 function aplicarSim(s) { restaurarVisao(); ME.online = false; ME.papel = PAPEIS.some(p => p[0] === s.papel) ? s.papel : 'direcao'; ME.pessoa_id = s.pessoa_id && byId('pessoas', s.pessoa_id) ? s.pessoa_id : null; ME.uid = 'local:' + (ME.pessoa_id || 'direcao'); ME.email = ''; aplicarVisaoLocal(); }
 A.simAplicar = () => { const s = { pessoa_id: document.getElementById('sim_p').value || null, papel: document.getElementById('sim_r').value }; try { localStorage.setItem(LS_PREFIX + '_sim', JSON.stringify(s)); } catch { } aplicarSim(s); render(); flash('Usuário alterado: ' + (s.pessoa_id ? nomePessoa(s.pessoa_id) : 'administrador') + ' · ' + lbl(PAPEIS, s.papel)); };
