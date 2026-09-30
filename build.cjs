@@ -36,12 +36,12 @@ if (URL_SB) {
   // manifesto e ícones: permitem "Instalar"/"Criar atalho" com o ícone do GPMOT
   const extra = '<meta name="robots" content="noindex">\n<link rel="manifest" href="manifest.webmanifest">\n<link rel="apple-touch-icon" href="icone-192.png">';
   fs.writeFileSync(path.join(docs, 'index.html'), html.replace('<head>', '<head>\n' + extra));
-  for (const f of ['icone-192.png', 'icone-512.png', 'icone-maskable-512.png', 'icone.svg']) fs.copyFileSync(path.join(__dirname, 'app', 'marca', f), path.join(docs, f));
+  for (const f of ['icone-192.png', 'icone-512.png', 'icone-maskable-512.png']) fs.copyFileSync(path.join(__dirname, 'app', 'marca', f), path.join(docs, f));
   fs.writeFileSync(path.join(docs, 'manifest.webmanifest'), JSON.stringify({
     name: 'GPMOT/UFSM — Gestão de Portfólio', short_name: 'GPMOT', lang: 'pt-BR', start_url: './', scope: './', display: 'standalone',
     background_color: '#eceae3', theme_color: '#003963',
     icons: [{ src: 'icone-192.png', sizes: '192x192', type: 'image/png' }, { src: 'icone-512.png', sizes: '512x512', type: 'image/png' },
-      { src: 'icone-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }, { src: 'icone.svg', sizes: 'any', type: 'image/svg+xml' }] }, null, 1));
+      { src: 'icone-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }] }, null, 1));
   console.log('GitHub Pages: ' + path.join(docs, 'index.html'));
 }
 if (process.argv.includes('--publicar')) { const pub = path.join(__dirname, '..', URL_SB ? 'GPMOT_UFSM — Gestão de Portfólio (online).html' : 'GPMOT_UFSM — Gestão de Portfólio v2.html'); fs.copyFileSync(destino, pub); console.log('Publicado em ' + pub); }

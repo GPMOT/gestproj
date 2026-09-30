@@ -1,0 +1,498 @@
+-- Testes do banco (regras, permissões e gatilhos do gpmot_schema.sql).
+-- Cada seção "-- @@ nome" roda num banco novo e sua saída é comparada com a seção de mesmo nome em banco_esperado.txt.
+-- A seção 00 simula o login da Supabase num PostgreSQL comum: NUNCA execute este arquivo na Supabase de verdade.
+
+-- @@ 00_simulacao_supabase_auth
+-- ════════════════════════════════════════════════════════════════════
+--  SOMENTE PARA TESTES LOCAIS — NUNCA executar no Supabase de verdade.
+--  Simula o mínimo do Supabase (papéis e auth.uid()) num PostgreSQL comum.
+--  Não concede permissões: o próprio gpmot_schema.sql precisa concedê-las
+--  (regra da Supabase para projetos criados desde 30/05/2026).
+-- ════════════════════════════════════════════════════════════════════
+do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
+do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
+do $$ begin create role service_role nologin bypassrls; exception when duplicate_object then null; end $$;
+create schema auth;
+create table auth.users(id uuid primary key, email text);
+create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('request.jwt.claim.sub', true),'')::uuid $$;
+grant usage on schema auth to anon, authenticated, service_role;
+-- @@ 02_gerencias_permissoes
+\set ON_ERROR_STOP 0
+\pset footer off
+insert into pessoas(id,nome,email,tipo) values
+ ('00000000-0000-0000-0000-00000000000a','Lucas','lucas@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000b','Mario','mario@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000c','Igor','igor@ufsm.br','doutorando'),
+ ('00000000-0000-0000-0000-00000000000d','Thompson','thompson@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000e','Jean','jean@ufsm.br','pos_doc'),
+ ('00000000-0000-0000-0000-00000000000f','Hausen','hausen@ufsm.br','docente');
+insert into auth.users values
+ ('10000000-0000-0000-0000-00000000000a','lucas@ufsm.br'),('10000000-0000-0000-0000-00000000000b','mario@ufsm.br'),
+ ('10000000-0000-0000-0000-00000000000c','igor@ufsm.br'),('10000000-0000-0000-0000-00000000000d','thompson@ufsm.br'),
+ ('10000000-0000-0000-0000-00000000000e','jean@ufsm.br'),('10000000-0000-0000-0000-00000000000f','hausen@ufsm.br');
+update perfis set ativo=true, papel='membro'; update perfis set papel='direcao' where email='lucas@ufsm.br';
+insert into projetos(id,sigla,inicio,fim) values
+ ('20000000-0000-0000-0000-000000000001','Petrobras','2025-04-01','2027-10-31'),
+ ('20000000-0000-0000-0000-000000000002','Aramco','2025-01-01','2026-12-31');
+insert into alocacoes(pessoa_id,projeto_id,coordena) values
+ ('00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',true),
+ ('00000000-0000-0000-0000-00000000000c','20000000-0000-0000-0000-000000000002',false);
+insert into vinculos_financeiros(pessoa_id,projeto_id,valor_mensal,inicio,fim) values
+ ('00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',5600,'2025-07-01','2026-12-31'),
+ ('00000000-0000-0000-0000-00000000000c','20000000-0000-0000-0000-000000000002',3100,'2025-07-01','2026-12-31');
+-- gerentes: Thompson financeiro, Jean projetos, Igor infraestrutura, Hausen financeiro (mandato encerrado), Mario técnico + coordena Petrobras
+insert into gerencia_membros(gerencia_id,pessoa_id,desde,ate)
+ select g.id, p.id, d::date, a::date from (values
+  ('Gerência Financeira','Thompson','2026-01-01',null),
+  ('Gerência de Projetos','Jean','2026-01-01',null),
+  ('Gerência de Infraestrutura','Igor','2026-01-01',null),
+  ('Gerência Financeira','Hausen','2024-01-01','2025-12-31'),
+  ('Gerência Técnica','Mario','2026-01-01',null)) v(g,p,d,a)
+ join gerencias g on g.nome=v.g join pessoas p on p.nome=v.p;
+insert into gerencias(nome,permissoes) values ('Gerência X',array['voar']);
+set role authenticated;
+
+\echo '=== permissões de cada um'
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000d'; select 'Thompson' quem, minhas_permissoes();
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000e'; select 'Jean' quem, minhas_permissoes();
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000c'; select 'Igor' quem, minhas_permissoes();
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000f'; select 'Hausen' quem, minhas_permissoes();
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000b'; select 'Mario' quem, minhas_permissoes();
+
+\echo '=== THOMPSON (Gerência Financeira, não coordena nada)'
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000d';
+select count(*) as vinculos_visiveis_esperado_2 from vinculos_financeiros;
+update vinculos_financeiros set valor_mensal=3200 where valor_mensal=3100;
+update projetos set fase='x' where sigla='Aramco';
+select count(*) historico_visivel_maior_0 from historico;
+insert into tarefas(gerencia_id,titulo,prazo) select id,'Prestação de contas Petrobras','2026-10-30' from gerencias where nome='Gerência Financeira';
+insert into tarefas(gerencia_id,titulo) select id,'Tentativa em Infra' from gerencias where nome='Gerência de Infraestrutura';
+
+\echo '=== JEAN (Gerência de Projetos)'
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000e';
+select count(*) as vinculos_visiveis_esperado_0 from vinculos_financeiros;
+update projetos set fase='Em execução (Jean)' where sigla='Aramco';
+insert into projetos(sigla,inicio,fim) values ('Novo','2026-10-01','2028-09-30');
+delete from projetos where sigla='Novo';
+insert into alocacoes(pessoa_id,projeto_id) values ('00000000-0000-0000-0000-00000000000e','20000000-0000-0000-0000-000000000002');
+insert into alocacoes(pessoa_id,projeto_id,coordena) values ('00000000-0000-0000-0000-00000000000e','20000000-0000-0000-0000-000000000001',true);
+insert into gerencia_membros(gerencia_id,pessoa_id) select id,'00000000-0000-0000-0000-00000000000e' from gerencias where nome='Gerência Financeira';
+
+\echo '=== IGOR (Gerência de Infraestrutura + membro Aramco)'
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000c';
+select count(*) as vinculos_visiveis_esperado_0 from vinculos_financeiros;
+insert into tarefas(gerencia_id,titulo,prazo) select id,'Manutenção célula 3','2026-09-01' from gerencias where nome='Gerência de Infraestrutura';
+insert into tarefas(gerencia_id,titulo) select id,'Tentativa na Financeira' from gerencias where nome='Gerência Financeira';
+update tarefas set concluida=true where titulo='Prestação de contas Petrobras';
+insert into projetos(sigla,inicio,fim) values ('Igor','2026-10-01','2028-09-30');
+
+\echo '=== HAUSEN (mandato financeiro encerrado)'
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000f';
+select count(*) as vinculos_visiveis_esperado_0 from vinculos_financeiros;
+
+\echo '=== MARIO (Gerência Técnica + coordena Petrobras)'
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000b';
+select count(*) as vinculos_visiveis_esperado_1 from vinculos_financeiros;
+update pessoas set risco_sobrecarga=true where nome='Igor';
+update gerencias set permissoes=array['financeiro_ver'] where nome='Gerência Técnica';
+select count(*) historico_visivel_esperado_0 from historico;
+
+reset role;
+\echo '=== resultado'
+select sigla, fase from projetos order by sigla;
+select nome, risco_sobrecarga from pessoas where nome='Igor';
+select nome, gerentes, demandas_abertas, demandas_atrasadas from v_gerencias order by ordem;
+-- @@ 03_infraestrutura
+\set ON_ERROR_STOP 0
+\pset footer off
+insert into pessoas(id,nome,email,tipo) values
+ ('00000000-0000-0000-0000-00000000000a','Lucas','lucas@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000b','Mario','mario@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000c','Igor','igor@ufsm.br','doutorando'),
+ ('00000000-0000-0000-0000-00000000000d','Thompson','thompson@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000e','Jean','jean@ufsm.br','pos_doc'),
+ ('00000000-0000-0000-0000-00000000000f','Hausen','hausen@ufsm.br','docente');
+insert into auth.users values
+ ('10000000-0000-0000-0000-00000000000a','lucas@ufsm.br'),('10000000-0000-0000-0000-00000000000b','mario@ufsm.br'),
+ ('10000000-0000-0000-0000-00000000000c','igor@ufsm.br'),('10000000-0000-0000-0000-00000000000d','thompson@ufsm.br'),
+ ('10000000-0000-0000-0000-00000000000e','jean@ufsm.br'),('10000000-0000-0000-0000-00000000000f','hausen@ufsm.br');
+update perfis set ativo=true, papel='membro'; update perfis set papel='direcao' where email='lucas@ufsm.br';
+insert into projetos(id,sigla,inicio,fim) values
+ ('20000000-0000-0000-0000-000000000001','Petrobras','2025-04-01','2027-10-31'),
+ ('20000000-0000-0000-0000-000000000002','Aramco','2025-01-01','2026-12-31');
+insert into alocacoes(pessoa_id,projeto_id,coordena) values
+ ('00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',true),
+ ('00000000-0000-0000-0000-00000000000c','20000000-0000-0000-0000-000000000002',false);
+insert into vinculos_financeiros(pessoa_id,projeto_id,valor_mensal,inicio,fim) values
+ ('00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',5600,'2025-07-01','2026-12-31'),
+ ('00000000-0000-0000-0000-00000000000c','20000000-0000-0000-0000-000000000002',3100,'2025-07-01','2026-12-31');
+-- gerentes: Thompson financeiro, Jean projetos, Igor infraestrutura, Hausen financeiro (mandato encerrado), Mario técnico + coordena Petrobras
+insert into gerencia_membros(gerencia_id,pessoa_id,desde,ate)
+ select g.id, p.id, d::date, a::date from (values
+  ('Gerência Financeira','Thompson','2026-01-01',null),
+  ('Gerência de Projetos','Jean','2026-01-01',null),
+  ('Gerência de Infraestrutura','Igor','2026-01-01',null),
+  ('Gerência Financeira','Hausen','2024-01-01','2025-12-31'),
+  ('Gerência Técnica','Mario','2026-01-01',null)) v(g,p,d,a)
+ join gerencias g on g.nome=v.g join pessoas p on p.nome=v.p;
+insert into pessoas(id,nome,email,tipo) values ('00000000-0000-0000-0000-000000000011','Carlos','carlos@ufsm.br','ic');
+set role authenticated;
+
+\echo '=== IGOR (Gerência de Infraestrutura) cadastra itens'
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000c';
+insert into infra_itens(id,nome,codigo,categoria,requer_habilitacao) values
+ ('40000000-0000-0000-0000-000000000001','Célula de testes 3','CT-03','celula_teste',true);
+insert into infra_itens(nome,codigo,categoria,pai_id) values
+ ('Dinamômetro AVL 400 kW','DIN-01','equipamento','40000000-0000-0000-0000-000000000001');
+insert into infra_habilitacoes(item_id,pessoa_id,validade) values
+ ('40000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000011','2027-06-30');
+
+\echo '=== JEAN (Gerência de Projetos) — sem permissão de infraestrutura'
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000e';
+insert into infra_itens(nome) values ('Tentativa Jean');
+insert into infra_reservas(item_id,projeto_id,responsavel_id,inicio,fim) values
+ ('40000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-00000000000e','2026-10-05 08:00-03','2026-10-05 17:00-03');
+insert into infra_reservas(id,item_id,projeto_id,responsavel_id,inicio,fim,finalidade) values
+ ('50000000-0000-0000-0000-000000000001','40000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-000000000011','2026-10-05 08:00-03','2026-10-05 17:00-03','Mapeamento motor Aramco');
+update infra_reservas set status='confirmada' where id='50000000-0000-0000-0000-000000000001';
+
+\echo '=== IGOR confirma; reserva conflitante é barrada'
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000c';
+update infra_reservas set status='confirmada' where id='50000000-0000-0000-0000-000000000001';
+insert into infra_reservas(item_id,projeto_id,responsavel_id,inicio,fim,status) values
+ ('40000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000011','2026-10-05 14:00-03','2026-10-05 20:00-03','confirmada');
+
+\echo '=== JEAN tenta alterar reserva já confirmada'
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000e';
+update infra_reservas set status='cancelada' where id='50000000-0000-0000-0000-000000000001';
+
+\echo '=== MARIO reporta defeito (ok) e tenta planejar preventiva (barrado)'
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000b';
+insert into infra_manutencoes(id,item_id,tipo,titulo) values
+ ('60000000-0000-0000-0000-000000000001','40000000-0000-0000-0000-000000000001','corretiva','Vazamento no trocador de calor');
+insert into infra_manutencoes(item_id,tipo,titulo) values ('40000000-0000-0000-0000-000000000001','preventiva','Troca de óleo');
+
+\echo '=== IGOR executa a manutenção'
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000c';
+update infra_manutencoes set status='em_andamento' where id='60000000-0000-0000-0000-000000000001';
+select nome, status from infra_itens where codigo='CT-03';
+update infra_manutencoes set status='concluida', custo=1850 where id='60000000-0000-0000-0000-000000000001';
+select nome, status from infra_itens where codigo='CT-03';
+select data_inicio is not null ini, data_conclusao is not null fim from infra_manutencoes where id='60000000-0000-0000-0000-000000000001';
+insert into infra_manutencoes(item_id,tipo,titulo,status,proxima_em) select id,'calibracao','Calibração célula de carga','concluida',current_date+10 from infra_itens where codigo='DIN-01';
+update infra_reservas set status='realizada', horas_uso=8.5 where id='50000000-0000-0000-0000-000000000001';
+
+reset role;
+\echo '=== alertas e uso'
+select item, tipo_alerta, descricao, vencido from v_infra_alertas;
+select item, projeto, mes, reservas, horas from v_infra_uso_projeto;
+select tabela, operacao, count(*) from historico where tabela like 'infra%' group by 1,2 order by 1,2;
+-- @@ 04_orcamento_despesas
+\set ON_ERROR_STOP 0
+\pset footer off
+insert into pessoas(id,nome,email) values ('00000000-0000-0000-0000-00000000000b','Mario','mario@ufsm.br'),('00000000-0000-0000-0000-00000000000c','Igor','igor@ufsm.br');
+insert into auth.users values ('10000000-0000-0000-0000-00000000000b','mario@ufsm.br'),('10000000-0000-0000-0000-00000000000c','igor@ufsm.br');
+update perfis set ativo=true, papel='membro';
+insert into projetos(id,sigla,tipo,inicio,fim) values ('20000000-0000-0000-0000-000000000001','Petrobras','edital','2025-04-01','2027-10-31'),('20000000-0000-0000-0000-000000000002','Ensaio X','servico','2026-01-01','2026-12-31');
+insert into alocacoes(pessoa_id,projeto_id,coordena) values ('00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',true);
+insert into projetos(sigla,tipo,inicio,fim) values ('Y','doacao','2026-01-01','2026-12-31');
+set role authenticated;
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000b';
+\echo '== Mario (coordena Petrobras)'
+insert into orcamento_rubricas(projeto_id,rubrica,aprovado,previsto) values ('20000000-0000-0000-0000-000000000001','1.1.1',2554848,2400000),('20000000-0000-0000-0000-000000000001','2.1',2539054.10,2500000);
+insert into orcamento_rubricas(projeto_id,rubrica,aprovado) values ('20000000-0000-0000-0000-000000000001','1.1',10);
+insert into despesas(projeto_id,rubrica,data,descricao,valor) values ('20000000-0000-0000-0000-000000000001','1.1.1','2026-09-01','Bolsa set/26',5600),('20000000-0000-0000-0000-000000000001','2.1','2026-08-15','Analisador de gases',480000);
+insert into despesas(projeto_id,rubrica,data,descricao,valor) values ('20000000-0000-0000-0000-000000000001','1.3','2026-08-15','zero',0);
+insert into despesas(projeto_id,rubrica,data,descricao,valor) values ('20000000-0000-0000-0000-000000000002','1.3','2026-08-15','sem permissão',100);
+select rubrica,nome,aprovado,previsto,executado,saldo,previsto_a_executar from v_orcamento_rubricas order by rubrica;
+select * from v_orcamento_projeto;
+\echo '== Igor (sem acesso)'
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000c';
+select count(*) despesas_visiveis from despesas;
+reset role;
+\echo '== parcela única'
+insert into vinculos_financeiros(id,pessoa_id,projeto_id,valor_mensal,inicio,fim,status) values ('30000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',5600,'2025-07-01','2026-12-31','ativo');
+insert into despesas(projeto_id,rubrica,data,competencia,descricao,valor,vinculo_id) values ('20000000-0000-0000-0000-000000000001','1.1.1','2026-08-03','2026-08-01','Bolsa ago',5600,'30000000-0000-0000-0000-000000000001');
+insert into despesas(projeto_id,rubrica,data,competencia,descricao,valor,vinculo_id) values ('20000000-0000-0000-0000-000000000001','1.1.1','2026-08-03','2026-08-01','Bolsa ago dup',5600,'30000000-0000-0000-0000-000000000001');
+insert into vinculos_financeiros(pessoa_id,projeto_id,valor_mensal,inicio,fim,rubrica) values ('00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',1,'2025-07-01','2026-12-31','1');
+-- @@ 05_aditivos_entregas
+\set ON_ERROR_STOP 0
+\pset footer off
+insert into pessoas(id,nome,email) values ('00000000-0000-0000-0000-00000000000b','Mario','mario@ufsm.br'),('00000000-0000-0000-0000-00000000000c','Igor','igor@ufsm.br');
+insert into auth.users values ('10000000-0000-0000-0000-00000000000b','mario@ufsm.br'),('10000000-0000-0000-0000-00000000000c','igor@ufsm.br');
+update perfis set ativo=true, papel='membro';
+insert into projetos(id,sigla,inicio,fim,valor_total,programa,chamada,numero_contrato,contrapartida) values ('20000000-0000-0000-0000-000000000001','GLASSI','2024-01-01','2025-12-31',557937,'Rota 2030','Linha V','FDMS 123/2024',50000);
+insert into alocacoes(pessoa_id,projeto_id,coordena) values ('00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',true);
+set role authenticated;
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000b';
+\echo '== Mario registra aditivo de prazo'
+insert into aditivos(id,projeto_id,numero,tipo,data_assinatura,novo_fim,justificativa) values ('40000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','1º TA','prazo','2025-11-20','2026-12-31','Atraso na entrega do motor');
+select sigla,fim,valor_total from projetos;
+insert into aditivos(projeto_id,numero,tipo,novo_valor) values ('20000000-0000-0000-0000-000000000001','2º TA','valor',600000);
+select numero,fim_anterior,novo_fim,valor_anterior,novo_valor from aditivos order by criado_em;
+select sigla,fim,valor_total from projetos;
+insert into aditivos(projeto_id,tipo) values ('20000000-0000-0000-0000-000000000001','prazo');
+insert into aditivos(projeto_id,tipo,novo_fim) values ('20000000-0000-0000-0000-000000000001','prazo','2020-01-01');
+\echo '== entregas'
+insert into entregas(projeto_id,tipo,titulo,prazo,responsavel_id) values ('20000000-0000-0000-0000-000000000001','relatorio_parcial','1º Relatório','2026-06-30','00000000-0000-0000-0000-00000000000c'),('20000000-0000-0000-0000-000000000001','prestacao_final','Prestação de contas final','2027-02-28',null);
+select titulo, atrasada, (dias_para_prazo = prazo - public.hoje()) as dias_ok from v_entregas_abertas order by prazo;
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000c';
+\echo '== Igor (responsável) marca entregue; tenta criar entrega'
+update entregas set status='entregue' where titulo='1º Relatório';
+update entregas set status='entregue' where titulo='Prestação de contas final';
+insert into entregas(projeto_id,titulo,prazo) values ('20000000-0000-0000-0000-000000000001','x','2026-01-01');
+delete from aditivos;
+reset role;
+select titulo,status,data_entrega is not null from entregas order by prazo;
+\echo '== exclusão do 2º TA desfaz valor'
+delete from aditivos where numero='2º TA';
+select sigla,fim,valor_total from projetos;
+\echo '== Igor (responsável) tenta mudar prazo'
+set role authenticated;
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000c';
+update entregas set prazo='2030-01-01' where titulo='1º Relatório';
+update entregas set obs='enviado por e-mail' where titulo='1º Relatório';
+-- @@ 06_cronograma_fisico
+\set ON_ERROR_STOP 0
+\pset footer off
+insert into pessoas(id,nome,email) values ('00000000-0000-0000-0000-00000000000b','Mario','mario@ufsm.br'),('00000000-0000-0000-0000-00000000000c','Igor','igor@ufsm.br');
+insert into auth.users values ('10000000-0000-0000-0000-00000000000b','mario@ufsm.br'),('10000000-0000-0000-0000-00000000000c','igor@ufsm.br');
+update perfis set ativo=true, papel='membro';
+insert into projetos(id,sigla,inicio,fim) values ('20000000-0000-0000-0000-000000000001','ETANOL','2026-10-01','2030-09-30');
+insert into alocacoes(pessoa_id,projeto_id,coordena) values ('00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',true);
+set role authenticated; set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000b';
+insert into cronograma(projeto_id,codigo,titulo) values ('20000000-0000-0000-0000-000000000001','2','Plataforma 2');
+insert into cronograma(projeto_id,codigo,titulo,mes_inicio,mes_fim,responsavel_id) values ('20000000-0000-0000-0000-000000000001','2.5.1','Definição do ciclo Miller',1,12,'00000000-0000-0000-0000-00000000000c');
+insert into cronograma(projeto_id,codigo,titulo,mes_inicio,mes_fim) values ('20000000-0000-0000-0000-000000000001','2.x','inválido',1,2);
+insert into cronograma(projeto_id,codigo,titulo,mes_inicio,mes_fim) values ('20000000-0000-0000-0000-000000000001','2.5.2','fim antes',5,2);
+insert into tarefas(projeto_id,titulo,atividade_id) select projeto_id,'Simular no GT-Power',id from cronograma where codigo='2.5.1';
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000c';
+\echo '== Igor responsável: atualiza % ok, muda meses bloqueado'
+update cronograma set percentual=40 where codigo='2.5.1';
+update cronograma set mes_fim=20 where codigo='2.5.1';
+update cronograma set percentual=100 where codigo='2.5.1';
+reset role;
+select codigo,percentual,status,data_conclusao is not null as concl from cronograma order by codigo;
+delete from cronograma where codigo='2.5.1'; select titulo, atividade_id from tarefas;
+-- @@ 07_equipe_plano_bolsas
+\set ON_ERROR_STOP 0
+\pset footer off
+insert into pessoas(id,nome,email) values ('00000000-0000-0000-0000-00000000000b','Mario','mario@ufsm.br'),('00000000-0000-0000-0000-00000000000c','Igor','igor@ufsm.br');
+insert into auth.users values ('10000000-0000-0000-0000-00000000000b','mario@ufsm.br'),('10000000-0000-0000-0000-00000000000c','igor@ufsm.br');
+update perfis set ativo=true, papel='membro';
+insert into projetos(id,sigla,inicio,fim) values ('20000000-0000-0000-0000-000000000001','ETANOL','2026-10-01','2030-09-30');
+insert into alocacoes(pessoa_id,projeto_id,coordena) values ('00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',true),('00000000-0000-0000-0000-00000000000c','20000000-0000-0000-0000-000000000001',false);
+set role authenticated; set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000b';
+\echo '== coordenador cria posições e bolsas'
+insert into equipe_plano(id,projeto_id,nome_plano,funcao,categoria,etapas,status,pessoa_id) values
+ ('30000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','Mario Martins','Coordenador','docente','{2.5,2.5.1}','ocupada','00000000-0000-0000-0000-00000000000b'),
+ ('30000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000001','Bolsista de Mestrado 1 (UFSM)','Bolsista - Mestrando','mestrando','{2.7}','vaga',null);
+insert into equipe_plano_bolsas(vaga_id,projeto_id,modalidade,valor_mensal,meses) values
+ ('30000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','Coord. geral (COG)',8313,48),
+ ('30000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000001','Mestrado (BM)',3300,24);
+\echo '== regras: ocupada sem pessoa / vaga com pessoa / mesma pessoa em 2 posições ocupadas'
+insert into equipe_plano(projeto_id,nome_plano,status) values ('20000000-0000-0000-0000-000000000001','x','ocupada');
+update equipe_plano set pessoa_id='00000000-0000-0000-0000-00000000000c' where id='30000000-0000-0000-0000-000000000002';
+insert into equipe_plano(projeto_id,nome_plano,status,pessoa_id) values ('20000000-0000-0000-0000-000000000001','dup','ocupada','00000000-0000-0000-0000-00000000000b');
+\echo '== preenche a vaga com Igor e gera vínculo de 12 meses'
+update equipe_plano set status='ocupada', pessoa_id='00000000-0000-0000-0000-00000000000c', desde='2026-10-01' where id='30000000-0000-0000-0000-000000000002';
+insert into vinculos_financeiros(pessoa_id,projeto_id,vaga_id,modalidade,valor_mensal,inicio,fim) values ('00000000-0000-0000-0000-00000000000c','20000000-0000-0000-0000-000000000001','30000000-0000-0000-0000-000000000002','Mestrado (BM)',3300,'2026-10-01','2027-09-30');
+select nome_plano, valor_total, meses, meses_vinculados from v_plano_bolsas order by nome_plano;
+select * from v_equipe_plano;
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000c';
+\echo '== Igor (membro): vê posições, não vê bolsas, não edita'
+select count(*) as posicoes_visiveis from equipe_plano;
+select count(*) as bolsas_visiveis from equipe_plano_bolsas;
+select count(*) as linhas_v_plano_bolsas from v_plano_bolsas;
+update equipe_plano set obs='x' where id='30000000-0000-0000-0000-000000000002';
+select count(*) filter (where obs='x') as editou from equipe_plano;
+insert into equipe_plano(projeto_id,nome_plano) values ('20000000-0000-0000-0000-000000000001','tentativa');
+reset role;
+\echo '== projeto_id da bolsa segue a posição; exclusão da posição remove bolsa e desvincula'
+update equipe_plano_bolsas set projeto_id=gen_random_uuid() where vaga_id='30000000-0000-0000-0000-000000000002';
+select count(*) filter (where projeto_id='20000000-0000-0000-0000-000000000001') as ok_projeto from equipe_plano_bolsas;
+delete from equipe_plano where id='30000000-0000-0000-0000-000000000002';
+select (select count(*) from equipe_plano_bolsas) as bolsas, (select vaga_id from vinculos_financeiros) as vaga_do_vinculo;
+select tabela, operacao from historico where tabela like 'equipe%' order by em limit 8;
+-- @@ 08_plano_aplicacao
+\set ON_ERROR_STOP 0
+\pset footer off
+insert into pessoas(id,nome,email) values ('00000000-0000-0000-0000-00000000000b','Mario','mario@ufsm.br'),('00000000-0000-0000-0000-00000000000c','Igor','igor@ufsm.br');
+insert into auth.users values ('10000000-0000-0000-0000-00000000000b','mario@ufsm.br'),('10000000-0000-0000-0000-00000000000c','igor@ufsm.br');
+update perfis set ativo=true, papel='membro';
+insert into projetos(id,sigla,inicio,fim) values ('20000000-0000-0000-0000-000000000001','ETANOL','2026-10-01','2030-09-30'),('20000000-0000-0000-0000-000000000002','OUTRO','2026-10-01','2030-09-30');
+insert into alocacoes(pessoa_id,projeto_id,coordena) values ('00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',true),('00000000-0000-0000-0000-00000000000c','20000000-0000-0000-0000-000000000001',false);
+set role authenticated; set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000b';
+\echo '== coordenador cria itens'
+insert into plano_itens(id,projeto_id,rubrica,numero,descricao,origem,quantidade,valor_unitario,moeda,cambio,valor_previsto) values
+ ('40000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','2.1',1,'Analisador de gases','importado',1,277772,'USD',5.3,1472191.60),
+ ('40000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000001','1.3',1,'Pistões customizados','nacional',12,3000,'BRL',null,36000);
+insert into plano_itens(projeto_id,rubrica,descricao) values ('20000000-0000-0000-0000-000000000001','1','grupo não pode');
+\echo '== despesa ligada ao item herda a rubrica (mesmo digitando outra)'
+insert into despesas(projeto_id,rubrica,data,descricao,valor,item_id) values ('20000000-0000-0000-0000-000000000001','1.4','2026-11-10','Lote 1 de pistões',18000,'40000000-0000-0000-0000-000000000002');
+select rubrica, valor from despesas;
+reset role;
+\echo '== item de outro projeto é recusado'
+insert into despesas(projeto_id,rubrica,data,descricao,valor,item_id) values ('20000000-0000-0000-0000-000000000002','1.3','2026-11-10','x',1,'40000000-0000-0000-0000-000000000002');
+\echo '== mudar a rubrica do item leva as despesas'
+update plano_itens set rubrica='1.4' where id='40000000-0000-0000-0000-000000000002';
+select rubrica from despesas;
+update plano_itens set rubrica='1.3' where id='40000000-0000-0000-0000-000000000002';
+select descricao, valor_previsto, executado, saldo, n_despesas from v_plano_itens order by descricao;
+\echo '== vincular ao item de infraestrutura'
+insert into infra_itens(id,nome,projeto_aquisicao_id) values ('50000000-0000-0000-0000-000000000001','Analisador de gases','20000000-0000-0000-0000-000000000001');
+update plano_itens set infra_item_id='50000000-0000-0000-0000-000000000001', status='adquirido' where id='40000000-0000-0000-0000-000000000001';
+delete from infra_itens; select infra_item_id is null as desligado from plano_itens where numero=1 and rubrica='2.1';
+set role authenticated; set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000c';
+\echo '== Igor (membro): não vê itens nem despesas, não insere'
+select count(*) as itens_visiveis from plano_itens;
+select count(*) as view_visivel from v_plano_itens;
+insert into plano_itens(projeto_id,rubrica,descricao) values ('20000000-0000-0000-0000-000000000001','1.3','tentativa');
+reset role;
+\echo '== apagar item mantém a despesa (sem item)'
+delete from plano_itens where id='40000000-0000-0000-0000-000000000002'; select descricao, rubrica, item_id from despesas;
+-- @@ 09_desembolso
+\set ON_ERROR_STOP 0
+\pset footer off
+insert into pessoas(id,nome,email) values ('00000000-0000-0000-0000-00000000000b','Mario','mario@ufsm.br'),('00000000-0000-0000-0000-00000000000c','Igor','igor@ufsm.br');
+insert into auth.users values ('10000000-0000-0000-0000-00000000000b','mario@ufsm.br'),('10000000-0000-0000-0000-00000000000c','igor@ufsm.br');
+update perfis set ativo=true, papel='membro';
+insert into projetos(id,sigla,inicio,fim) values ('20000000-0000-0000-0000-000000000001','ETANOL','2025-03-01','2029-02-28');
+insert into alocacoes(pessoa_id,projeto_id,coordena) values ('00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',true),('00000000-0000-0000-0000-00000000000c','20000000-0000-0000-0000-000000000001',false);
+set role authenticated; set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000b';
+\echo '== coordenador cria 2 parcelas com distribuição'
+insert into desembolsos(id,projeto_id,numero,descricao,fundacao,data_prevista,valor_previsto) values
+ ('60000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',1,'Parcela 01','FAURGS','2025-03-01',3859740.25),
+ ('60000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000001',2,'Parcela 02','FAURGS','2027-03-01',3859740.25);
+insert into desembolso_rubricas(desembolso_id,projeto_id,rubrica,valor) values ('60000000-0000-0000-0000-000000000001',gen_random_uuid(),'2.1',1269527.05),('60000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','1.3',332683.70);
+select rubrica, valor, projeto_id='20000000-0000-0000-0000-000000000001' as projeto_certo from desembolso_rubricas;
+insert into desembolso_rubricas(desembolso_id,projeto_id,rubrica,valor) values ('60000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','1',1);
+\echo '== regras: recebida sem data/valor; número repetido'
+update desembolsos set status='recebida' where numero=1;
+insert into desembolsos(projeto_id,numero) values ('20000000-0000-0000-0000-000000000001',1);
+\echo '== recebe parcela 1 e lança gasto'
+update desembolsos set status='recebida', data_recebida='2025-05-10', valor_recebido=3859740.25 where numero=1;
+insert into despesas(projeto_id,rubrica,data,descricao,valor) values ('20000000-0000-0000-0000-000000000001','1.3','2025-06-01','Pistões',36000);
+select previsto, recebido, a_receber, parcelas_atrasadas, proxima, executado, saldo_caixa from v_desembolso_projeto;
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000c';
+\echo '== Igor (membro): não vê nem altera'
+select count(*) as parcelas from desembolsos; select count(*) as view from v_desembolso_projeto;
+insert into desembolsos(projeto_id,numero) values ('20000000-0000-0000-0000-000000000001',9);
+reset role;
+select tabela, operacao from historico where tabela='desembolsos' order by em;
+delete from desembolsos where numero=1; select count(*) as distrib_restante from desembolso_rubricas;
+-- @@ 10_documentos_pendencias
+\set ON_ERROR_STOP 0
+\pset footer off
+insert into pessoas(id,nome,email) values ('00000000-0000-0000-0000-00000000000b','Mario','mario@ufsm.br'),('00000000-0000-0000-0000-00000000000c','Igor','igor@ufsm.br'),('00000000-0000-0000-0000-00000000000d','Ana','ana@ufsm.br');
+insert into auth.users values ('10000000-0000-0000-0000-00000000000b','mario@ufsm.br'),('10000000-0000-0000-0000-00000000000c','igor@ufsm.br'),('10000000-0000-0000-0000-00000000000d','ana@ufsm.br');
+update perfis set ativo=true, papel='membro';
+insert into projetos(id,sigla,inicio,fim) values ('20000000-0000-0000-0000-000000000001','ETANOL','2025-03-01','2029-02-28');
+insert into alocacoes(pessoa_id,projeto_id,coordena) values ('00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',true),('00000000-0000-0000-0000-00000000000c','20000000-0000-0000-0000-000000000001',false);
+set role authenticated; set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000b';
+\echo '== coordenador: documentos (1 restrito) e pendências'
+insert into documentos(id,projeto_id,tipo,titulo,url,restrito) values ('70000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','contrato','Contrato FAURGS','https://drive/x',true),('70000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000001','plano_trabalho','Plano de trabalho v3','https://drive/y',false);
+insert into documentos(projeto_id,titulo) values ('20000000-0000-0000-0000-000000000001','sem link');
+insert into pendencias(id,projeto_id,titulo,responsavel_id,prazo,categoria,origem) values ('80000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','Enviar certidões à FAURGS','00000000-0000-0000-0000-00000000000c','2025-04-01','documental','Ofício FAURGS 12/2025');
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000c';
+\echo '== Igor (membro alocado): vê só o doc não restrito; inclui relatório; não inclui restrito'
+select titulo from documentos order by titulo;
+insert into documentos(projeto_id,tipo,titulo,url) values ('20000000-0000-0000-0000-000000000001','relatorio','Relatório parcial 1','https://drive/r1');
+insert into documentos(projeto_id,tipo,titulo,url,restrito) values ('20000000-0000-0000-0000-000000000001','outro','x','https://x',true);
+update documentos set titulo='Plano alterado' where tipo='plano_trabalho';
+select count(*) filter (where titulo='Plano alterado') as editou_do_coord from documentos;
+\echo '== Igor responsável: resolve pendência; não muda prazo'
+update pendencias set prazo='2030-01-01';
+update pendencias set status='resolvida', resolucao='Enviadas por e-mail', documento_id=(select id from documentos where tipo='relatorio');
+select status, resolvida_em is not null as data, resolucao from pendencias;
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000d';
+\echo '== Ana (não alocada): não inclui documento nem pendência; vê pendência'
+insert into documentos(projeto_id,titulo,url) values ('20000000-0000-0000-0000-000000000001','x','https://x');
+insert into pendencias(projeto_id,titulo) values ('20000000-0000-0000-0000-000000000001','x');
+select count(*) as pend_visiveis from pendencias;
+reset role;
+update pendencias set status='aberta';
+select titulo, atrasada, responsavel, sigla from v_pendencias_abertas;
+select tabela, operacao from historico where tabela in ('documentos','pendencias') order by em;
+-- @@ 11_candidatos_checklist
+\set ON_ERROR_STOP 0
+\pset footer off
+insert into pessoas(id,nome,email,tipo) values ('00000000-0000-0000-0000-00000000000b','Mario','mario@ufsm.br','docente'),('00000000-0000-0000-0000-00000000000c','Igor','igor@ufsm.br','mestrando'),('00000000-0000-0000-0000-00000000000d','Ana','ana@ufsm.br','ic');
+insert into auth.users values ('10000000-0000-0000-0000-00000000000b','mario@ufsm.br'),('10000000-0000-0000-0000-00000000000c','igor@ufsm.br'),('10000000-0000-0000-0000-00000000000d','ana@ufsm.br');
+update perfis set ativo=true, papel='membro';
+insert into projetos(id,sigla,inicio,fim) values ('20000000-0000-0000-0000-000000000001','ETANOL','2025-03-01','2029-02-28');
+insert into alocacoes(pessoa_id,projeto_id,coordena) values ('00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',true),('00000000-0000-0000-0000-00000000000c','20000000-0000-0000-0000-000000000001',false);
+insert into equipe_plano(id,projeto_id,nome_plano,categoria,requisitos,selecao_prazo,status) values ('30000000-0000-0000-0000-000000000009','20000000-0000-0000-0000-000000000001','Bolsista de Mestrado 2','mestrando','Eng. Mecânica, motores','2026-10-30','selecao');
+set role authenticated; set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000b';
+\echo '== coordenador cadastra candidatos'
+insert into candidatos(vaga_id,projeto_id,nome,email,status,nota) values ('30000000-0000-0000-0000-000000000009',gen_random_uuid(),'Bruna Candidata','bruna@x.com','entrevista',8.5),('30000000-0000-0000-0000-000000000009',gen_random_uuid(),'Carlos Candidato',null,'inscrito',null);
+select nome, projeto_id='20000000-0000-0000-0000-000000000001' as projeto_ok from candidatos order by nome;
+insert into candidatos(vaga_id,projeto_id,nome,nota) values ('30000000-0000-0000-0000-000000000009',gen_random_uuid(),'x',11);
+\echo '== coordenador marca checklist de Igor (alocado no projeto dele)'
+insert into pessoa_checklist(pessoa_id,item_id) select '00000000-0000-0000-0000-00000000000c', id from checklist_itens where fase='entrada' and ordem<=2;
+\echo '== ... e não de Ana (fora dos projetos dele)'
+insert into pessoa_checklist(pessoa_id,item_id) select '00000000-0000-0000-0000-00000000000d', id from checklist_itens where fase='entrada' and ordem=1;
+set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000c';
+\echo '== Igor (membro): não vê candidatos; vê o próprio checklist; não marca'
+select count(*) as candidatos from candidatos;
+select count(*) as meu_checklist from pessoa_checklist;
+insert into pessoa_checklist(pessoa_id,item_id) select '00000000-0000-0000-0000-00000000000c', id from checklist_itens where fase='entrada' and ordem=3;
+update checklist_itens set nome='x';
+select count(*) filter (where nome='x') as mudou_modelo from checklist_itens;
+reset role;
+\echo '== bolsas vencendo'
+insert into vinculos_financeiros(pessoa_id,projeto_id,valor_mensal,inicio,fim,status) values ('00000000-0000-0000-0000-00000000000c','20000000-0000-0000-0000-000000000001',3300,'2025-01-01',current_date+40,'ativo'),('00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',8313,'2025-01-01',current_date+400,'ativo');
+select pessoa, sigla, dias_restantes from v_bolsas_vencendo;
+select fase, count(*) from checklist_itens group by fase order by fase;
+-- @@ 12_permissoes_api
+\set ON_ERROR_STOP 0
+\pset footer off
+-- Permissões da API (regra da Supabase desde 30/05/2026) e fuso horário
+insert into projetos(id,sigla,inicio,fim) values ('20000000-0000-0000-0000-000000000001','Petrobras','2025-04-01','2027-10-31');
+\echo == anon (sem login) não acessa nenhuma tabela nem função
+set role anon;
+select count(*) from projetos;
+select count(*) from pessoas;
+select public.e_direcao();
+reset role;
+\echo == authenticated sem perfil ativo: tem permissão na tabela, mas o RLS não mostra nada
+set role authenticated;
+select count(*) as projetos_visiveis from projetos;
+reset role;
+\echo == todas as tabelas e visões do esquema public têm permissão para authenticated
+select count(*) filter (where not has_table_privilege('authenticated', c.oid, 'select')) as sem_select,
+       count(*) filter (where c.relkind = 'r' and not has_table_privilege('authenticated', c.oid, 'insert,update,delete')) as sem_escrita,
+       count(*) filter (where has_table_privilege('anon', c.oid, 'select')) as anon_com_select
+  from pg_class c join pg_namespace n on n.oid = c.relnamespace
+ where n.nspname = 'public' and c.relkind in ('r','v');
+\echo == data de hoje no fuso de Brasília, mesmo com a sessão em UTC
+set timezone = 'UTC';
+select public.hoje() = (now() at time zone 'America/Sao_Paulo')::date as hoje_brasilia;
+-- @@ 13_direcao_fixa
+\set ON_ERROR_STOP 0
+\pset footer off
+-- Direção permanente: lucas.scherer@ufsm.br é sempre Direção e ativo
+\echo == primeiro login do e-mail fixo já entra como Direção ativa; outro e-mail entra inativo
+insert into auth.users values ('10000000-0000-0000-0000-00000000000a','Lucas.Scherer@ufsm.br'),('10000000-0000-0000-0000-00000000000b','outra.direcao@ufsm.br');
+select email, papel, ativo from perfis order by email;
+update perfis set papel = 'direcao', ativo = true where email = 'outra.direcao@ufsm.br';
+\echo == outra pessoa da Direção tenta rebaixar, desativar e trocar o e-mail do login fixo
+set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+update perfis set papel = 'leitura', ativo = false where email = 'lucas.scherer@ufsm.br';
+update perfis set email = 'x@ufsm.br' where id = '10000000-0000-0000-0000-00000000000a';
+select email, papel, ativo from perfis where id = '10000000-0000-0000-0000-00000000000a';
+\echo == excluir o perfil fixo pela tela é bloqueado
+delete from perfis where id = '10000000-0000-0000-0000-00000000000a';
+\echo == ninguém consegue trocar o próprio e-mail para virar Direção permanente
+update perfis set email = 'lucas.scherer@ufsm.br', papel = 'membro' where id = '10000000-0000-0000-0000-00000000000b';
+select email, papel from perfis where id = '10000000-0000-0000-0000-00000000000b';
+reset role;
+select count(*) as perfis_restantes from perfis;
+\echo == apagar o próprio login (painel da Supabase) remove o perfil junto; novo login volta como Direção
+delete from auth.users where id = '10000000-0000-0000-0000-00000000000a';
+select count(*) as perfis_restantes from perfis;
+insert into auth.users values ('10000000-0000-0000-0000-0000000000aa','lucas.scherer@ufsm.br');
+select email, papel, ativo from perfis where email = 'lucas.scherer@ufsm.br';
+\echo == a função com a lista é acessível a quem fez login, não a anônimos
+set role authenticated; select public.emails_direcao_fixa(); reset role;
+set role anon; select public.emails_direcao_fixa(); reset role;

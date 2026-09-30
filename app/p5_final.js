@@ -418,13 +418,13 @@ function sobreHTML(cfg) {
   const txt = `<h2>${SOBRE.titulo}</h2><div class="copy">© 2026 GPMOT/UFSM. Todos os direitos reservados.</div><p class="aviso">${SOBRE.aviso}</p>${dados}<div class="rodape">${esc(SOBRE.rodape)}</div>`;
   return cfg ? `<div class="sobre sobre-cfg">${MARCA.logo}<div>${txt}</div></div>` : `<div class="sobre">${MARCA.logo}${txt}<div class="barra"><i></i></div></div>`;
 }
-function abertura() {   // 3 s na abertura; clicar pula. Não aparece nos testes automáticos (navigator.webdriver), salvo com ?abertura=1
+function abertura() {   // 1 s na abertura; clicar pula. Não aparece nos testes automáticos (navigator.webdriver), salvo com ?abertura=1
   if (navigator.webdriver && !/[?&]abertura=1\b/.test(location.search)) return;
   const d = document.createElement('div'); d.id = 'abertura'; d.title = 'Clique para continuar'; d.innerHTML = sobreHTML(false);
   document.body.appendChild(d);
   const sair = () => { if (!d.isConnected || d.classList.contains('saindo')) return; d.classList.add('saindo'); setTimeout(() => d.remove(), 500); };
   d.onclick = e => { if (!e.target.closest('a')) sair(); };
-  setTimeout(sair, 3000);
+  setTimeout(sair, 1000);
 }
 async function boot() {
   abertura(); UI.tab = 'painel';

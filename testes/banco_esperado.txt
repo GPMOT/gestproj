@@ -1,0 +1,474 @@
+-- @@ 02_gerencias_permissoes
+psql:02_gerencias_permissoes.sql:33: ERROR:  new row for relation "gerencias" violates check constraint "permissoes_validas"
+=== permissões de cada um
+   quem   |                minhas_permissoes                 
+----------+--------------------------------------------------
+ Thompson | {financeiro_editar,financeiro_ver,historico_ver}
+
+ quem |                                minhas_permissoes                                
+------+---------------------------------------------------------------------------------
+ Jean | {alocacoes_gerir,projetos_criar,projetos_editar,prospeccao_gerir,tarefas_gerir}
+
+ quem |   minhas_permissoes    
+------+------------------------
+ Igor | {infraestrutura_gerir}
+
+  quem  | minhas_permissoes 
+--------+-------------------
+ Hausen | {}
+
+ quem  |               minhas_permissoes               
+-------+-----------------------------------------------
+ Mario | {alocacoes_gerir,pessoas_gerir,tarefas_gerir}
+
+=== THOMPSON (Gerência Financeira, não coordena nada)
+ vinculos_visiveis_esperado_2 
+------------------------------
+                            2
+
+ historico_visivel_maior_0 
+---------------------------
+                        31
+
+psql:02_gerencias_permissoes.sql:50: ERROR:  new row violates row-level security policy for table "tarefas"
+=== JEAN (Gerência de Projetos)
+ vinculos_visiveis_esperado_0 
+------------------------------
+                            0
+
+psql:02_gerencias_permissoes.sql:59: ERROR:  Somente a Direção pode definir coordenadores de projeto
+CONTEXT:  PL/pgSQL function tg_protege_coordena() line 6 at RAISE
+psql:02_gerencias_permissoes.sql:60: ERROR:  new row violates row-level security policy for table "gerencia_membros"
+=== IGOR (Gerência de Infraestrutura + membro Aramco)
+ vinculos_visiveis_esperado_0 
+------------------------------
+                            0
+
+psql:02_gerencias_permissoes.sql:66: ERROR:  new row violates row-level security policy for table "tarefas"
+psql:02_gerencias_permissoes.sql:68: ERROR:  new row violates row-level security policy for table "projetos"
+=== HAUSEN (mandato financeiro encerrado)
+ vinculos_visiveis_esperado_0 
+------------------------------
+                            0
+
+=== MARIO (Gerência Técnica + coordena Petrobras)
+ vinculos_visiveis_esperado_1 
+------------------------------
+                            1
+
+ historico_visivel_esperado_0 
+------------------------------
+                            0
+
+=== resultado
+   sigla   |        fase        
+-----------+--------------------
+ Aramco    | Em execução (Jean)
+ Novo      | 
+ Petrobras | 
+
+ nome | risco_sobrecarga 
+------+------------------
+ Igor | t
+
+            nome            |                                             gerentes                                             | demandas_abertas | demandas_atrasadas 
+----------------------------+--------------------------------------------------------------------------------------------------+------------------+--------------------
+ Gerência de Projetos       | [{"nome": "Jean", "funcao": "titular", "pessoa_id": "00000000-0000-0000-0000-00000000000e"}]     |                0 |                  0
+ Gerência Técnica           | [{"nome": "Mario", "funcao": "titular", "pessoa_id": "00000000-0000-0000-0000-00000000000b"}]    |                0 |                  0
+ Gerência de Infraestrutura | [{"nome": "Igor", "funcao": "titular", "pessoa_id": "00000000-0000-0000-0000-00000000000c"}]     |                1 |                  1
+ Gerência Financeira        | [{"nome": "Thompson", "funcao": "titular", "pessoa_id": "00000000-0000-0000-0000-00000000000d"}] |                1 |                  0
+
+-- @@ 03_infraestrutura
+=== IGOR (Gerência de Infraestrutura) cadastra itens
+=== JEAN (Gerência de Projetos) — sem permissão de infraestrutura
+psql:03_infraestrutura.sql:47: ERROR:  new row violates row-level security policy for table "infra_itens"
+psql:03_infraestrutura.sql:49: ERROR:  O responsável pelo uso não tem habilitação válida para "Célula de testes 3"
+CONTEXT:  PL/pgSQL function tg_confere_reserva() line 17 at RAISE
+psql:03_infraestrutura.sql:52: ERROR:  Somente a Gerência de Infraestrutura ou o responsável pelo item confirma reservas
+CONTEXT:  PL/pgSQL function tg_confere_reserva() line 22 at RAISE
+=== IGOR confirma; reserva conflitante é barrada
+psql:03_infraestrutura.sql:58: ERROR:  conflicting key value violates exclusion constraint "sem_conflito"
+DETAIL:  Key conflicts with existing key.
+=== JEAN tenta alterar reserva já confirmada
+psql:03_infraestrutura.sql:62: ERROR:  Reserva já confirmada: peça alteração à Gerência de Infraestrutura
+CONTEXT:  PL/pgSQL function tg_confere_reserva() line 25 at RAISE
+=== MARIO reporta defeito (ok) e tenta planejar preventiva (barrado)
+psql:03_infraestrutura.sql:68: ERROR:  new row violates row-level security policy for table "infra_manutencoes"
+=== IGOR executa a manutenção
+        nome        |    status     
+--------------------+---------------
+ Célula de testes 3 | em_manutencao
+
+        nome        |   status    
+--------------------+-------------
+ Célula de testes 3 | operacional
+
+ ini | fim 
+-----+-----
+ t   | t
+
+=== alertas e uso
+          item          | tipo_alerta |               descricao                | vencido 
+------------------------+-------------+----------------------------------------+---------
+ Dinamômetro AVL 400 kW | vencimento  | calibracao: Calibração célula de carga | f
+
+        item        | projeto |    mes     | reservas | horas 
+--------------------+---------+------------+----------+-------
+ Célula de testes 3 | Aramco  | 2026-10-01 |        1 |   8.5
+
+       tabela       | operacao | count 
+--------------------+----------+-------
+ infra_habilitacoes | INSERT   |     1
+ infra_itens        | INSERT   |     2
+ infra_itens        | UPDATE   |     2
+ infra_manutencoes  | INSERT   |     2
+ infra_manutencoes  | UPDATE   |     5
+ infra_reservas     | INSERT   |     1
+ infra_reservas     | UPDATE   |     2
+
+-- @@ 04_orcamento_despesas
+psql:04_orcamento_despesas.sql:8: ERROR:  new row for relation "projetos" violates check constraint "projetos_tipo_check"
+== Mario (coordena Petrobras)
+psql:04_orcamento_despesas.sql:13: ERROR:  Use uma rubrica final (ex.: 1.1.1 Bolsas), não um grupo
+CONTEXT:  PL/pgSQL function tg_confere_rubrica() line 4 at RAISE
+psql:04_orcamento_despesas.sql:15: ERROR:  new row for relation "despesas" violates check constraint "despesas_valor_check"
+psql:04_orcamento_despesas.sql:16: ERROR:  new row violates row-level security policy for table "despesas"
+ rubrica |        nome         |  aprovado  |  previsto  | executado |   saldo    | previsto_a_executar 
+---------+---------------------+------------+------------+-----------+------------+---------------------
+ 1.1.1   | Bolsas              | 2554848.00 | 2400000.00 |   5600.00 | 2549248.00 |          2394400.00
+ 2.1     | Material permanente | 2539054.10 | 2500000.00 | 480000.00 | 2059054.10 |          2020000.00
+
+              projeto_id              |  aprovado  |  previsto  | executado |   saldo    
+--------------------------------------+------------+------------+-----------+------------
+ 20000000-0000-0000-0000-000000000001 | 5093902.10 | 4900000.00 | 485600.00 | 4608302.10
+
+== Igor (sem acesso)
+ despesas_visiveis 
+-------------------
+                 0
+
+== parcela única
+psql:04_orcamento_despesas.sql:26: ERROR:  duplicate key value violates unique constraint "despesa_parcela_unica"
+DETAIL:  Key (vinculo_id, competencia)=(30000000-0000-0000-0000-000000000001, 2026-08-01) already exists.
+psql:04_orcamento_despesas.sql:27: ERROR:  Use uma rubrica final (ex.: 1.1.1 Bolsas), não um grupo
+CONTEXT:  PL/pgSQL function tg_confere_rubrica() line 4 at RAISE
+-- @@ 05_aditivos_entregas
+== Mario registra aditivo de prazo
+ sigla  |    fim     | valor_total 
+--------+------------+-------------
+ GLASSI | 2026-12-31 |   557937.00
+
+ numero | fim_anterior |  novo_fim  | valor_anterior | novo_valor 
+--------+--------------+------------+----------------+------------
+ 1º TA  | 2025-12-31   | 2026-12-31 |      557937.00 |           
+ 2º TA  | 2026-12-31   |            |      557937.00 |  600000.00
+
+ sigla  |    fim     | valor_total 
+--------+------------+-------------
+ GLASSI | 2026-12-31 |   600000.00
+
+psql:05_aditivos_entregas.sql:16: ERROR:  new row for relation "aditivos" violates check constraint "aditivo_com_efeito"
+psql:05_aditivos_entregas.sql:17: ERROR:  O novo término não pode ser anterior ao início do projeto
+CONTEXT:  PL/pgSQL function tg_aditivo_antes() line 8 at RAISE
+== entregas
+          titulo           | atrasada | dias_ok 
+---------------------------+----------+---------
+ 1º Relatório              | t        | t
+ Prestação de contas final | f        | t
+
+== Igor (responsável) marca entregue; tenta criar entrega
+psql:05_aditivos_entregas.sql:25: ERROR:  new row violates row-level security policy for table "entregas"
+          titulo           |  status  | ?column? 
+---------------------------+----------+----------
+ 1º Relatório              | entregue | t
+ Prestação de contas final | pendente | f
+
+== exclusão do 2º TA desfaz valor
+ sigla  |    fim     | valor_total 
+--------+------------+-------------
+ GLASSI | 2026-12-31 |   557937.00
+
+== Igor (responsável) tenta mudar prazo
+psql:05_aditivos_entregas.sql:35: ERROR:  O responsável pela entrega só atualiza situação, data de entrega, documento e observações
+CONTEXT:  PL/pgSQL function tg_protege_entrega() line 6 at RAISE
+-- @@ 06_cronograma_fisico
+psql:06_cronograma_fisico.sql:11: ERROR:  new row for relation "cronograma" violates check constraint "cronograma_codigo_check"
+psql:06_cronograma_fisico.sql:12: ERROR:  new row for relation "cronograma" violates check constraint "meses_validos"
+== Igor responsável: atualiza % ok, muda meses bloqueado
+psql:06_cronograma_fisico.sql:17: ERROR:  O responsável pela atividade só atualiza andamento, conclusão, evidência e observações
+CONTEXT:  PL/pgSQL function tg_protege_cronograma() line 8 at RAISE
+ codigo | percentual |  status   | concl 
+--------+------------+-----------+-------
+ 2      |          0 | planejada | f
+ 2.5.1  |        100 | concluida | t
+
+       titulo        | atividade_id 
+---------------------+--------------
+ Simular no GT-Power | 
+
+-- @@ 07_equipe_plano_bolsas
+== coordenador cria posições e bolsas
+== regras: ocupada sem pessoa / vaga com pessoa / mesma pessoa em 2 posições ocupadas
+psql:07_equipe_plano_bolsas.sql:17: ERROR:  new row for relation "equipe_plano" violates check constraint "ocupada_tem_pessoa"
+psql:07_equipe_plano_bolsas.sql:18: ERROR:  new row for relation "equipe_plano" violates check constraint "vaga_sem_pessoa"
+psql:07_equipe_plano_bolsas.sql:19: ERROR:  duplicate key value violates unique constraint "equipe_plano_pessoa_unica"
+== preenche a vaga com Igor e gera vínculo de 12 meses
+          nome_plano           | valor_total | meses | meses_vinculados 
+-------------------------------+-------------+-------+------------------
+ Bolsista de Mestrado 1 (UFSM) |    79200.00 |    24 |               12
+ Mario Martins                 |   399024.00 |    48 |                0
+
+              projeto_id              | posicoes | ocupadas | vagas_abertas | em_selecao 
+--------------------------------------+----------+----------+---------------+------------
+ 20000000-0000-0000-0000-000000000001 |        2 |        2 |             0 |          0
+
+== Igor (membro): vê posições, não vê bolsas, não edita
+ posicoes_visiveis 
+-------------------
+                 2
+
+ bolsas_visiveis 
+-----------------
+               0
+
+ linhas_v_plano_bolsas 
+-----------------------
+                     0
+
+ editou 
+--------
+      0
+
+psql:07_equipe_plano_bolsas.sql:32: ERROR:  new row violates row-level security policy for table "equipe_plano"
+== projeto_id da bolsa segue a posição; exclusão da posição remove bolsa e desvincula
+ ok_projeto 
+------------
+          2
+
+ bolsas | vaga_do_vinculo 
+--------+-----------------
+      1 | 
+
+       tabela        | operacao 
+---------------------+----------
+ equipe_plano        | INSERT
+ equipe_plano        | INSERT
+ equipe_plano_bolsas | INSERT
+ equipe_plano_bolsas | INSERT
+ equipe_plano        | UPDATE
+ equipe_plano        | DELETE
+ equipe_plano_bolsas | DELETE
+
+-- @@ 08_plano_aplicacao
+== coordenador cria itens
+psql:08_plano_aplicacao.sql:13: ERROR:  Use uma rubrica final (ex.: 1.1.1 Bolsas), não um grupo
+CONTEXT:  PL/pgSQL function tg_confere_rubrica() line 4 at RAISE
+== despesa ligada ao item herda a rubrica (mesmo digitando outra)
+ rubrica |  valor   
+---------+----------
+ 1.3     | 18000.00
+
+== item de outro projeto é recusado
+psql:08_plano_aplicacao.sql:19: ERROR:  O item do plano de aplicação é de outro projeto
+CONTEXT:  PL/pgSQL function tg_despesa_item() line 7 at RAISE
+== mudar a rubrica do item leva as despesas
+ rubrica 
+---------
+ 1.4
+
+      descricao       | valor_previsto | executado |   saldo    | n_despesas 
+----------------------+----------------+-----------+------------+------------
+ Analisador de gases  |     1472191.60 |         0 | 1472191.60 |          0
+ Pistões customizados |       36000.00 |  18000.00 |   18000.00 |          1
+
+== vincular ao item de infraestrutura
+ desligado 
+-----------
+ t
+
+== Igor (membro): não vê itens nem despesas, não insere
+ itens_visiveis 
+----------------
+              0
+
+ view_visivel 
+--------------
+            0
+
+psql:08_plano_aplicacao.sql:33: ERROR:  new row violates row-level security policy for table "plano_itens"
+== apagar item mantém a despesa (sem item)
+     descricao     | rubrica | item_id 
+-------------------+---------+---------
+ Lote 1 de pistões | 1.3     | 
+
+-- @@ 09_desembolso
+== coordenador cria 2 parcelas com distribuição
+ rubrica |   valor    | projeto_certo 
+---------+------------+---------------
+ 2.1     | 1269527.05 | t
+ 1.3     |  332683.70 | t
+
+psql:09_desembolso.sql:15: ERROR:  Use uma rubrica final (ex.: 1.1.1 Bolsas), não um grupo
+CONTEXT:  PL/pgSQL function tg_confere_rubrica() line 4 at RAISE
+== regras: recebida sem data/valor; número repetido
+psql:09_desembolso.sql:17: ERROR:  new row for relation "desembolsos" violates check constraint "recebida_completa"
+psql:09_desembolso.sql:18: ERROR:  duplicate key value violates unique constraint "desembolsos_projeto_id_numero_key"
+== recebe parcela 1 e lança gasto
+  previsto  |  recebido  | a_receber  | parcelas_atrasadas |  proxima   | executado | saldo_caixa 
+------------+------------+------------+--------------------+------------+-----------+-------------
+ 7719480.50 | 3859740.25 | 3859740.25 |                  0 | 2027-03-01 |  36000.00 |  3823740.25
+
+== Igor (membro): não vê nem altera
+ parcelas 
+----------
+        0
+
+ view 
+------
+    0
+
+psql:09_desembolso.sql:26: ERROR:  new row violates row-level security policy for table "desembolsos"
+   tabela    | operacao 
+-------------+----------
+ desembolsos | INSERT
+ desembolsos | INSERT
+ desembolsos | UPDATE
+
+ distrib_restante 
+------------------
+                0
+
+-- @@ 10_documentos_pendencias
+== coordenador: documentos (1 restrito) e pendências
+psql:10_documentos_pendencias.sql:11: ERROR:  new row for relation "documentos" violates check constraint "documento_tem_referencia"
+== Igor (membro alocado): vê só o doc não restrito; inclui relatório; não inclui restrito
+        titulo        
+----------------------
+ Plano de trabalho v3
+
+psql:10_documentos_pendencias.sql:17: ERROR:  new row violates row-level security policy for table "documentos"
+ editou_do_coord 
+-----------------
+               0
+
+== Igor responsável: resolve pendência; não muda prazo
+psql:10_documentos_pendencias.sql:21: ERROR:  O responsável pela pendência só atualiza situação, resolução e documento. Prazo e responsável são definidos pela coordenação
+CONTEXT:  PL/pgSQL function tg_pendencia() line 9 at RAISE
+  status   | data |      resolucao      
+-----------+------+---------------------
+ resolvida | t    | Enviadas por e-mail
+
+== Ana (não alocada): não inclui documento nem pendência; vê pendência
+psql:10_documentos_pendencias.sql:26: ERROR:  new row violates row-level security policy for table "documentos"
+psql:10_documentos_pendencias.sql:27: ERROR:  new row violates row-level security policy for table "pendencias"
+ pend_visiveis 
+---------------
+             1
+
+          titulo           | atrasada | responsavel | sigla  
+---------------------------+----------+-------------+--------
+ Enviar certidões à FAURGS | t        | Igor        | ETANOL
+
+   tabela   | operacao 
+------------+----------
+ documentos | INSERT
+ documentos | INSERT
+ pendencias | INSERT
+ documentos | INSERT
+ pendencias | UPDATE
+ pendencias | UPDATE
+
+-- @@ 11_candidatos_checklist
+== coordenador cadastra candidatos
+       nome       | projeto_ok 
+------------------+------------
+ Bruna Candidata  | t
+ Carlos Candidato | t
+
+psql:11_candidatos_checklist.sql:13: ERROR:  new row for relation "candidatos" violates check constraint "candidatos_nota_check"
+== coordenador marca checklist de Igor (alocado no projeto dele)
+== ... e não de Ana (fora dos projetos dele)
+psql:11_candidatos_checklist.sql:17: ERROR:  new row violates row-level security policy for table "pessoa_checklist"
+== Igor (membro): não vê candidatos; vê o próprio checklist; não marca
+ candidatos 
+------------
+          0
+
+ meu_checklist 
+---------------
+             2
+
+psql:11_candidatos_checklist.sql:22: ERROR:  new row violates row-level security policy for table "pessoa_checklist"
+ mudou_modelo 
+--------------
+            0
+
+== bolsas vencendo
+ pessoa | sigla  | dias_restantes 
+--------+--------+----------------
+ Igor   | ETANOL |             40
+
+  fase   | count 
+---------+-------
+ entrada |     7
+ saida   |     6
+
+-- @@ 12_permissoes_api
+== anon (sem login) não acessa nenhuma tabela nem função
+psql:12_permissoes_api.sql:7: ERROR:  permission denied for table projetos
+psql:12_permissoes_api.sql:8: ERROR:  permission denied for table pessoas
+psql:12_permissoes_api.sql:9: ERROR:  permission denied for function e_direcao
+== authenticated sem perfil ativo: tem permissão na tabela, mas o RLS não mostra nada
+ projetos_visiveis 
+-------------------
+                 0
+
+== todas as tabelas e visões do esquema public têm permissão para authenticated
+ sem_select | sem_escrita | anon_com_select 
+------------+-------------+-----------------
+          0 |           0 |               0
+
+== data de hoje no fuso de Brasília, mesmo com a sessão em UTC
+ hoje_brasilia 
+---------------
+ t
+
+-- @@ 13_direcao_fixa
+== primeiro login do e-mail fixo já entra como Direção ativa; outro e-mail entra inativo
+         email         |  papel  | ativo 
+-----------------------+---------+-------
+ lucas.scherer@ufsm.br | direcao | t
+ outra.direcao@ufsm.br | leitura | f
+
+== outra pessoa da Direção tenta rebaixar, desativar e trocar o e-mail do login fixo
+         email         |  papel  | ativo 
+-----------------------+---------+-------
+ lucas.scherer@ufsm.br | direcao | t
+
+== excluir o perfil fixo pela tela é bloqueado
+psql:13_direcao_fixa.sql:14: ERROR:  O acesso de lucas.scherer@ufsm.br é da Direção permanente e não pode ser removido.
+CONTEXT:  PL/pgSQL function tg_perfil_direcao_fixa() line 6 at RAISE
+== ninguém consegue trocar o próprio e-mail para virar Direção permanente
+         email         | papel  
+-----------------------+--------
+ outra.direcao@ufsm.br | membro
+
+ perfis_restantes 
+------------------
+                2
+
+== apagar o próprio login (painel da Supabase) remove o perfil junto; novo login volta como Direção
+ perfis_restantes 
+------------------
+                1
+
+         email         |  papel  | ativo 
+-----------------------+---------+-------
+ lucas.scherer@ufsm.br | direcao | t
+
+== a função com a lista é acessível a quem fez login, não a anônimos
+   emails_direcao_fixa   
+-------------------------
+ {lucas.scherer@ufsm.br}
+
+psql:13_direcao_fixa.sql:27: ERROR:  permission denied for function emails_direcao_fixa

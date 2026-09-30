@@ -251,7 +251,7 @@ input[type=range]{padding:0;border:none;box-shadow:none}
 .sobre a{color:var(--blue)}
 .sobre .rodape{font-size:11px;color:var(--faint);border-top:1px solid var(--line);padding-top:10px}
 .sobre .barra{height:3px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:14px}
-.sobre .barra i{display:block;height:100%;width:0;background:var(--marca);animation:carregar 3s linear forwards}
+.sobre .barra i{display:block;height:100%;width:0;background:var(--marca);animation:carregar 1s linear forwards}
 @keyframes carregar{to{width:100%}}
 .sobre-cfg{display:flex;gap:28px;align-items:center;text-align:left;max-width:none}
 .sobre-cfg .marca-logo{width:190px;flex:none}
@@ -276,7 +276,7 @@ input[type=range]{padding:0;border:none;box-shadow:none}
    - Modo online: preencha SUPABASE_CONFIG abaixo (ou em Configurações)
      e o programa passa a ler e gravar no banco Supabase, com login.
    ════════════════════════════════════════════════════════════════════ */
-const VERSAO = '2.18';
+const VERSAO = '2.19';
 const VERSAO_DATA = '29/09/2026';
 const SUPABASE_CONFIG = { url: "https://wsmvuqldcxuosdfisjob.supabase.co", anonKey: "sb_publishable_LpOyzRZfKrq3uQB2G1ChxA_hd8EaJ89" };   // ← preencher na implantação
 
@@ -5305,13 +5305,13 @@ function sobreHTML(cfg) {
   const txt = `<h2>${SOBRE.titulo}</h2><div class="copy">© 2026 GPMOT/UFSM. Todos os direitos reservados.</div><p class="aviso">${SOBRE.aviso}</p>${dados}<div class="rodape">${esc(SOBRE.rodape)}</div>`;
   return cfg ? `<div class="sobre sobre-cfg">${MARCA.logo}<div>${txt}</div></div>` : `<div class="sobre">${MARCA.logo}${txt}<div class="barra"><i></i></div></div>`;
 }
-function abertura() {   // 3 s na abertura; clicar pula. Não aparece nos testes automáticos (navigator.webdriver), salvo com ?abertura=1
+function abertura() {   // 1 s na abertura; clicar pula. Não aparece nos testes automáticos (navigator.webdriver), salvo com ?abertura=1
   if (navigator.webdriver && !/[?&]abertura=1\b/.test(location.search)) return;
   const d = document.createElement('div'); d.id = 'abertura'; d.title = 'Clique para continuar'; d.innerHTML = sobreHTML(false);
   document.body.appendChild(d);
   const sair = () => { if (!d.isConnected || d.classList.contains('saindo')) return; d.classList.add('saindo'); setTimeout(() => d.remove(), 500); };
   d.onclick = e => { if (!e.target.closest('a')) sair(); };
-  setTimeout(sair, 3000);
+  setTimeout(sair, 1000);
 }
 async function boot() {
   abertura(); UI.tab = 'painel';
