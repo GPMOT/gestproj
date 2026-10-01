@@ -24,9 +24,13 @@ let PLANILHA = null;
 if (PLAN_ORIG) { PLANILHA = path.join(require('os').tmpdir(), `gpmot_planilha_${process.pid}.xlsx`); fs.copyFileSync(PLAN_ORIG, PLANILHA);
   process.on('exit', () => { try { fs.unlinkSync(PLANILHA); } catch { } }); }
 if (!DADOS_V1) throw new Error('Não encontrei o JSON do programa antigo (gpmot-portfolio-*.json) na pasta Software de Gestão. Defina GPMOT_DADOS_V1.');
+// plano de trabalho do SIGITEC/Petrobras (PDF) usado pelo t21 — cópia temporária sem acento no caminho
+const PDF_ORIG = process.env.GPMOT_PLANO_PDF || achar(/sigitec.*\.pdf$/i);
+let PLANO_PDF = null;
+if (PDF_ORIG) { PLANO_PDF = path.join(require('os').tmpdir(), `gpmot_plano_${process.pid}.pdf`); fs.copyFileSync(PDF_ORIG, PLANO_PDF); process.on('exit', () => { try { fs.unlinkSync(PLANO_PDF); } catch { } }); }
 // arquivo de backup gerado pelo t03 e reutilizado pelo t06 (caminho sem acento, fora do código-fonte)
 const BACKUP = path.join(require('os').tmpdir(), 'gpmot_backup_teste.json');
-const CFG = { BACKUP, APP: pathToFileURL(path.join(RAIZ, 'app', 'gpmot.html')).href, DADOS_V1, PLANILHA, SAIDA, saida: n => path.join(SAIDA, n) };
+const CFG = { BACKUP, PLANO_PDF, APP: pathToFileURL(path.join(RAIZ, 'app', 'gpmot.html')).href, DADOS_V1, PLANILHA, SAIDA, saida: n => path.join(SAIDA, n) };
 
 const TESTES = {
 't01': () => {
@@ -1132,6 +1136,71 @@ const TESTES = {
     console.log('rolagem horizontal financeiro:', await pg.evaluate(() => [document.documentElement.scrollWidth, innerWidth]));
     console.log('linhas clicáveis sem teclado:', await pg.evaluate(() => [document.querySelectorAll('tr.click').length, document.querySelectorAll('tr.click[tabindex]').length]));
     await b.close();
+  })();
+},
+'t21': () => {
+  // Plano de trabalho do SIGITEC (Petrobras) em PDF → projeto Petrobras; conferências; reimportação sem duplicar; plano padrão (.json)
+  const { chromium } = require('playwright'); const fs = require('fs');
+  (async () => {
+    if (!CFG.PLANO_PDF) { console.log('(sem o PDF do SIGITEC na pasta Software de Gestão — teste pulado)'); process.exit(0); }
+    const b = await chromium.launch(); const pg = await b.newPage({ viewport: { width: 1400, height: 900 }, acceptDownloads: true });
+    const errs = []; pg.on('pageerror', e => errs.push('PAGEERR ' + e.message)); pg.on('console', m => { if (m.type() === 'error' && !/ErroRegra/.test(m.text())) errs.push('CONSOLE ' + m.text()); });
+    let falhas = 0; const ok = (c, m, x) => { console.log((c ? '✓ ' : '✗ ') + m + (x !== undefined ? ' — ' + JSON.stringify(x) : '')); if (!c) falhas++; };
+    await pg.goto(CFG.APP); await pg.waitForTimeout(200);
+    const old = JSON.parse(fs.readFileSync(CFG.DADOS_V1, 'utf8'));
+    const P = await pg.evaluate(d => { localStorage.clear(); Local.load(); const { T } = converterV1(d); Object.keys(TABLES).forEach(t => D[t] = T[t] || []); seedPadrao(); Local.persistAll();
+      aplicarSim({ papel: 'direcao', pessoa_id: D.pessoas.find(p => p.nome.startsWith('Lucas')).id }); const p = D.projetos.find(x => /petrobras/i.test(x.sigla)); return p && p.id; }, old);
+    ok(!!P, 'projeto Petrobras existe nos dados de teste');
+    const abre = async () => { const [fc] = await Promise.all([pg.waitForEvent('filechooser'), pg.evaluate(id => A.importarPlanilha({ projeto: id }), P)]); await fc.setFiles(CFG.PLANO_PDF); await pg.waitForSelector('#im_ok', { timeout: 20000 }); };
+    await abre();
+    await pg.screenshot({ path: CFG.saida('p1_previa_sigitec.png'), fullPage: false });
+    const pv = await pg.evaluate(() => ({ titulo: document.querySelector('#modal-root h3').textContent, conf: document.querySelector('#modal-root details summary').innerText, dest: document.querySelector('#im_dest').value,
+      nat: [...document.querySelectorAll('.im-nat')].map(s => s.value), eq: document.querySelectorAll('.im-eq').length, at: document.querySelectorAll('.im-at').length, atck: document.querySelectorAll('.im-at:checked').length, entR: !!document.querySelector('#im_entR'), campos: [...document.querySelectorAll('.im-campo')].map(x => x.dataset.k) }));
+    ok(/SIGITEC/.test(pv.titulo), 'formato reconhecido', pv.titulo);
+    ok(/22 de 22 conferem/.test(pv.conf), 'todas as conferências do documento batem', pv.conf);
+    ok(pv.nat.join(',') === '2.1,1.1.1,1.2.1,1.2.2,1.3,1.4,1.4,1.5', 'naturezas → rubricas', pv.nat);
+    ok(pv.eq === 20 && pv.at === 28 && pv.atck === 28 && pv.entR, 'equipe (20), 28 atividades marcadas e relatórios previstos', pv);
+    ok(pv.campos.includes('fundacao_apoio') && pv.campos.includes('nome'), 'mostra os campos do projeto que diferem do documento', pv.campos);
+    await pg.$$eval('.im-campo', els => els.forEach(e => e.checked = true));
+    await pg.click('#im_ok'); await pg.waitForTimeout(1500);
+    const r = await pg.evaluate(id => { const p = byId('projetos', id), o = Calc.orcamento(p);
+      return { nome: p.nome, fund: p.fundacao_apoio, cham: p.chamada, fim: p.fim, valor: num(p.valor_total), orc: o.tot.aprovado, rub: Object.fromEntries(D.orcamento_rubricas.filter(x => x.projeto_id === id).map(x => [x.rubrica, x.aprovado])),
+        crono: D.cronograma.filter(x => x.projeto_id === id).length, comDesc: D.cronograma.filter(x => x.projeto_id === id && x.descricao).length,
+        pos: D.equipe_plano.filter(x => x.projeto_id === id).length, vagas: D.equipe_plano.filter(x => x.projeto_id === id && x.status === 'vaga').length,
+        bolsas: D.equipe_plano_bolsas.filter(x => x.projeto_id === id).reduce((t, x) => t + x.valor_mensal * x.meses, 0),
+        itens: D.plano_itens.filter(x => x.projeto_id === id).length, itensV: D.plano_itens.filter(x => x.projeto_id === id).reduce((t, x) => t + num(x.valor_previsto), 0),
+        parc: D.desembolsos.filter(x => x.projeto_id === id).map(x => [x.numero, x.data_prevista, x.valor_previsto]), ent: D.entregas.filter(x => x.projeto_id === id).length,
+        coord: D.alocacoes.filter(a => a.projeto_id === id && a.coordena).map(a => nomePessoa(a.pessoa_id)) }; }, P);
+    console.log(JSON.stringify(r));
+    ok(/biodiesel em motores P7 e P8/.test(r.nome || '') && r.fund === 'FATEC' && /2024\/00313-3/.test(r.cham) && r.valor === 6077620, 'dados do projeto substituídos pelos do documento', [r.nome, r.fund, r.cham, r.fim, r.valor]);
+    ok(Math.abs(r.orc - 6077620) < 0.01 && Math.abs(r.rub['1.3'] - 2993457.76) < 0.01 && Math.abs(r.rub['1.5'] - 682190.21) < 0.01, 'orçamento por rubrica = R$ 6.077.620,00', r.rub);
+    ok(r.crono === 36 && r.comDesc >= 28, 'cronograma: 8 etapas + 28 atividades com detalhamento', [r.crono, r.comDesc]);
+    ok(r.pos === 20 && r.vagas >= 11 && Math.abs(r.bolsas - 1616103.6) < 0.01, 'equipe do plano: 20 posições, 11 vagas, bolsas = R$ 1.616.103,60', [r.pos, r.vagas, r.bolsas]);
+    ok(r.itens === 106 && Math.abs(r.itensV - (6077620 - 1616103.6)) < 0.01, 'plano de aplicação: 106 itens = orçamento sem bolsas', [r.itens, r.itensV]);
+    ok(r.parc.length === 3 && Math.abs(r.parc.reduce((t, x) => t + x[2], 0) - 6077620) < 0.01, '3 parcelas de desembolso (meses 1, 13, 24)', r.parc);
+    ok(r.ent >= 11, 'entregas: 11 relatórios previstos', r.ent);
+    // reimportação: nada duplica
+    await abre(); await pg.click('#im_ok'); await pg.waitForTimeout(1500);
+    const r2 = await pg.evaluate(id => [D.cronograma, D.equipe_plano, D.plano_itens, D.desembolsos, D.entregas, D.orcamento_rubricas].map(t => t.filter(x => x.projeto_id === id).length), P);
+    ok(JSON.stringify(r2) === JSON.stringify([r.crono, r.pos, r.itens, 3, r.ent, Object.keys(r.rub).length]), 'reimportar o mesmo plano não duplica nada', r2);
+    // plano padrão (.json): exportar e reimportar dá o mesmo resultado
+    await abre();
+    const [dl] = await Promise.all([pg.waitForEvent('download'), pg.click('#im_pad')]); const js = path.join(require('os').tmpdir(), `gpmot_plano_${process.pid}.json`); await dl.saveAs(js);
+    await pg.click('#im_c');
+    const o = JSON.parse(fs.readFileSync(js, 'utf8')); ok(o.formato === 'gpmot-plano-1' && o.itens.length === 106 && o.equipe.length === 20 && o.etapas.length === 8, 'plano padrão exportado', [o.itens.length, o.equipe.length, o.etapas.length]);
+    const [fc] = await Promise.all([pg.waitForEvent('filechooser'), pg.evaluate(id => A.importarPlanilha({ projeto: id }), P)]); await fc.setFiles(js); await pg.waitForSelector('#im_ok', { timeout: 20000 });
+    const pj = await pg.evaluate(() => ({ t: document.querySelector('#modal-root h3').textContent, conf: (document.querySelector('#modal-root details summary') || {}).innerText }));
+    ok(/Plano padrão/.test(pj.t) && /conferem/.test(pj.conf || ''), 'plano padrão (.json) reconhecido e conferido', pj);
+    await pg.click('#im_ok'); await pg.waitForTimeout(1500);
+    const r3 = await pg.evaluate(id => [D.cronograma, D.equipe_plano, D.plano_itens, D.desembolsos, D.entregas, D.orcamento_rubricas].map(t => t.filter(x => x.projeto_id === id).length), P);
+    ok(JSON.stringify(r3) === JSON.stringify(r2), 'importar o plano padrão no mesmo projeto também não duplica', r3);
+    fs.unlinkSync(js);
+    // um JSON qualquer é recusado com mensagem clara
+    const rec = await pg.evaluate(() => lerPlanoPadrao({ a: 1 }, 'x.json').then ? 'promessa' : 'ok').catch(e => e.message);
+    ok(/gpmot-plano-1/.test(rec), 'JSON fora do formato é recusado', rec);
+    await pg.evaluate(id => A.projAbrir({ id, aba: 'cronograma' }), P); await pg.waitForTimeout(200); await pg.screenshot({ path: CFG.saida('p2_cronograma_petrobras.png'), fullPage: false });
+    console.log(errs.join('\n') || 'sem erros na página');
+    await b.close(); process.exit(falhas || errs.length ? 1 : 0);
   })();
 },
 };

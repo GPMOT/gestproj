@@ -255,7 +255,7 @@ function mesmoNome(a, b) {
   if (/\d/.test(A.join('')) || /\d/.test(B.join(''))) return false;
   return A.length > 1 && B.length > 1 && A[0] === B[0] && A[A.length - 1] === B[B.length - 1];
 }
-const tipoPorFuncao = (func, form) => /p[óo]s-?dout/i.test(func) ? 'pos_doc' : /bolsista.*gradua/i.test(func) ? 'ic' : /doutorand/i.test(func) ? 'doutorando' : /mestrand/i.test(func) ? 'mestrando' : /p[óo]s-?doc/i.test(func) ? 'pos_doc' : /t[ée]cnic/i.test(func) ? 'tecnico' : /coordenador|pesquisador/i.test(func) && /doutor/i.test(form) ? 'docente' : /pesquisador/i.test(func) ? 'pesquisador' : 'outro';
+const tipoPorFuncao = (func, form) => /p[óo]s-?dout|rec[ée]m-?doutor/i.test(func + ' ' + (form || '')) ? 'pos_doc' : /bolsista.*gradua/i.test(func) ? 'ic' : /doutorand/i.test(func) ? 'doutorando' : /mestrand/i.test(func) ? 'mestrando' : /p[óo]s-?doc/i.test(func) ? 'pos_doc' : /t[ée]cnic/i.test(func) ? 'tecnico' : /coordenador|pesquisador/i.test(func) && /doutor/i.test(form) ? 'docente' : /pesquisador/i.test(func) ? 'pesquisador' : 'outro';
 
 /* atividade que É um relatório ("Relatório técnico parcial", "Elaboração do relatório final"), não uma que apenas o menciona */
 const ehAtvRelatorio = t => /^\s*((elabora[çc][ãa]o|reda[çc][ãa]o|entrega|emiss[ãa]o|apresenta[çc][ãa]o)\s+d[oe]s?\s+)?relat[óo]rios?\b/i.test(t || '');
@@ -263,11 +263,11 @@ const ehAtvRelatorio = t => /^\s*((elabora[çc][ãa]o|reda[çc][ãa]o|entrega|em
 /* ── fluxo de importação ─────────────────────────────────────────── */
 A.importarPlanilha = d => {
   if (!(Perm.dir() || Perm.tem('projetos_criar') || (d.projeto && Perm.gereProjeto(d.projeto)))) falha('Você não tem permissão para importar projetos.');
-  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.xlsx';
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.xlsx,.pdf,.json';
   inp.onchange = () => run(async () => {
     const f = inp.files[0]; if (!f) return;
-    flash('Lendo a planilha…');
-    const R = await lerModeloEdital(f);
+    flash('Lendo o plano de trabalho…');
+    const R = await lerPlanoDeTrabalho(f);
     previaImportacao(R, d.projeto || null);
   });
   inp.click();
@@ -281,23 +281,37 @@ function previaImportacao(R, projetoAlvo) {
   const grupos = {}; leafs.forEach(a => { const g = a.codigo.split('.').slice(0, 2).join('.'); (grupos[g] = grupos[g] || []).push(a); });
   const nomeGrupo = g => (R.atividades.find(a => a.codigo === g) || {}).titulo || g;
   const eqLinhas = eqU.map((e, i) => { const p = e.vaga ? null : acharPessoa(e.nome, e.email);
-    return `<tr><td><input type="checkbox" class="im-eq" data-i="${i}" ${e.vaga ? 'disabled' : 'checked'}></td><td><b>${esc(e.nome)}</b><div class="small muted">${esc([e.formacao, e.email].filter(Boolean).join(' · '))}</div></td><td class="small">${esc(e.funcao)}</td>
+    return `<tr><td><input type="checkbox" class="im-eq" data-i="${i}" ${e.vaga ? 'disabled' : 'checked'}></td><td><b>${esc(e.nome)}</b><div class="small muted">${esc([e.formacao, e.email].filter(Boolean).join(' · '))}</div></td><td class="small">${esc(e.funcao)}${e.nivel ? `<div class="muted">${esc(e.nivel)}</div>` : ''}${e.horas ? `<div class="muted">${e.horas} h/semana</div>` : ''}</td>
       <td class="small">${e.vaga ? '<span style="color:var(--yellow-txt)">vaga aberta no plano</span>' : p ? `✓ já cadastrada: <b>${esc(p.nome)}</b>` : '<span style="color:var(--blue)">será cadastrada</span>'}</td><td class="small">${e.etapas.length}</td>
       <td class="small num">${e.bolsa ? `${esc(e.bolsa.modalidade)}<div><b>${fmtBRL(e.bolsa.valor_mensal)}</b> × ${e.bolsa.meses}</div>` : '<span class="faint">—</span>'}</td></tr>`; }).join('');
   const totBolsas = eqU.reduce((t, e) => t + (e.bolsa ? e.bolsa.valor_mensal * e.bolsa.meses : 0), 0);
-  const html = `<div class="between mb"><h3 style="margin:0">Importar planilha do edital — parte UFSM</h3><button class="btn-s" id="im_x">✕</button></div>
-  <div class="note mb small">Arquivo: <b>${esc(R.arquivo)}</b> · ${R.abas.length} abas. Revise o que será importado; nada é gravado até clicar em “Importar”.${R.avisos.length ? '<br>' + R.avisos.map(a => '⚠ ' + esc(a)).join('<br>') : ''}</div>
+  const pend = (R.conferencias || []).filter(c => !c.ok);
+  /* projeto existente: campo a campo, o que está no projeto × o que diz o documento */
+  const fimDoc = alvo && R.meses && isDate(alvo.inicio) ? isoOf(new Date(toDate(alvo.inicio).getFullYear(), toDate(alvo.inicio).getMonth() + R.meses, 0)) : null;
+  const campos = !alvo ? [] : [['nome', 'Título', R.titulo], ['financiador', 'Financiador', R.financiador], ['fundacao_apoio', 'Fundação de apoio', R.gestora], ['programa', 'Programa', R.programa], ['chamada', 'Chamada / processo', R.chamada],
+    ['linha_tematica', 'Linha / tema', [R.linha, R.tema].filter(Boolean).join(' · ')], ['resumo', 'Resumo', R.resumo], ['valor_total', 'Valor (aporte)', R.totalUFSM ? r2(R.totalUFSM) : null], ['fim', 'Término (início + ' + (R.meses || '?') + ' meses)', fimDoc]]
+    .filter(([k, , v]) => v != null && v !== '' && (k === 'valor_total' ? Math.abs(num(alvo[k]) - v) >= 0.01 : String(alvo[k] ?? '').trim() !== String(v).trim()))
+    .map(([k, l, v]) => ({ k, l, v, atual: alvo[k], vazio: k === 'valor_total' ? !num(alvo[k]) : !String(alvo[k] ?? '').trim() }));
+  const mostraV = (k, v) => k === 'valor_total' ? fmtBRL2(v) : k === 'fim' ? fmtD(v) : esc(String(v ?? '').length > 140 ? String(v).slice(0, 138) + '…' : v ?? '');
+  const html = `<div class="between mb"><h3 style="margin:0">Importar plano de trabalho — ${esc(R.formato || 'planilha do edital')}</h3><button class="btn-s" id="im_x">✕</button></div>
+  <div class="note mb small">Arquivo: <b>${esc(R.arquivo)}</b> · ${R.paginas ? R.paginas + ' páginas' : (R.abas || []).length + ' abas'}. Revise o que será importado; nada é gravado até clicar em “Importar”.${R.avisos.length ? '<br>' + R.avisos.map(a => '⚠ ' + esc(a)).join('<br>') : ''}</div>
+  ${(R.conferencias || []).length ? `<details class="mb" ${pend.length ? 'open' : ''}><summary class="small"><b>Conferências do documento:</b> ${pend.length ? `<span style="color:var(--red)">${pend.length} divergência(s)</span>` : `<span style="color:var(--green)">✓ ${R.conferencias.length} de ${R.conferencias.length} conferem</span>`}</summary>
+    <div class="small" style="padding:4px 0 0 14px">${R.conferencias.map(c => `<div>${c.ok ? '<span style="color:var(--green)">✓</span>' : '<span style="color:var(--red)">✗</span>'} ${esc(c.txt)}</div>`).join('')}</div></details>` : ''}
   <div class="sec" style="margin-top:0">1 · Projeto</div>
   <div class="kv mb small"><span class="k">Título</span><span><b>${esc(R.titulo || '—')}</b></span><span class="k">Programa / chamada</span><span>${esc([R.programa, R.chamada].filter(Boolean).join(' · ') || '—')}</span>
     <span class="k">Linha / tema</span><span>${esc([R.linha, R.tema].filter(Boolean).join(' · ') || '—')}</span><span class="k">Financiador</span><span>${esc(R.financiador || '—')}</span>
     <span class="k">Duração</span><span>${R.meses ? R.meses + ' meses' : '—'}</span><span class="k">Coordenação geral</span><span>${esc(R.coordenador || '—')}</span>
     <span class="k">Gestora UFSM</span><span>${esc(R.gestora || '—')}</span><span class="k">Aporte UFSM</span><span><b>${fmtBRL2(R.totalUFSM)}</b></span></div>
+  ${campos.length ? `<div class="small muted mb">Dados do projeto ${esc(alvo.sigla)} diferentes do documento — marque o que deve ser substituído (campos vazios são sempre preenchidos):</div>
+  <div class="tw mb"><table class="t small"><tr><th>Campo</th><th>No projeto</th><th>No documento</th><th>Usar o do documento</th></tr>${campos.map(c => `<tr><td>${esc(c.l)}</td><td>${c.vazio ? '<span class="faint">(vazio)</span>' : mostraV(c.k, c.atual)}</td><td>${mostraV(c.k, c.v)}</td><td><input type="checkbox" class="im-campo" data-k="${c.k}" ${c.vazio ? 'checked disabled' : ''}></td></tr>`).join('')}</table></div>` : ''}
   <div class="fgrid mb">
     <div><label class="fl">Destino</label><select id="im_dest"><option value="">➕ Criar novo projeto</option>${D.projetos.slice().sort(byName('sigla')).map(p => `<option value="${p.id}"${alvo && alvo.id === p.id ? ' selected' : ''}>Atualizar: ${esc(p.sigla)}</option>`).join('')}</select></div>
     <div id="im_novo"><label class="fl">Sigla do novo projeto</label><input id="im_sigla" value="${esc((R.programa ? R.programa + ' — ' : '') + (R.titulo || '').split(/\s+/).slice(0, 3).join(' '))}"></div>
     <div><label class="fl">Início da vigência</label><input id="im_ini" type="date" value="${alvo ? alvo.inicio : inicioSug}"><div class="help">Mês 1 do cronograma. Término = início + ${R.meses || '?'} meses.</div></div>
     <div class="small muted" style="align-self:end">Ao atualizar um projeto existente, só campos vazios são preenchidos, o orçamento é somado por rubrica e o cronograma é mesclado pelo código.</div></div>
   <div class="sec">2 · Orçamento — coluna UFSM <label class="small" style="text-transform:none;letter-spacing:0;font-weight:400;margin-left:8px"><input type="checkbox" id="im_orc" checked> importar como Aprovado</label> <label class="small" style="text-transform:none;letter-spacing:0;font-weight:400;margin-left:8px"><input type="checkbox" id="im_prev" checked> e usar o mesmo valor como Previsto</label></div>
+  ${R.naturezas ? `<div class="small muted mb">Natureza de despesa do financiador → rubrica do GPMOT (troque se necessário; orçamento, itens e desembolso acompanham):</div>
+  <div class="tw mb"><table class="t small"><tr><th>Natureza no documento</th><th class="num">Valor</th><th>Rubrica GPMOT</th></tr>${R.naturezas.map((nt, i) => `<tr><td>${esc(nt.nome)}</td><td class="num">${fmtBRL(nt.valor)}</td><td><select class="im-nat" data-i="${i}" style="${nt.rubrica ? '' : 'border-color:var(--red)'}"><option value="">— escolha —</option>${folhasOrc.map(r => `<option value="${r.codigo}"${nt.rubrica === r.codigo ? ' selected' : ''}>${esc(r.codigo + ' ' + r.nome)}</option>`).join('')}</select></td></tr>`).join('')}</table></div>` : ''}
   <div class="tw"><table class="t orc small"><tr>${folhasOrc.map(r => `<th class="num" title="${esc(r.nome)}">${r.codigo}</th>`).join('')}<th class="num">Total</th></tr><tr>${folhasOrc.map(r => `<td class="num">${fmtBRL(R.orcamento[r.codigo] || 0)}</td>`).join('')}<td class="num"><b>${fmtBRL(folhasOrc.reduce((s, r) => s + num(R.orcamento[r.codigo]), 0))}</b></td></tr></table></div>
   <div class="sec">3 · Equipe UFSM (${eqU.length} posições · ${eqU.filter(e => e.vaga).length} vagas${totBolsas ? ' · bolsas/CLT ' + fmtBRL2(totBolsas) : ''})</div>
   <div class="row small mb" style="gap:14px"><label class="row"><input type="checkbox" id="im_plano" checked> criar a equipe do plano de trabalho (posições, vagas e bolsas previstas)</label><label class="row"><input type="checkbox" id="im_aloc" checked> cadastrar e alocar as pessoas marcadas</label></div>
@@ -310,11 +324,14 @@ function previaImportacao(R, projetoAlvo) {
   ${R.itens.length ? `<div class="tw" style="max-height:200px;overflow:auto"><table class="t small"><tr><th>Rubrica</th><th class="num">Itens</th><th class="num">Valor</th><th>Exemplos</th></tr>${[...new Set(R.itens.map(i => i.rubrica))].sort(Calc.codCmp).map(c => { const its = R.itens.filter(i => i.rubrica === c); return `<tr><td>${esc(Calc.rotuloRubrica(c))}</td><td class="num">${its.length}</td><td class="num">${fmtBRL(its.reduce((t, i) => t + i.valor_previsto, 0))}</td><td class="muted">${esc(its.slice(0, 3).map(i => i.descricao).join('; ') + (its.length > 3 ? '…' : ''))}</td></tr>`; }).join('')}</table></div>` : '<div class="empty small">Nenhum item da UFSM nas abas 6 a 11.</div>'}
   <div class="sec">6 · Desembolso ${R.desembolso ? `— ${esc(R.desembolso.fundacao)} (${R.desembolso.parcelas.length} parcela(s) · ${fmtBRL2(R.desembolso.parcelas.reduce((t, x) => t + x.valor, 0))})` : ''} <label class="small" style="text-transform:none;letter-spacing:0;font-weight:400;margin-left:8px"><input type="checkbox" id="im_des" ${R.desembolso ? 'checked' : 'disabled'}> importar as parcelas previstas e sua distribuição por rubrica</label></div>
   ${R.desembolso ? `<div class="row small" style="gap:16px;flex-wrap:wrap">${R.desembolso.parcelas.map(x => `<span>${esc(x.descricao)}: <b>${fmtBRL2(x.valor)}</b> <span class="muted">(${Object.keys(x.dist).length} rubricas)</span></span>`).join('')}</div>
-    <div class="fgrid mt"><div><label class="fl">Data prevista da 1ª parcela</label><input type="date" id="im_des_ini"><div class="help">A planilha não traz datas; padrão = início da vigência.</div></div>
-    <div><label class="fl">Intervalo entre parcelas (meses)</label><input type="number" id="im_des_int" min="1" max="60" value="${Math.max(1, Math.round((R.meses || 24) / Math.max(1, R.desembolso.parcelas.length)))}"></div></div>` : '<div class="empty small">Sem cronograma de desembolso da UFSM na planilha.</div>'}
+    ${R.desembolso.parcelas.every(x => x.mes) ? '<div class="help">Data de cada parcela = início da vigência + mês indicado no documento.</div>' : `<div class="fgrid mt"><div><label class="fl">Data prevista da 1ª parcela</label><input type="date" id="im_des_ini"><div class="help">A planilha não traz datas; padrão = início da vigência.</div></div>
+    <div><label class="fl">Intervalo entre parcelas (meses)</label><input type="number" id="im_des_int" min="1" max="60" value="${Math.max(1, Math.round((R.meses || 24) / Math.max(1, R.desembolso.parcelas.length)))}"></div></div>`}` : '<div class="empty small">Sem cronograma de desembolso da UFSM no documento.</div>'}
+  ${(R.entregas || []).length ? `<div class="sec">7 · Relatórios previstos → Entregas (${R.entregas.length}) <label class="small" style="text-transform:none;letter-spacing:0;font-weight:400;margin-left:8px"><input type="checkbox" id="im_entR" checked> criar as entregas com prazo no fim do mês indicado</label></div>
+    <div class="small muted">${R.entregas.map(e => `${esc(e.titulo)} <b>(mês ${e.mes})</b>`).join(' · ')}</div>` : ''}
   <div class="row mt small"><label class="row"><input type="checkbox" id="im_ent" checked> criar Entregas para as atividades de relatório selecionadas (<span id="im_nrel">0</span>)</label></div>
+  ${pend.length || (R.semRubrica || []).length ? `<div class="alert warn mt small"><label class="row"><input type="checkbox" id="im_conf"> ${pend.length ? `Revisei as ${pend.length} divergência(s) das conferências` : ''}${pend.length && (R.semRubrica || []).length ? ' e ' : ''}${(R.semRubrica || []).length ? 'sei que naturezas sem rubrica não entram no orçamento' : ''} — importar mesmo assim</label></div>` : ''}
   <div class="merr" id="im_err" style="display:none"></div>
-  <div class="mactions"><button id="im_c">Cancelar</button><button class="btn-p" id="im_ok">Importar</button></div>`;
+  <div class="mactions"><button id="im_pad" title="Baixa o que foi lido no formato padrão do GPMOT (.json): serve para conferir, corrigir à mão e importar de novo">Baixar plano padrão (.json)</button><button id="im_c">Cancelar</button><button class="btn-p" id="im_ok">Importar</button></div>`;
   openModal(html, { wide: true, sticky: true, noFocus: true });
   const root = document.getElementById('modal-root'), q = s => root.querySelector(s), qa = s => [...root.querySelectorAll(s)];
   const ehRel = cod => ehAtvRelatorio((leafs.find(a => a.codigo === cod) || {}).titulo);
@@ -329,13 +346,18 @@ function previaImportacao(R, projetoAlvo) {
   const sincDes = () => { const e = q('#im_des_ini'); if (e && !e.dataset.mexeu) e.value = q('#im_ini').value; };
   if (q('#im_des_ini')) q('#im_des_ini').oninput = e => e.target.dataset.mexeu = '1';
   q('#im_ini').addEventListener('change', sincDes);
-  q('#im_dest').onchange = () => { destino(); sincDes(); }; destino(); sincDes(); conta();
+  q('#im_dest').onchange = () => previaImportacao(R, q('#im_dest').value || null);   // refaz a comparação com o projeto escolhido
+  destino(); sincDes(); conta();
   q('#im_x').onclick = q('#im_c').onclick = closeModal;
+  qa('.im-nat').forEach(sel => sel.onchange = () => { R.naturezas[+sel.dataset.i].rubrica = sel.value || null; aplicarNaturezas(R); previaImportacao(R, q('#im_dest').value || projetoAlvo); });
+  q('#im_pad').onclick = () => baixar((R.arquivo || 'plano').replace(/\.[^.]+$/, '') + ' — plano padrão GPMOT.json', JSON.stringify(planoParaPadrao(R), null, 1), 'application/json');
   q('#im_ok').onclick = async () => {
-    const btn = q('#im_ok'); btn.disabled = true;
+    const btn = q('#im_ok');
+    if (q('#im_conf') && !q('#im_conf').checked) { const el = q('#im_err'); el.textContent = 'Há divergências nas conferências do documento: revise-as e marque a confirmação para importar.'; el.style.display = 'block'; return; }
+    btn.disabled = true;
     try {
       const opts = { destino: q('#im_dest').value || null, sigla: q('#im_sigla').value.trim(), inicio: q('#im_ini').value, orc: q('#im_orc').checked, prev: q('#im_prev').checked, aloc: q('#im_aloc').checked,
-        equipe: qa('.im-eq:checked').map(x => eqU[+x.dataset.i]), plano: q('#im_plano').checked ? eqU : null, itens: q('#im_itens').checked, des: q('#im_des').checked ? { ini: (q('#im_des_ini') || {}).value || q('#im_ini').value, intervalo: +((q('#im_des_int') || {}).value || 12) } : null, atividades: new Set(qa('.im-at:checked').map(x => x.dataset.cod)), entregas: q('#im_ent').checked };
+        equipe: qa('.im-eq:checked').map(x => eqU[+x.dataset.i]), plano: q('#im_plano').checked ? eqU : null, itens: q('#im_itens').checked, des: q('#im_des').checked ? { ini: (q('#im_des_ini') || {}).value || q('#im_ini').value, intervalo: +((q('#im_des_int') || {}).value || 12) } : null, atividades: new Set(qa('.im-at:checked').map(x => x.dataset.cod)), entregas: q('#im_ent').checked, entregasPrevistas: !!(q('#im_entR') && q('#im_entR').checked), campos: new Set(qa('.im-campo:checked').map(x => x.dataset.k)) };
       const res = await executarImportacao(R, opts);
       closeModal(); UI.tab = 'projetos'; UI.projeto = res.projeto.id; UI.projAba = 'cronograma'; render();
       flash(`✓ Importado: ${res.resumo}`);
@@ -348,16 +370,19 @@ async function executarImportacao(R, o) {
   const fimVig = R.meses ? isoOf(new Date(toDate(o.inicio).getFullYear(), toDate(o.inicio).getMonth() + R.meses, 0)) : addDays(o.inicio, 365 * 2);
   /* 1. projeto */
   let p;
-  const dadosProj = { nome: R.titulo || null, financiador: R.financiador || null, fundacao_apoio: R.gestora || null, programa: R.programa || null, chamada: R.chamada || null, linha_tematica: [R.linha, R.tema].filter(Boolean).join(' · ') || null, resumo: R.resumo || null };
+  const dadosProj = { nome: R.titulo || null, financiador: R.financiador || null, fundacao_apoio: R.gestora || null, programa: R.programa || null, chamada: R.chamada || null, linha_tematica: [R.linha, R.tema].filter(Boolean).join(' · ') || null, resumo: R.resumo || null, notas: R.notas || null };
   if (!o.destino) {
     if (!o.sigla) falha('Informe a sigla do novo projeto.');
     p = await Data.insert('projetos', { ...dadosProj, tipo: 'edital', sigla: o.sigla, valor_total: Math.round(num(R.totalUFSM) * 100) / 100, contrapartida: 0, inicio: o.inicio, fim: fimVig, status: 'pendente', situacao: 'vigente', fase: 'Início', placeholder: false,
-      notas: `Importado da planilha "${R.arquivo}" em ${fmtD(hoje())} (parte UFSM).` });
+      notas: [`Importado de "${R.arquivo}" (${R.formato || 'planilha do edital'}) em ${fmtD(hoje())}.`, R.notas].filter(Boolean).join('\n') });
   } else {
     p = byId('projetos', o.destino);
     const patch = {}; Object.entries(dadosProj).forEach(([k, v]) => { if (v && !p[k]) patch[k] = v; });
-    if (!num(p.valor_total) && R.totalUFSM) patch.valor_total = Math.round(num(R.totalUFSM) * 100) / 100;
+    const campos = o.campos || new Set();
+    Object.entries(dadosProj).forEach(([k, v]) => { if (v && campos.has(k)) patch[k] = v; });
+    if ((!num(p.valor_total) || campos.has('valor_total')) && R.totalUFSM) patch.valor_total = Math.round(num(R.totalUFSM) * 100) / 100;
     if (o.inicio !== p.inicio) patch.inicio = o.inicio;
+    if (campos.has('fim') && R.meses) patch.fim = fimVig;
     if (Object.keys(patch).length) p = await Data.update('projetos', p.id, patch);
   }
   /* 2. orçamento UFSM */
@@ -373,13 +398,13 @@ async function executarImportacao(R, o) {
   for (const e of o.equipe) {
     let pe = acharPessoa(e.nome, e.email);
     if (pe) pessoaDe.set(e, pe);
-    if (!pe) { pe = await Data.insert('pessoas', { nome: e.nome, email: e.email || null, tipo: tipoPorFuncao(e.funcao, e.formacao), funcao: null, formacao: e.formacao || null, lattes: e.lattes || null, disponibilidade_pct: 100, perfil_disponibilidade: 'interno', ativo: true }); cont.pessoas++; }
+    if (!pe) { pe = await Data.insert('pessoas', { nome: e.nome, email: e.email || null, tipo: tipoPorFuncao(e.funcao, [e.nivel, e.formacao].filter(Boolean).join(' ')), funcao: null, formacao: e.formacao || null, lattes: e.lattes || null, disponibilidade_pct: 100, perfil_disponibilidade: 'interno', ativo: true }); cont.pessoas++; }
     else { const patch = {}; if (e.email && !pe.email && !D.pessoas.some(x => x.id !== pe.id && norm(x.email) === norm(e.email))) patch.email = e.email; if (e.lattes && !pe.lattes) patch.lattes = e.lattes; if (e.formacao && !pe.formacao) patch.formacao = e.formacao;
       if (Object.keys(patch).length) { try { await Data.update('pessoas', pe.id, patch); } catch (err) { console.warn(err); } } }
     pessoaDe.set(e, pe);
     if (o.aloc && !D.alocacoes.some(a => a.pessoa_id === pe.id && a.projeto_id === p.id)) {
       const coord = /coordenador/i.test(e.funcao);
-      await Data.insert('alocacoes', { pessoa_id: pe.id, projeto_id: p.id, nivel: coord ? 3 : 2, carga_pct: coord ? 20 : 25, papel: e.funcao || null, status: 'ativo', desde: o.inicio, coordena: coord && Perm.dir(), atribuicao: e.etapas.length ? 'Etapas no plano: ' + e.etapas.filter(x => x.split('.').length <= 2).join(', ') : null });
+      await Data.insert('alocacoes', { pessoa_id: pe.id, projeto_id: p.id, nivel: coord ? 3 : 2, carga_pct: e.horas ? Math.min(100, Math.round(e.horas / 40 * 100)) : coord ? 20 : 25, papel: e.funcao || null, status: 'ativo', desde: o.inicio, coordena: coord && Perm.dir(), atribuicao: e.etapas.length ? 'Etapas no plano: ' + e.etapas.filter(x => x.split('.').length <= 2).join(', ') : null });
       cont.aloc++;
     }
   }
@@ -388,7 +413,7 @@ async function executarImportacao(R, o) {
     const podeFin = Perm.editaFin(p.id); let ordem = Math.max(0, ...D.equipe_plano.filter(x => x.projeto_id === p.id).map(x => num(x.ordem)));
     for (const e of o.plano) {
       const pe = pessoaDe.get(e) || null;
-      const base = { funcao: e.funcao || null, categoria: tipoPorFuncao(e.funcao, e.formacao), formacao: e.formacao || null, etapas: e.etapas, horas_semanais: e.bolsa && e.bolsa.horas ? e.bolsa.horas : null };
+      const base = { funcao: [e.funcao, e.nivel].filter(Boolean).join(' · ') || null, categoria: tipoPorFuncao(e.funcao, [e.nivel, e.formacao].filter(Boolean).join(' ')), formacao: e.formacao || null, etapas: e.etapas, horas_semanais: e.horas || (e.bolsa && e.bolsa.horas) || null };
       let pos = D.equipe_plano.find(x => x.projeto_id === p.id && (mesmoNome(x.nome_plano, e.nome) || (pe && x.pessoa_id === pe.id)));
       if (pos) pos = await Data.update('equipe_plano', pos.id, base);
       else {
@@ -405,15 +430,18 @@ async function executarImportacao(R, o) {
     }
   }
   /* 3c. plano de aplicação (itens por rubrica) — mesclado por rubrica + descrição */
+  const usados = new Set();
   if (o.itens && Perm.editaFin(p.id)) for (const it of R.itens) {
-    const ex = D.plano_itens.find(x => x.projeto_id === p.id && x.rubrica === it.rubrica && norm(x.descricao) === norm(it.descricao));
-    const row = { ...it, justificativa: it.justificativa || null };
-    if (ex) { delete row.numero; await Data.update('plano_itens', ex.id, row); } else await Data.insert('plano_itens', { ...row, projeto_id: p.id });
+    if (!it.rubrica) continue;
+    const mesmos = D.plano_itens.filter(x => x.projeto_id === p.id && x.rubrica === it.rubrica && norm(x.descricao) === norm(it.descricao) && !usados.has(x.id));
+    const ex = mesmos.find(x => x.numero === it.numero) || (mesmos.length === 1 ? mesmos[0] : null); if (ex) usados.add(ex.id);
+    const { natureza, tipo, ...base } = it; const row = { ...base, justificativa: it.justificativa || null };
+    if (ex) { delete row.numero; await Data.update('plano_itens', ex.id, row); } else { const r = await Data.insert('plano_itens', { ...row, projeto_id: p.id }); usados.add(r.id); }
     cont.itens++;
   }
   /* 3d. desembolso: parcelas previstas (as já recebidas/canceladas não são tocadas) */
   if (o.des && R.desembolso && Perm.editaFin(p.id)) for (const [i, x] of R.desembolso.parcelas.entries()) {
-    const dt = toDate(isDate(o.des.ini) ? o.des.ini : o.inicio); dt.setMonth(dt.getMonth() + i * Math.max(1, o.des.intervalo || 12));
+    const dt = toDate(isDate(o.des.ini) ? o.des.ini : o.inicio); if (x.mes) { const i0 = toDate(o.inicio); dt.setTime(new Date(i0.getFullYear(), i0.getMonth() + x.mes - 1, i0.getDate()).getTime()); } else dt.setMonth(dt.getMonth() + i * Math.max(1, o.des.intervalo || 12));
     const ex = D.desembolsos.find(d => d.projeto_id === p.id && d.numero === x.numero);
     if (ex && ex.status !== 'prevista') continue;
     const row = { descricao: x.descricao, fundacao: R.desembolso.fundacao || null, valor_previsto: x.valor, data_prevista: ex && ex.data_prevista ? ex.data_prevista : isoOf(dt) };
@@ -428,7 +456,7 @@ async function executarImportacao(R, o) {
   const itens = R.atividades.filter(a => cods.has(a.codigo)).sort((a, b) => Calc.codCmp(a.codigo, b.codigo));
   for (const a of itens) {
     const resp = a.responsavel && !/[\/,;]/.test(a.responsavel) ? acharPessoa(a.responsavel, '') : null;
-    const row = { titulo: a.titulo, descricao: a.folha ? (a.etapa && a.etapa !== a.titulo ? a.etapa : null) : (a.descricao || null), entrega: a.entrega || null, validador: a.validador || null,
+    const row = { titulo: a.titulo, descricao: a.folha ? (a.detalhe || (a.etapa && a.etapa !== a.titulo ? a.etapa : null)) : (a.descricao || null), entrega: a.entrega || null, validador: a.validador || null,
       mes_inicio: a.folha ? a.mes_inicio : null, mes_fim: a.folha ? a.mes_fim : null, responsavel_texto: a.responsavel || null, responsavel_id: resp ? resp.id : null };
     const ex = D.cronograma.find(c => c.projeto_id === p.id && c.codigo === a.codigo);
     if (ex) await Data.update('cronograma', ex.id, row); else await Data.insert('cronograma', { ...row, projeto_id: p.id, codigo: a.codigo });
@@ -438,6 +466,12 @@ async function executarImportacao(R, o) {
   if (o.entregas) for (const a of escolhidas.filter(a => ehAtvRelatorio(a.titulo) && a.mes_fim)) {
     if (D.entregas.some(e => e.projeto_id === p.id && norm(e.titulo) === norm(a.titulo))) continue;
     await Data.insert('entregas', { projeto_id: p.id, tipo: /final/i.test(a.titulo) ? 'relatorio_final' : 'relatorio_parcial', titulo: a.titulo, prazo: Calc.mesDataFim(p, a.mes_fim), obs: `Atividade ${a.codigo} do cronograma físico` });
+    cont.ent++;
+  }
+  /* 5b. relatórios previstos no documento (mês do projeto) */
+  if (o.entregasPrevistas) for (const e of (R.entregas || [])) {
+    if (!e.mes || D.entregas.some(x => x.projeto_id === p.id && norm(x.titulo) === norm(e.titulo))) continue;
+    await Data.insert('entregas', { projeto_id: p.id, tipo: e.tipo || 'relatorio_parcial', titulo: e.titulo, prazo: Calc.mesDataFim(byId('projetos', p.id), e.mes), obs: `Previsto no plano de trabalho (mês ${e.mes})` });
     cont.ent++;
   }
   return { projeto: byId('projetos', p.id), resumo: `${cont.orc} rubrica(s), ${cont.pessoas} pessoa(s) nova(s), ${cont.aloc} alocação(ões), ${cont.pos} posição(ões) do plano, ${cont.bol} bolsa(s) prevista(s), ${cont.itens} item(ns) do plano de aplicação, ${cont.parc} parcela(s) de desembolso, ${cont.atv} item(ns) de cronograma, ${cont.ent} entrega(s)` };

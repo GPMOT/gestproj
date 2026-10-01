@@ -2,7 +2,7 @@
 
 Programa de gestão de projetos, equipe, financeiro e infraestrutura do laboratório.
 O produto final é **um único arquivo HTML** (funciona offline, sem instalar nada), montado a partir das partes em `app/`.
-Versão do programa: **2.25** · versão do esquema do banco: **1.5**. Implantação no Supabase: veja `../Guia de implantação online (Supabase).docx`.
+Versão do programa: **2.26** · versão do esquema do banco: **1.5**. Implantação no Supabase: veja `../Guia de implantação online (Supabase).docx`.
 
 ```
 Software de Gestão/
@@ -11,9 +11,9 @@ Software de Gestão/
 ├─ gpmot_schema.sql                              ← esquema do banco (cópia de codigo-fonte/banco/)
 ├─ gpmot-portfolio-26-09-23.json                 ← dados do programa antigo (usados nos testes)
 ├─ H - Fundep_…_revisao_final.xlsx               ← planilha do edital (tem CPFs — nunca copiar para o código-fonte)
-└─ codigo-fonte/                                 (32 arquivos)
+└─ codigo-fonte/                                 (33 arquivos)
    ├─ README.md · build.cjs · .gitignore
-   ├─ app/          8 partes do programa (editar aqui) + marca/ (logotipo e ícones) + vendor/ (biblioteca supabase-js)
+   ├─ app/          9 partes do programa (editar aqui) + marca/ (logotipo e ícones) + vendor/ (biblioteca supabase-js)
    ├─ banco/        gpmot_schema.sql (banco completo) + atualização da versão anterior
    ├─ docs/         versão publicada pelo GitHub Pages (gerada pelo build)
    └─ testes/       tela.cjs · banco.sh + banco.sql + banco_esperado.txt · online.cjs + simulador_supabase.cjs · package.json
@@ -46,11 +46,32 @@ As partes são concatenadas nesta ordem, num único `<script>` (as funções de 
 | `p3_ui.js` | menu, formulários, Painel, Projetos (todas as abas do projeto), Cronograma, Equipe |
 | `p4a_extract.js` | leitura de texto de editais (Prospecção), herdada da versão anterior |
 | `p4_modulos.js` | Entregas, Gerências, Tarefas, Financeiro (resumo, compras, calendário de bolsas, orçamento, plano de aplicação, desembolso, despesas, bolsas), Prospecção, Infraestrutura |
-| `p6_import.js` | leitor de .xlsx embutido e importação da planilha padrão do edital (parte UFSM) |
+| `p6_import.js` | leitor de .xlsx embutido, leitura da planilha Mover/Fundep, prévia e gravação da importação de planos de trabalho |
+| `p6b_plano.js` | leitor de PDF embutido, leitor do Plano de Trabalho SIGITEC (Petrobras), plano padrão GPMOT (.json), conferências e escolha do leitor (`LEITORES_PLANO`) |
 | `p7_rel.js` | gerador de Word (.docx) embutido e relatório físico-financeiro por projeto |
 | `p5_final.js` | relatório do laboratório, configurações, backup, conversão do programa antigo, envio ao banco online e inicialização |
 
 **Regra de ouro:** toda regra de negócio existe em dois lugares — no banco (`banco/gpmot_schema.sql`, que é quem decide no modo online) e em `p2_core.js` (que faz o papel do banco no modo local). Ao mudar uma, mude a outra e rode os dois conjuntos de testes.
+
+## Importação de planos de trabalho
+
+Cada financiador tem seu próprio documento (planilha Mover/Fundep, PDF do SIGITEC da Petrobras, …). Para que a inclusão de um projeto novo seja sempre igual e confiável:
+
+1. **Um formato único por dentro — o plano padrão GPMOT** (`gpmot-plano-1`). Todo leitor converte o documento para ele; a prévia, as conferências e a gravação são as mesmas para qualquer financiador.
+2. **Um leitor por formato** (`LEITORES_PLANO` em `p6b_plano.js`): hoje, planilha Mover/Fundep (.xlsx), Plano de Trabalho SIGITEC/Petrobras (.pdf) e o próprio plano padrão (.json). O leitor de PDF é embutido (sem bibliotecas externas) e lê o texto com a posição de cada trecho, o que permite reconstruir as tabelas.
+3. **Conferências automáticas**: os itens de cada natureza somam o total que o próprio documento declara; as naturezas somam o total geral; bolsas = total da equipe; parcelas = total; atividades dentro da duração; matriz equipe × atividades completa. Se algo não bate, a prévia mostra ✗ e exige confirmação explícita para importar.
+4. **Revisão humana antes de gravar**: natureza de despesa → rubrica do GPMOT (editável), dados do projeto lado a lado com o documento (o que substituir), equipe, atividades, itens, desembolso e relatórios. Reimportar não duplica (mescla por código, número e descrição).
+5. **Financiador novo**: se for recorrente, escreva um leitor (uma função que devolve o plano padrão), registre-o em `LEITORES_PLANO` e crie um teste como o t21. Se for pontual, gere o plano padrão (.json) — à mão, a partir do exemplo exportado pela prévia (“Baixar plano padrão”), ou pedindo a um assistente de IA que converta o documento para este formato — e importe-o: as mesmas conferências valem.
+
+**Plano padrão (.json)** — campos (todos opcionais, exceto `formato`):
+`formato: "gpmot-plano-1"`, `titulo`, `financiador`, `programa`, `chamada`, `linha`, `tema`, `duracao_meses`, `resumo`, `coordenador`, `fundacao`, `notas`, `total_geral` (total declarado no documento, para conferência);
+`orcamento: [{natureza, rubrica?, valor}]` (rubrica GPMOT como "1.3"; se faltar, é sugerida pela natureza);
+`etapas: [{codigo, nome, atividades: [{codigo, nome, descricao, mes_inicio, mes_fim, entrega, validador, responsavel}]}]`;
+`equipe: [{nome, vaga, funcao, nivel, formacao, instituicao, email, lattes, horas_semanais, meses, atividades: [códigos ou nomes], bolsa: {modalidade, valor_mensal, meses, natureza}}]`;
+`itens: [{natureza, descricao, justificativa, origem: "nacional"|"importado", quantidade, valor_unitario, moeda, cambio, detalhe, valor}]`;
+`relatorios: [{titulo, mes, tipo}]` (vira Entregas, prazo no fim do mês indicado);
+`desembolso: [{mes, descricao, valor, por_natureza: {natureza: valor}}]`.
+Valores em número (6077620.00) ou texto no formato brasileiro ("6.077.620,00").
 
 ## Segurança
 
@@ -89,6 +110,7 @@ Abre `app/gpmot.html` no Chromium, carrega os dados do programa antigo e, quando
 | t10–t14 | equipe do plano, plano de aplicação, desembolso, documentos e pendências, Equipe (seleção e contratação) |
 | t15–t18 | Painel, relatório físico-financeiro (.docx), Cronograma do portfólio, Financeiro geral |
 | t19 | tela de abertura (1 s) e janela Sobre |
+| t21 | Plano de Trabalho SIGITEC (PDF) no projeto Petrobras: 22 conferências, orçamento, cronograma, equipe e bolsas, itens, desembolso, relatórios; reimportação sem duplicar; ida e volta pelo plano padrão (.json). Usa o PDF da pasta `Software de Gestão` (nome com “SIGITEC”); sem ele, o teste é pulado |
 | t20 | perfis (Suporte técnico, Leitura, vice-coordenação) e valores de projeto: visíveis a quem tem cargo; Membro sem cargo e Leitura não veem |
 | `desempenho` | diagnóstico: tempo de cada tela com ≈ 11 mil registros (`node tela.cjs desempenho`) |
 | `celular` | diagnóstico: telas num celular de 390 px (`node tela.cjs celular`) |

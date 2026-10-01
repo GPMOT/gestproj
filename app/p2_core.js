@@ -10,8 +10,8 @@ if (window.top !== window.self) { document.documentElement.hidden = true; try { 
    - Modo online: preencha SUPABASE_CONFIG abaixo (ou em Configurações)
      e o programa passa a ler e gravar no banco Supabase, com login.
    ════════════════════════════════════════════════════════════════════ */
-const VERSAO = '2.25';
-const VERSAO_DATA = '30/09/2026';
+const VERSAO = '2.26';
+const VERSAO_DATA = '01/10/2026';
 const SUPABASE_CONFIG = { url: '', anonKey: '' };   // ← preencher na implantação
 
 /* ── utilidades ─────────────────────────────────────────────────── */

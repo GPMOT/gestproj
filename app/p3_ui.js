@@ -517,7 +517,7 @@ VIEWS.projetos = () => {
       <select data-f="projTipo">${[['', 'Editais e serviços'], ...TIPOS_PROJ.map(([v, l]) => [v, v === 'edital' ? 'Só editais' : 'Só prestação de serviço'])].map(([v, l]) => `<option value="${v}"${ft === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
       <input id="projBusca" data-f="projBusca" placeholder="Buscar sigla, nome, financiador…" value="${esc(UI.f.projBusca || '')}">
       <span class="small muted">${list.length} projeto(s)</span></div>
-    ${podeCriar ? `<div class="row"><button data-a="importarPlanilha" title="Planilha padrão do edital (modelo Mover/Fundep) — importa a parte da UFSM">Importar planilha do edital (.xlsx)</button><button data-a="projTexto">Importar de texto</button><button class="btn-p" data-a="projNovo">+ Novo projeto</button></div>` : ''}
+    ${podeCriar ? `<div class="row"><button data-a="importarPlanilha" title="Plano de trabalho do financiador: planilha Mover/Fundep (.xlsx), SIGITEC/Petrobras (.pdf) ou plano padrão GPMOT (.json)">Importar plano de trabalho…</button><button data-a="projTexto">Importar de texto</button><button class="btn-p" data-a="projNovo">+ Novo projeto</button></div>` : ''}
   </div>
   ${list.length ? `<div class="grid">${list.map(cardProjeto).join('')}</div>` : '<div class="empty">Nenhum projeto neste filtro.</div>'}`;
 };
@@ -761,7 +761,7 @@ function projCronograma(p) {
       <select data-f="crFiltro" style="width:auto">${[['todas', 'Todas as atividades'], ['atual', 'Previstas para o mês atual'], ['atrasadas', 'Atrasadas / não iniciadas'], ['concluidas', 'Concluídas']].map(([v, l]) => `<option value="${v}"${fs === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
       <button class="chip${vis === 'tabela' ? ' on' : ''}" data-a="sub" data-g="crono" data-v="tabela">Tabela</button><button class="chip${vis === 'gantt' ? ' on' : ''}" data-a="sub" data-g="crono" data-v="gantt">Gantt</button>
       ${fs === 'todas' && rows.some(r => !r.folha) ? `<button class="btn-s" data-a="cronTodos" data-projeto="${p.id}" data-v="${fech.size ? 'abrir' : 'fechar'}">${fech.size ? 'Expandir tudo' : 'Recolher etapas'}</button>` : ''}</div>
-    ${gere ? `<div class="row"><button data-a="importarPlanilha" data-projeto="${p.id}">Importar da planilha do edital…</button><button class="btn-p" data-a="atividadeNova" data-projeto="${p.id}">+ Atividade</button></div>` : ''}</div>`;
+    ${gere ? `<div class="row"><button data-a="importarPlanilha" data-projeto="${p.id}">Importar plano de trabalho…</button><button class="btn-p" data-a="atividadeNova" data-projeto="${p.id}">+ Atividade</button></div>` : ''}</div>`;
   if (!rows.length) return head + `<div class="empty">Nenhuma atividade no cronograma. ${gere ? 'Importe o cronograma da planilha do edital ou cadastre as metas, etapas e atividades.' : ''}</div>`;
   const legenda = `<div class="small muted mt">Meses contados a partir do início do projeto (mês 1 = ${fmtMes(p.inicio)}). Barra: realizado; traço: previsto para hoje. Grupos somam as atividades ponderando pela duração.</div>`;
   if (vis === 'gantt') return head + ganttCronograma(p, mostrar, tot) + legenda;
@@ -877,7 +877,7 @@ function projEquipe(p) {
     : `<div class="card empty">Nenhuma posição do plano de trabalho cadastrada.${gere ? ' Importe a planilha do edital ou adicione as posições manualmente — inclusive as vagas de bolsistas ainda não contratados.' : ''}</div>`;
   return `<div class="metrics">${mets.map(([k, v, s]) => `<div class="metric"><div class="k">${k}</div><div class="v" style="font-size:18px;${s || ''}">${v}</div></div>`).join('')}</div>
   ${conf}
-  <div class="toolbar"><span class="sec" style="margin:0">Equipe do plano de trabalho</span><div class="row">${gere ? `<button class="btn-s" data-a="importarPlanilha" data-projeto="${p.id}">Importar da planilha do edital…</button><button class="btn-p" data-a="vagaNova" data-projeto="${p.id}">+ Posição / vaga</button>` : ''}</div></div>
+  <div class="toolbar"><span class="sec" style="margin:0">Equipe do plano de trabalho</span><div class="row">${gere ? `<button class="btn-s" data-a="importarPlanilha" data-projeto="${p.id}">Importar plano de trabalho…</button><button class="btn-p" data-a="vagaNova" data-projeto="${p.id}">+ Posição / vaga</button>` : ''}</div></div>
   ${plano}
   <div class="toolbar mt"><span class="sec" style="margin:0">Alocações no projeto <span class="small muted" style="text-transform:none;letter-spacing:0;font-weight:400">(${alocs.length} · carga e permissões no dia a dia)</span></span>${gere ? `<button class="btn-s" data-a="alocNova" data-projeto="${p.id}">+ Alocar pessoa</button>` : ''}</div>
   <div class="card tw" style="padding:4px 8px">${alocs.length ? `<table class="t"><tr><th>Pessoa</th><th>Papel</th><th>Nível</th><th class="num">Carga</th><th>Atribuição</th><th>Desde</th><th>Status</th></tr>
