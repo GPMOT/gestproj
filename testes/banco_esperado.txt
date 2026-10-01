@@ -37,7 +37,7 @@ psql:02_gerencias_permissoes.sql:50: ERROR:  new row violates row-level security
                             0
 
 psql:02_gerencias_permissoes.sql:59: ERROR:  Somente a Direção pode definir coordenadores de projeto
-CONTEXT:  PL/pgSQL function tg_protege_coordena() line 6 at RAISE
+CONTEXT:  PL/pgSQL function tg_protege_coordena() line 16 at RAISE
 psql:02_gerencias_permissoes.sql:60: ERROR:  new row violates row-level security policy for table "gerencia_membros"
 === IGOR (Gerência de Infraestrutura + membro Aramco)
  vinculos_visiveis_esperado_0 
@@ -526,7 +526,7 @@ psql:13_suporte_tecnico.sql:49: ERROR:  permission denied for function emails_su
 == vice-coordenação: o coordenador titular (Mario) nomeia o Carlos vice do P1
 == ... mas não pode nomear coordenadores
 psql:14_leitura_vice_coordenacao.sql:65: ERROR:  Somente a Direção pode definir coordenadores de projeto
-CONTEXT:  PL/pgSQL function tg_protege_coordena() line 6 at RAISE
+CONTEXT:  PL/pgSQL function tg_protege_coordena() line 16 at RAISE
   nome  | coordena | vice_coordena 
 --------+----------+---------------
  Ana    | f        | f
@@ -540,7 +540,7 @@ CONTEXT:  PL/pgSQL function tg_protege_coordena() line 6 at RAISE
 
 == ... mas não nomeia outro vice, e no P2 continua membro comum
 psql:14_leitura_vice_coordenacao.sql:73: ERROR:  Somente a Direção ou o coordenador do projeto podem definir a vice-coordenação
-CONTEXT:  PL/pgSQL function tg_protege_coordena() line 11 at RAISE
+CONTEXT:  PL/pgSQL function tg_protege_coordena() line 22 at RAISE
  sigla |      resumo       
 -------+-------------------
  P1    | editado pelo vice
@@ -548,3 +548,158 @@ CONTEXT:  PL/pgSQL function tg_protege_coordena() line 11 at RAISE
 
 == ninguém é coordenador e vice ao mesmo tempo
 psql:14_leitura_vice_coordenacao.sql:79: ERROR:  new row for relation "alocacoes" violates check constraint "alocacao_coord_ou_vice"
+-- @@ 15_protecoes_seguranca
+== 1. valores: quem tem cargo vê; Membro sem cargo e Leitura recebem vazio
+  quem   |          valores           |  aditivo   
+---------+----------------------------+------------
+ Direção | P1=1200000.00 P2=300000.00 | 1200000.00
+
+    quem     |          valores           |  aditivo   
+-------------+----------------------------+------------
+ Coordenador | P1=1200000.00 P2=300000.00 | 1200000.00
+
+  quem   |          valores           |  aditivo   
+---------+----------------------------+------------
+ Gerente | P1=1200000.00 P2=300000.00 | 1200000.00
+
+       quem       |      valores      | aditivo 
+------------------+-------------------+---------
+ Membro sem cargo | P1=vazio P2=vazio | vazio
+
+  quem   | valores  | aditivo 
+---------+----------+---------
+ Leitura | P1=vazio | vazio
+
+== 2. leitura direta das colunas de valor é recusada para todos os logins (inclusive pela visão antiga e pela função)
+psql:15_protecoes_seguranca.sql:51: ERROR:  permission denied for table projetos
+psql:15_protecoes_seguranca.sql:52: ERROR:  permission denied for table aditivos
+psql:15_protecoes_seguranca.sql:53: ERROR:  permission denied for table projetos
+ sigla | valor_total 
+-------+-------------
+ P1    |            
+ P2    |            
+
+ valor_total | contrapartida 
+-------------+---------------
+             |              
+
+== 3. a escrita de valores continua valendo para quem pode (coordenador altera o valor do seu projeto)
+ sigla 
+-------
+ P1
+
+ sigla | valor_total 
+-------+-------------
+ P1    |  1300000.00
+
+== 4. coordenação não pode ser trocada por quem não a define
+psql:15_protecoes_seguranca.sql:65: ERROR:  Somente a Direção pode definir coordenadores de projeto
+CONTEXT:  PL/pgSQL function tg_protege_coordena() line 16 at RAISE
+psql:15_protecoes_seguranca.sql:66: ERROR:  Somente a Direção pode retirar o coordenador do projeto
+CONTEXT:  PL/pgSQL function tg_protege_coordena() line 6 at RAISE
+psql:15_protecoes_seguranca.sql:68: ERROR:  Somente a Direção pode definir coordenadores de projeto
+CONTEXT:  PL/pgSQL function tg_protege_coordena() line 16 at RAISE
+psql:15_protecoes_seguranca.sql:69: ERROR:  Somente a Direção pode definir coordenadores de projeto
+CONTEXT:  PL/pgSQL function tg_protege_coordena() line 16 at RAISE
+psql:15_protecoes_seguranca.sql:70: ERROR:  Somente a Direção ou o coordenador do projeto podem definir a vice-coordenação
+CONTEXT:  PL/pgSQL function tg_protege_coordena() line 22 at RAISE
+psql:15_protecoes_seguranca.sql:71: ERROR:  Somente a Direção ou o coordenador do projeto podem retirar a vice-coordenação
+CONTEXT:  PL/pgSQL function tg_protege_coordena() line 9 at RAISE
+== 4b. gerência de alocações segue alocando e alterando alocações comuns
+ carga_pct 
+-----------
+      40.0
+
+== 4c. o coordenador titular retira a vice-coordenação; a Direção troca o coordenador
+ vice_coordena 
+---------------
+ f
+
+ coordena 
+----------
+ t
+
+ nome  | coordena | vice_coordena 
+-------+----------+---------------
+ Ana   | f        | f
+ Igor  | f        | f
+ Mario | t        | f
+ Vera  | f        | f
+
+== 5. cadastro de pessoas: coordenador altera as pessoas do seu projeto, mas não o e-mail; nem pessoas de fora
+        funcao         
+-----------------------
+ Bolsista de doutorado
+
+psql:15_protecoes_seguranca.sql:87: ERROR:  O e-mail do cadastro só pode ser alterado pela Direção ou pela gerência que gere pessoas (ele liga o cadastro ao login)
+CONTEXT:  PL/pgSQL function tg_protege_pessoa() line 7 at RAISE
+ funcao 
+--------
+
+psql:15_protecoes_seguranca.sql:90: ERROR:  O e-mail do cadastro só pode ser alterado pela Direção ou pela gerência que gere pessoas (ele liga o cadastro ao login)
+CONTEXT:  PL/pgSQL function tg_protege_pessoa() line 7 at RAISE
+ formacao 
+----------
+ Mestre
+
+== 6. login novo com e-mail de cadastro que já tem login não herda o acesso (fica sem pessoa)
+       email       | ligado_a_um_cadastro | ativo 
+-------------------+----------------------+-------
+ igor.novo@ufsm.br | f                    | f
+ novo@ufsm.br      | t                    | f
+
+== 7. links só http(s)
+psql:15_protecoes_seguranca.sql:105: ERROR:  new row for relation "documentos" violates check constraint "documentos_url_web"
+ titulo 
+--------
+ Bom
+
+psql:15_protecoes_seguranca.sql:107: ERROR:  new row for relation "pessoas" violates check constraint "pessoas_lattes_web"
+         lattes          
+-------------------------
+ http://lattes.cnpq.br/1
+
+== 8. envio de backup com valores: só Direção/Suporte, só projetos e aditivos
+psql:15_protecoes_seguranca.sql:114: ERROR:  Somente a Direção ou o Suporte técnico enviam backup ao banco
+CONTEXT:  PL/pgSQL function enviar_backup_protegido(text,jsonb) line 5 at RAISE
+psql:15_protecoes_seguranca.sql:116: ERROR:  Tabela não permitida: perfis
+CONTEXT:  PL/pgSQL function enviar_backup_protegido(text,jsonb) line 8 at RAISE
+ linhas 
+--------
+      2
+
+ sigla | valor_total 
+-------+-------------
+ P1    |  1300000.00
+ P2    |   350000.00
+ P3    |       10.00
+
+== 9. gancho de cadastro de logins (quando ativado no painel)
+ cadastrada | suporte | desconhecido 
+------------+---------+--------------
+ {}         | {}      | 403
+
+psql:15_protecoes_seguranca.sql:126: ERROR:  permission denied for function hook_antes_de_criar_usuario
+psql:15_protecoes_seguranca.sql:129: ERROR:  permission denied for function ve_valores
+== 10. permissões da API
+ com_truncate | com_trigger_ou_references 
+--------------+---------------------------
+            0 |                         0
+
+ relname  |    attname     | le | altera 
+----------+----------------+----+--------
+ aditivos | novo_valor     | f  | t
+ aditivos | numero         | t  | t
+ aditivos | valor_anterior | f  | t
+ projetos | contrapartida  | f  | t
+ projetos | sigla          | t  | t
+ projetos | valor_total    | f  | t
+
+ funcoes_sem_caminho_fixo 
+--------------------------
+                        0
+
+ funcoes_para_anon 
+-------------------
+                 0
+

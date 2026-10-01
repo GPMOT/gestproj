@@ -62,16 +62,20 @@ async function rest(req, res, table, q, body, claims) {
     const fn = qi(table.slice(4)), c = await pool.connect();
     try { await c.query('begin'); await c.query(`set local role ${claims.role === 'authenticated' ? 'authenticated' : 'anon'}`);
       await c.query(`select set_config('request.jwt.claim.sub', $1, true)`, [claims.sub || '']);
-      const r = await c.query(`select to_json(public.${fn}()) as j`); await c.query('commit'); return send(res, 200, r.rows[0].j);
-    } catch (e) { await c.query('rollback').catch(() => { }); return send(res, e.code === '42501' ? 401 : 404, { code: e.code, message: e.message }); } finally { c.release(); }
+      const ks = Object.keys(body || {}), vs = ks.map(k => { const v = body[k]; return v !== null && typeof v === 'object' ? JSON.stringify(v) : v; });
+      const r = await c.query(`select to_json(public.${fn}(${ks.map((k, i) => `${qi(k)} => $${i + 1}`).join(', ')})) as j`, vs); await c.query('commit'); return send(res, 200, r.rows[0].j);
+    } catch (e) { await c.query('rollback').catch(() => { }); const st = e.code === '42883' ? 404 : e.code === '42501' ? 403 : 400; return send(res, st, { code: e.code === '42883' ? 'PGRST202' : e.code, message: e.code === '42883' ? 'Could not find the function' : e.message }); } finally { c.release(); }
   }
   const T = 'public.' + qi(table), params = [], pref = String(req.headers.prefer || '');
   const retRep = /return=representation/.test(pref);
+  // colunas pedidas (select=a,b,c): como no PostgREST, só elas são lidas — respeita permissões por coluna
+  const selq = q.get('select'), cols_ = !selq || selq === '*' ? null : selq.split(',').map(c => qi(c.trim().replace(/^"|"$/g, '')));
+  const lista = cols_ ? cols_.join(',') : '*', listaT = cols_ ? cols_.map(c => `${T}.${c}`).join(',') : `${T}.*`;
   let sql;
   if (req.method === 'GET') {
     let order = ''; if (q.get('order')) order = ' order by ' + q.get('order').split(',').map(o => { const [c, d, n] = o.split('.'); return qi(c) + (d === 'desc' ? ' desc' : ' asc') + (n === 'nullsfirst' ? ' nulls first' : n === 'nullslast' ? ' nulls last' : ''); }).join(',');
     const lim = q.get('limit') ? ` limit ${+q.get('limit')}` : '', off = q.get('offset') ? ` offset ${+q.get('offset')}` : '';
-    sql = `select coalesce(json_agg(_r), '[]'::json) as j from (select * from ${T}${filtros(q, params)}${order}${lim}${off}) _r`;
+    sql = `select coalesce(json_agg(_r), '[]'::json) as j from (select ${lista} from ${T}${filtros(q, params)}${order}${lim}${off}) _r`;
   } else if (req.method === 'POST') {
     const rows = Array.isArray(body) ? body : [body];
     const cols = q.get('columns') ? q.get('columns').split(',').map(c => c.replace(/^"|"$/g, '')) : [...new Set(rows.flatMap(r => Object.keys(r)))];
@@ -85,14 +89,14 @@ async function rest(req, res, table, q, body, claims) {
       const upd = cols.filter(c => !alvoCols.includes(c));
       conflict = ` on conflict (${alvoCols.map(qi).join(',')}) ` + (/ignore-duplicates/.test(pref) || !upd.length ? 'do nothing' : 'do update set ' + upd.map(c => `${qi(c)} = excluded.${qi(c)}`).join(','));
     }
-    sql = `with _m as (insert into ${T} (${cl}) select ${cl} from json_populate_recordset(null::${T}, $1::json)${conflict} returning *) select coalesce(json_agg(_m), '[]'::json) as j from _m`;
+    sql = `with _m as (insert into ${T} (${cl}) select ${cl} from json_populate_recordset(null::${T}, $1::json)${conflict} returning ${lista}) select coalesce(json_agg(_m), '[]'::json) as j from _m`;
   } else if (req.method === 'PATCH') {
     const cols = Object.keys(body); params.push(JSON.stringify(body));
     const set = cols.map(c => `${qi(c)} = _v.${qi(c)}`).join(',');
     const where = filtros(q, params);
-    sql = `with _m as (update ${T} set ${set} from (select * from json_populate_record(null::${T}, $1::json)) _v${where ? where.replace(' where ', ' where ').replace(/"([a-z_0-9]+)" /g, `${T}."$1" `) : ''} returning ${T}.*) select coalesce(json_agg(_m), '[]'::json) as j from _m`;
+    sql = `with _m as (update ${T} set ${set} from (select * from json_populate_record(null::${T}, $1::json)) _v${where ? where.replace(' where ', ' where ').replace(/"([a-z_0-9]+)" /g, `${T}."$1" `) : ''} returning ${listaT}) select coalesce(json_agg(_m), '[]'::json) as j from _m`;
   } else if (req.method === 'DELETE') {
-    sql = `with _m as (delete from ${T}${filtros(q, params)} returning *) select coalesce(json_agg(_m), '[]'::json) as j from _m`;
+    sql = `with _m as (delete from ${T}${filtros(q, params)} returning ${lista}) select coalesce(json_agg(_m), '[]'::json) as j from _m`;
   } else return send(res, 405, { message: 'método não simulado' });
   const c = await pool.connect();
   try {

@@ -11,8 +11,6 @@ const { execFileSync, spawn } = require('child_process');
 const PORTA = process.env.SB_PORT || '54321';
 const SB = 'http://localhost:' + PORTA;
 const DB = process.env.PGDATABASE_TESTE || 'gpmot_online';
-const ESM = path.join(__dirname, 'supabase-esm.js');
-if (!fs.existsSync(ESM)) { console.error('Falta supabase-esm.js: rode "npm install && npm run preparar" nesta pasta.'); process.exit(1); }
 const sql = q => execFileSync('psql', ['-X', '-q', '-t', '-A', '-d', DB, '-c', q], { encoding: 'utf8' }).trim();
 // banco novo: simulação do login (seção 00 de banco.sql) + esquema
 { const psql = (...a) => execFileSync('psql', ['-X', '-q', ...a], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -33,7 +31,8 @@ const ignorar = t => /WebSocket|realtime|ERR_CONNECTION_REFUSED|status of 40[0-9
   const errs = [];
   const nova = async () => {
     const ctx = await b.newContext({ viewport: { width: 1400, height: 900 }, acceptDownloads: true });
-    await ctx.route('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm', r => r.fulfill({ path: ESM, contentType: 'application/javascript' }));
+    // o programa não pode buscar nada fora do próprio arquivo e do banco (biblioteca embutida)
+    await ctx.route(u => !/^(file:|data:|blob:|http:\/\/localhost)/.test(u.href), r => { errs.push('ACESSO EXTERNO ' + r.request().url()); r.abort(); });
     const pg = await ctx.newPage();
     pg.on('pageerror', e => errs.push('PAGEERR ' + e.message)); pg.on('console', m => { if (m.type() === 'error' && !ignorar(m.text())) errs.push('CONSOLE ' + m.text()); });
     return { ctx, pg };
@@ -179,6 +178,11 @@ const ignorar = t => /WebSocket|realtime|ERR_CONNECTION_REFUSED|status of 40[0-9
   // telas principais renderizam com os dados do banco
   const telas = await pg.evaluate(() => { const r = []; for (const [t, s] of [['painel'], ['projetos'], ['equipe'], ['cronograma'], ['financeiro'], ['relatorios'], ['infra'], ['config']]) { try { A.nav({ t }); r.push(t + ':ok'); } catch (e) { r.push(t + ':' + e.message); } } return r; });
   ok(telas.every(x => x.endsWith(':ok')), 'todas as janelas abrem no modo online', telas.join(' '));
+  // v1.5: a Direção recebe os valores pela visão; alterar o valor pelo programa continua funcionando
+  const vd = await pg.evaluate(async () => { await SB.reload(['projetos']); const p = D.projetos.find(x => num(x.valor_total) > 0); const novo = num(p.valor_total) + 1;
+    await Data.update('projetos', p.id, { valor_total: novo }); const local = byId('projetos', p.id).valor_total; await SB.reload(['projetos']);
+    return { comValor: D.projetos.filter(x => x.valor_total != null).length, total: D.projetos.length, local, banco: byId('projetos', p.id).valor_total, novo }; });
+  ok(vd.comValor === vd.total && Number(vd.local) === vd.novo && Number(vd.banco) === vd.novo, 'Direção lê e altera valores dos projetos (visão v_projetos_tela)', vd);
   await pg.evaluate(() => A.nav({ t: 'painel' })); await pg.waitForTimeout(200); await pg.screenshot({ path: CFG.saida('online_painel.png') });
 
   // ── FASE 3: segundo usuário, membro ────────────────────────────────
@@ -201,6 +205,14 @@ const ignorar = t => /WebSocket|realtime|ERR_CONNECTION_REFUSED|status of 40[0-9
   });
   ok(m.papel === 'membro' && m.projetos > 0, 'membro entra e vê os projetos', m);
   ok(m.vinculos === 0 && m.despesas === 0 && m.bolsas === 0, 'membro não recebe valores de bolsas e despesas (RLS)');
+  const mv = await u2.pg.evaluate(async () => ({ valores: D.projetos.filter(p => p.valor_total != null || p.contrapartida != null).length,
+    aditivos: D.aditivos.filter(a => a.novo_valor != null || a.valor_anterior != null).length,
+    direto: await SB.client.from('projetos').select('sigla,valor_total').then(r => r.error ? 'recusado' : 'leu ' + r.data.length),
+    tudo: await SB.client.from('projetos').select('*').then(r => r.error ? 'recusado' : 'leu'),
+    funcao: await SB.client.rpc('valores_projeto', { p_id: D.projetos[0].id }).then(r => r.error ? 'erro' : JSON.stringify(r.data)),
+    backup: await SB.client.rpc('enviar_backup_protegido', { p_tabela: 'projetos', p_linhas: [{ id: D.projetos[0].id, valor_total: 1 }] }).then(r => r.error ? 'recusado' : 'aceito') }));
+  ok(mv.valores === 0 && mv.aditivos === 0, 'membro sem cargo não recebe valores de projetos nem de aditivos (banco)', mv);
+  ok(mv.direto === 'recusado' && mv.tudo === 'recusado' && !/[1-9]/.test(mv.funcao) && mv.backup === 'recusado', 'nem consultando a API diretamente o membro obtém os valores', mv);
   ok(m.editar !== 'gravou', 'banco recusa o membro editar projeto que não coordena', m.editar);
   ok(m.apagar !== 'apagou', 'banco recusa o membro apagar pessoas', m.apagar);
   await u2.pg.evaluate(() => A.sair()); await u2.pg.waitForSelector('#lg_email', { timeout: 5000 }); ok(true, 'sair volta para a tela de login');

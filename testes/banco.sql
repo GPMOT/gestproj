@@ -227,10 +227,10 @@ set role authenticated;
 set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000b';
 \echo '== Mario registra aditivo de prazo'
 insert into aditivos(id,projeto_id,numero,tipo,data_assinatura,novo_fim,justificativa) values ('40000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','1º TA','prazo','2025-11-20','2026-12-31','Atraso na entrega do motor');
-select sigla,fim,valor_total from projetos;
+select sigla,fim,valor_total from v_projetos_tela;
 insert into aditivos(projeto_id,numero,tipo,novo_valor) values ('20000000-0000-0000-0000-000000000001','2º TA','valor',600000);
-select numero,fim_anterior,novo_fim,valor_anterior,novo_valor from aditivos order by criado_em;
-select sigla,fim,valor_total from projetos;
+select numero,fim_anterior,novo_fim,valor_anterior,novo_valor from v_aditivos_tela order by criado_em;
+select sigla,fim,valor_total from v_projetos_tela;
 insert into aditivos(projeto_id,tipo) values ('20000000-0000-0000-0000-000000000001','prazo');
 insert into aditivos(projeto_id,tipo,novo_fim) values ('20000000-0000-0000-0000-000000000001','prazo','2020-01-01');
 \echo '== entregas'
@@ -460,7 +460,7 @@ set role authenticated;
 select count(*) as projetos_visiveis from projetos;
 reset role;
 \echo == todas as tabelas e visões do esquema public têm permissão para authenticated
-select count(*) filter (where not has_table_privilege('authenticated', c.oid, 'select')) as sem_select,
+select count(*) filter (where not has_table_privilege('authenticated', c.oid, 'select') and c.relname not in ('projetos','aditivos')) as sem_select,
        count(*) filter (where c.relkind = 'r' and not has_table_privilege('authenticated', c.oid, 'insert,update,delete')) as sem_escrita,
        count(*) filter (where has_table_privilege('anon', c.oid, 'select')) as anon_com_select
   from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -598,3 +598,148 @@ select sigla, resumo from projetos order by sigla;
 \echo == ninguém é coordenador e vice ao mesmo tempo
 set request.jwt.claim.sub = '';
 update alocacoes set coordena = true where pessoa_id = '00000000-0000-0000-0000-00000000000f';
+-- @@ 15_protecoes_seguranca
+\set ON_ERROR_STOP 0
+\pset footer off
+-- v1.5: valores fechados no banco para quem não tem cargo; coordenação não pode ser "sequestrada";
+-- e-mail do cadastro protegido; login novo não herda cadastro já ligado; links só http(s);
+-- envio de backup de valores só pela Direção; gancho de cadastro de logins; permissões da API.
+insert into pessoas(id,nome,email,tipo) values
+ ('00000000-0000-0000-0000-00000000000a','Lucas','lucas@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000b','Mario','mario@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000c','Igor','igor@ufsm.br','doutorando'),
+ ('00000000-0000-0000-0000-00000000000d','Ana','ana@ufsm.br','ic'),
+ ('00000000-0000-0000-0000-00000000000e','Gil','gil@ufsm.br','tecnico'),
+ ('00000000-0000-0000-0000-00000000000f','Vera','vera@ufsm.br','docente');
+insert into auth.users values
+ ('10000000-0000-0000-0000-00000000000a','lucas@ufsm.br'),('10000000-0000-0000-0000-00000000000b','mario@ufsm.br'),
+ ('10000000-0000-0000-0000-00000000000c','igor@ufsm.br'),('10000000-0000-0000-0000-00000000000d','ana@ufsm.br'),
+ ('10000000-0000-0000-0000-00000000000e','gil@ufsm.br'),('10000000-0000-0000-0000-00000000000f','vera@ufsm.br');
+update perfis set ativo = true, papel = 'membro';
+update perfis set papel = 'direcao' where email = 'lucas@ufsm.br';
+update perfis set papel = 'leitura' where email = 'ana@ufsm.br';
+insert into gerencias(id,nome,permissoes) values ('50000000-0000-0000-0000-000000000001','Gerência de Pessoas','{alocacoes_gerir}');
+insert into gerencia_membros(gerencia_id,pessoa_id) values ('50000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-00000000000e');
+insert into projetos(id,sigla,inicio,fim,valor_total,contrapartida) values
+ ('20000000-0000-0000-0000-000000000001','P1','2025-01-01','2027-12-31',1000000,50000),
+ ('20000000-0000-0000-0000-000000000002','P2','2025-01-01','2027-12-31',300000,0);
+insert into alocacoes(id,pessoa_id,projeto_id,coordena,vice_coordena) values
+ ('60000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',true,false),
+ ('60000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-00000000000f','20000000-0000-0000-0000-000000000001',false,true),
+ ('60000000-0000-0000-0000-000000000003','00000000-0000-0000-0000-00000000000c','20000000-0000-0000-0000-000000000001',false,false),
+ ('60000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-00000000000d','20000000-0000-0000-0000-000000000001',false,false);
+insert into aditivos(projeto_id,numero,tipo,novo_valor) values ('20000000-0000-0000-0000-000000000001','1º TA','valor',1200000);
+
+\echo == 1. valores: quem tem cargo vê; Membro sem cargo e Leitura recebem vazio
+set role authenticated;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000a';
+select 'Direção' as quem, string_agg(sigla || '=' || coalesce(valor_total::text, 'vazio'), ' ' order by sigla) as valores,
+       (select string_agg(coalesce(novo_valor::text, 'vazio'), ' ') from v_aditivos_tela) as aditivo from v_projetos_tela;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+select 'Coordenador' as quem, string_agg(sigla || '=' || coalesce(valor_total::text, 'vazio'), ' ' order by sigla) as valores,
+       (select string_agg(coalesce(novo_valor::text, 'vazio'), ' ') from v_aditivos_tela) as aditivo from v_projetos_tela;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000e';
+select 'Gerente' as quem, string_agg(sigla || '=' || coalesce(valor_total::text, 'vazio'), ' ' order by sigla) as valores,
+       (select string_agg(coalesce(novo_valor::text, 'vazio'), ' ') from v_aditivos_tela) as aditivo from v_projetos_tela;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000c';
+select 'Membro sem cargo' as quem, string_agg(sigla || '=' || coalesce(valor_total::text, 'vazio'), ' ' order by sigla) as valores,
+       (select string_agg(coalesce(novo_valor::text, 'vazio'), ' ') from v_aditivos_tela) as aditivo from v_projetos_tela;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000d';
+select 'Leitura' as quem, string_agg(sigla || '=' || coalesce(valor_total::text, 'vazio'), ' ' order by sigla) as valores,
+       (select string_agg(coalesce(novo_valor::text, 'vazio'), ' ') from v_aditivos_tela) as aditivo from v_projetos_tela;
+\echo == 2. leitura direta das colunas de valor é recusada para todos os logins (inclusive pela visão antiga e pela função)
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000c';
+select valor_total from projetos;
+select novo_valor from aditivos;
+select * from projetos;
+select sigla, valor_total from v_projetos order by sigla;
+select * from public.valores_projeto('20000000-0000-0000-0000-000000000001');
+\echo == 3. a escrita de valores continua valendo para quem pode (coordenador altera o valor do seu projeto)
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+update projetos set valor_total = 1300000 where id = '20000000-0000-0000-0000-000000000001' returning sigla;
+select sigla, valor_total from v_projetos_tela where sigla = 'P1';
+reset role;
+
+\echo == 4. coordenação não pode ser trocada por quem não a define
+set role authenticated;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000f';
+update alocacoes set pessoa_id = '00000000-0000-0000-0000-00000000000f' where id = '60000000-0000-0000-0000-000000000001';
+delete from alocacoes where id = '60000000-0000-0000-0000-000000000001';
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000e';
+update alocacoes set pessoa_id = '00000000-0000-0000-0000-00000000000e' where id = '60000000-0000-0000-0000-000000000001';
+update alocacoes set projeto_id = '20000000-0000-0000-0000-000000000002' where id = '60000000-0000-0000-0000-000000000001';
+update alocacoes set pessoa_id = '00000000-0000-0000-0000-00000000000e' where id = '60000000-0000-0000-0000-000000000002';
+delete from alocacoes where id = '60000000-0000-0000-0000-000000000002';
+\echo == 4b. gerência de alocações segue alocando e alterando alocações comuns
+update alocacoes set carga_pct = 40 where id = '60000000-0000-0000-0000-000000000003' returning carga_pct;
+\echo == 4c. o coordenador titular retira a vice-coordenação; a Direção troca o coordenador
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+update alocacoes set vice_coordena = false where id = '60000000-0000-0000-0000-000000000002' returning vice_coordena;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000a';
+update alocacoes set pessoa_id = '00000000-0000-0000-0000-00000000000a' where id = '60000000-0000-0000-0000-000000000001' returning coordena;
+update alocacoes set pessoa_id = '00000000-0000-0000-0000-00000000000b' where id = '60000000-0000-0000-0000-000000000001';
+reset role;
+select p.nome, a.coordena, a.vice_coordena from alocacoes a join pessoas p on p.id = a.pessoa_id where a.projeto_id = '20000000-0000-0000-0000-000000000001' order by p.nome;
+
+\echo == 5. cadastro de pessoas: coordenador altera as pessoas do seu projeto, mas não o e-mail; nem pessoas de fora
+set role authenticated;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+update pessoas set funcao = 'Bolsista de doutorado' where id = '00000000-0000-0000-0000-00000000000c' returning funcao;
+update pessoas set email = 'atacante@x.com' where id = '00000000-0000-0000-0000-00000000000c';
+update pessoas set funcao = 'Diretor?' where id = '00000000-0000-0000-0000-00000000000a' returning funcao;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000c';
+update pessoas set email = 'outro@ufsm.br' where id = '00000000-0000-0000-0000-00000000000c';
+update pessoas set formacao = 'Mestre' where id = '00000000-0000-0000-0000-00000000000c' returning formacao;
+reset role;
+
+\echo == 6. login novo com e-mail de cadastro que já tem login não herda o acesso (fica sem pessoa)
+set request.jwt.claim.sub = '';
+insert into pessoas(id,nome,email) values ('00000000-0000-0000-0000-000000000011','Novo','novo@ufsm.br');
+insert into auth.users values ('10000000-0000-0000-0000-000000000011','novo@ufsm.br');
+update pessoas set email = 'igor.novo@ufsm.br' where id = '00000000-0000-0000-0000-00000000000c';
+insert into auth.users values ('10000000-0000-0000-0000-000000000012','igor.novo@ufsm.br');
+select email, pessoa_id is not null as ligado_a_um_cadastro, ativo from perfis where email in ('novo@ufsm.br','igor.novo@ufsm.br') order by email;
+
+\echo == 7. links só http(s)
+set role authenticated;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000a';
+insert into documentos(projeto_id,titulo,url) values ('20000000-0000-0000-0000-000000000001','Mau','javascript:alert(1)');
+insert into documentos(projeto_id,titulo,url) values ('20000000-0000-0000-0000-000000000001','Bom','https://ufsm.br/x') returning titulo;
+update pessoas set lattes = 'JavaScript:alert(1)' where id = '00000000-0000-0000-0000-00000000000d';
+update pessoas set lattes = 'http://lattes.cnpq.br/1' where id = '00000000-0000-0000-0000-00000000000d' returning lattes;
+reset role;
+
+\echo == 8. envio de backup com valores: só Direção/Suporte, só projetos e aditivos
+set role authenticated;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000c';
+select public.enviar_backup_protegido('projetos', '[{"id":"20000000-0000-0000-0000-000000000002","sigla":"P2","inicio":"2025-01-01","fim":"2027-12-31","valor_total":1}]');
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000a';
+select public.enviar_backup_protegido('perfis', '[{"id":"10000000-0000-0000-0000-00000000000c","papel":"direcao"}]');
+select public.enviar_backup_protegido('projetos', '[{"id":"20000000-0000-0000-0000-000000000002","sigla":"P2","inicio":"2025-01-01","fim":"2027-12-31","valor_total":350000,"contrapartida":0},{"id":"20000000-0000-0000-0000-000000000003","sigla":"P3","inicio":"2026-01-01","fim":"2026-12-31","valor_total":10,"contrapartida":0}]') as linhas;
+select sigla, valor_total from v_projetos_tela order by sigla;
+reset role;
+
+\echo == 9. gancho de cadastro de logins (quando ativado no painel)
+select public.hook_antes_de_criar_usuario('{"user":{"email":"Ana@ufsm.br"}}') as cadastrada,
+       public.hook_antes_de_criar_usuario('{"user":{"email":"lucas.scherer@ufsm.br"}}') as suporte,
+       public.hook_antes_de_criar_usuario('{"user":{"email":"estranho@gmail.com"}}')->'error'->>'http_code' as desconhecido;
+set role authenticated;
+select public.hook_antes_de_criar_usuario('{"user":{"email":"x@y.z"}}');
+reset role;
+set role anon;
+select public.ve_valores();
+reset role;
+
+\echo == 10. permissões da API
+select count(*) filter (where has_table_privilege('authenticated', c.oid, 'truncate') or has_table_privilege('anon', c.oid, 'truncate')) as com_truncate,
+       count(*) filter (where has_table_privilege('authenticated', c.oid, 'trigger') or has_table_privilege('authenticated', c.oid, 'references')) as com_trigger_ou_references
+  from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind in ('r','v');
+select c.relname, a.attname, has_column_privilege('authenticated', c.oid, a.attname, 'select') as le, has_column_privilege('authenticated', c.oid, a.attname, 'update') as altera
+  from pg_class c join pg_attribute a on a.attrelid = c.oid
+ where c.oid in ('public.projetos'::regclass, 'public.aditivos'::regclass) and a.attname in ('sigla','valor_total','contrapartida','numero','valor_anterior','novo_valor')
+ order by 1, 2;
+select count(*) as funcoes_sem_caminho_fixo from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname = 'public' and p.proconfig is null and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e');
+select count(*) filter (where has_function_privilege('anon', p.oid, 'execute')) as funcoes_para_anon
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname = 'public' and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e');

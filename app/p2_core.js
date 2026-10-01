@@ -1,4 +1,6 @@
 'use strict';
+/* segurança: o programa não roda dentro de outra página (evita "clickjacking") */
+if (window.top !== window.self) { document.documentElement.hidden = true; try { window.top.location.replace(location.href); } catch { } throw new Error('GPMOT: aberto dentro de outra página — bloqueado por segurança'); }
 /* ════════════════════════════════════════════════════════════════════
    GPMOT/UFSM — Gestão de Portfólio · versão 2
    Estrutura de dados idêntica ao esquema gpmot_schema.sql (Supabase).
@@ -8,7 +10,7 @@
    - Modo online: preencha SUPABASE_CONFIG abaixo (ou em Configurações)
      e o programa passa a ler e gravar no banco Supabase, com login.
    ════════════════════════════════════════════════════════════════════ */
-const VERSAO = '2.24';
+const VERSAO = '2.25';
 const VERSAO_DATA = '30/09/2026';
 const SUPABASE_CONFIG = { url: '', anonKey: '' };   // ← preencher na implantação
 
@@ -17,6 +19,10 @@ const pad2 = n => String(n).padStart(2, '0');
 const newId = () => (crypto.randomUUID ? crypto.randomUUID()
   : 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => { const r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 3 | 8)).toString(16); }));
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+/* endereço externo seguro para href: só http(s) e mailto (bloqueia javascript:, data: etc.) */
+const urlSegura = s => { const u = String(s ?? '').trim(); return /^(https?:\/\/|mailto:)/i.test(u) ? u : ''; };
+/* segunda barreira: nenhum clique segue link com protocolo executável, venha de onde vier */
+document.addEventListener('click', e => { const a = e.target.closest && e.target.closest('a[href]'); if (a && /^(javascript|data|vbscript):$/i.test(a.protocol)) { e.preventDefault(); e.stopImmediatePropagation(); } }, true);
 const isoOf = d => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
 const hoje = () => isoOf(new Date());
 const isDate = s => { if (!/^\d{4}-\d{2}-\d{2}$/.test(s || '')) return false; const d = new Date(s + 'T12:00:00'); return !isNaN(d) && isoOf(d) === s; };
@@ -309,7 +315,7 @@ const Perm = {
 /* Políticas de acesso — mesmas regras do banco (RLS). No modo online
    quem decide é o banco; no modo local, estas funções fazem o papel dele. */
 const POLICY = {
-  pessoas: { ins: () => Perm.gerePessoas(), upd: (n, o) => Perm.gerePessoas() || (Perm.podeEditar() && o.id === ME.pessoa_id), del: () => Perm.dir() },
+  pessoas: { ins: () => Perm.gerePessoas(), upd: (n, o) => Perm.gerePessoa(o.id) || (Perm.podeEditar() && o.id === ME.pessoa_id), del: () => Perm.dir() },
   perfis: { ins: () => Perm.dir(), upd: (n, o) => Perm.dir() && (Perm.suporte() || (o.papel !== 'suporte' && n.papel !== 'suporte')), del: (n, o) => Perm.dir() && (Perm.suporte() || o.papel !== 'suporte') },
   projetos: { ins: () => Perm.dir() || Perm.tem('projetos_criar'), upd: (n, o) => Perm.gereProjeto(o.id), del: () => Perm.dir() },
   alocacoes: { all: r => Perm.gereAlocacao(r.projeto_id) },
@@ -357,6 +363,11 @@ function exigeData(v, nome, obrig) { if (!v) { if (obrig) falha(`Informe ${nome}
 function exigePeriodo(a, b, txt) { if (a && b && b < a) falha(txt || 'A data final não pode ser anterior à inicial.'); }
 
 function validar(t, r, old) {
+  // links: só endereços web (http/https); "www.…" ganha https:// — o banco recusa os demais
+  for (const k of ({ documentos: ['url'], pessoas: ['lattes'], candidatos: ['lattes'] }[t] || [])) {
+    const u = String(r[k] || '').trim(); if (!u) continue;
+    if (/^www\./i.test(u)) r[k] = 'https://' + u; else if (!/^https?:\/\//i.test(u)) falha('O link deve ser um endereço web começando com http:// ou https://.');
+  }
   if (t === 'alocacoes' && r.coordena && r.vice_coordena) falha('A pessoa não pode ser coordenadora e vice-coordenadora do projeto ao mesmo tempo.');
   switch (t) {
     case 'pessoas':
@@ -559,8 +570,10 @@ function validarReserva(r, old) {
 /* travas equivalentes aos gatilhos do banco */
 function travas(t, n, o) {
   if (t === 'alocacoes' && !Perm.dir()) {
-    if ((!o && n.coordena) || (o && !!n.coordena !== !!o.coordena)) falha('Somente a Direção pode definir coordenadores de projeto.');
-    if (((!o && n.vice_coordena) || (o && !!n.vice_coordena !== !!o.vice_coordena)) && !Perm.coordenaTitular(n.projeto_id)) falha('Somente a Direção ou o coordenador do projeto podem definir a vice-coordenação.');
+    const troca = o && (n.pessoa_id !== o.pessoa_id || n.projeto_id !== o.projeto_id);   // trocar a pessoa/projeto de uma coordenação também é definir
+    if ((!o && n.coordena) || (o && (!!n.coordena !== !!o.coordena || (o.coordena && troca)))) falha('Somente a Direção pode definir coordenadores de projeto.');
+    if (((!o && n.vice_coordena) || (o && (!!n.vice_coordena !== !!o.vice_coordena || (o.vice_coordena && troca))))
+        && !(Perm.coordenaTitular(n.projeto_id) && (!o || Perm.coordenaTitular(o.projeto_id)))) falha('Somente a Direção ou o coordenador do projeto podem definir a vice-coordenação.');
   }
   if (t === 'cronograma' && o && !Perm.gereProjeto(o.projeto_id)) {
     for (const k of ['codigo', 'titulo', 'mes_inicio', 'mes_fim', 'responsavel_id', 'projeto_id', 'entrega', 'descricao'])
@@ -574,12 +587,22 @@ function travas(t, n, o) {
     for (const k of ['titulo', 'tipo', 'prazo', 'responsavel_id', 'projeto_id'])
       if (JSON.stringify(n[k] ?? null) !== JSON.stringify(o[k] ?? null)) falha('O responsável pela entrega só atualiza situação, data de entrega, documento e observações. Prazo e responsável são definidos pela coordenação.');
   }
-  if (t === 'pessoas' && o && !(Perm.dir() || Perm.tem('pessoas_gerir') || Perm.coordenaAlgum())) {
-    for (const k of ['tipo', 'funcao', 'email', 'ativo', 'risco_sobrecarga', 'ordem', 'saida'])
+  if (t === 'pessoas' && o && !(Perm.dir() || Perm.tem('pessoas_gerir'))) {
+    if (norm(n.email) !== norm(o.email)) falha('O e-mail do cadastro só pode ser alterado pela Direção ou pela gerência que gere pessoas (ele liga o cadastro ao login).');
+  }
+  if (t === 'pessoas' && o && !Perm.gerePessoa(o.id)) {
+    for (const k of ['tipo', 'funcao', 'ativo', 'risco_sobrecarga', 'ordem', 'saida'])
       if (JSON.stringify(n[k] ?? null) !== JSON.stringify(o[k] ?? null)) falha('Este campo só pode ser alterado pela Direção, Gerência Técnica ou Coordenação.');
   }
 }
 
+/* exclusões protegidas (equivalente ao gatilho do banco) */
+function travasExclusao(t, o) {
+  if (t === 'alocacoes' && !Perm.dir()) {
+    if (o.coordena) falha('Somente a Direção pode retirar o coordenador do projeto.');
+    if (o.vice_coordena && !Perm.coordenaTitular(o.projeto_id)) falha('Somente a Direção ou o coordenador do projeto podem retirar a vice-coordenação.');
+  }
+}
 /* traduz erros do Postgres/Supabase para português */
 function traduzErro(e) {
   if (e instanceof ErroRegra) return e.message;
@@ -695,17 +718,24 @@ const SB = {
   },
   async connect() {
     const c = this.cfg(); if (!c) return false;
-    const mod = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+    // biblioteca embutida no próprio arquivo (versão fixa; nada é baixado de terceiros)
+    const mod = window.supabase; if (!mod || !mod.createClient) throw new Error('Biblioteca do Supabase ausente neste arquivo. Monte o programa com build.cjs.');
     this.client = mod.createClient(c.url, c.anonKey);
     return true;
   },
-  fonte: {},   // pessoas é lida pela visão v_pessoas (o banco esconde dados pessoais de terceiros da Leitura)
+  /* leitura pelas visões do banco: dados pessoais de terceiros (Leitura) e valores de projetos e
+     aditivos (quem não tem cargo) chegam vazios; as colunas de valor não se leem nas tabelas */
+  VISAO: { pessoas: 'v_pessoas', projetos: 'v_projetos_tela', aditivos: 'v_aditivos_tela' },
+  PROTEGIDAS: { projetos: ['valor_total', 'contrapartida'], aditivos: ['valor_anterior', 'novo_valor'] },
+  fonte: {},
+  /* colunas devolvidas após gravar (sem as colunas de valor, que o banco não deixa ler direto) */
+  retorno(t) { const p = this.PROTEGIDAS[t]; return p ? [...COLUNAS[t]].filter(c => !p.includes(c)).join(',') : '*'; },
   async fetchAll(t) {
     const out = []; let from = 0;
-    const src = this.fonte[t] || (t === 'pessoas' ? 'v_pessoas' : t);
+    const src = this.fonte[t] || this.VISAO[t] || t;
     for (; ;) {
       const { data, error } = await this.client.from(src).select('*').range(from, from + 999);
-      if (error && src !== t && /does not exist|could not find|PGRST205|42P01/i.test((error.message || '') + (error.code || ''))) { this.fonte[t] = t; return this.fetchAll(t); }   // banco ainda na versão 1.3
+      if (error && src !== t && /does not exist|could not find|PGRST205|42P01/i.test((error.message || '') + (error.code || ''))) { this.fonte[t] = t; return this.fetchAll(t); }   // banco em versão anterior (sem a visão)
       if (error) throw error;
       out.push(...data); if (data.length < 1000) break; from += 1000;
     }
@@ -719,21 +749,23 @@ const SB = {
   async reload(tables) { for (const t of tables) D[t] = await this.fetchAll(t); },
   clean(t, row) { const r = soColunas(t, row); delete r.criado_em; delete r.atualizado_em; delete r.atualizado_por; return r; },
   async insert(t, row) {
-    const { data, error } = await this.client.from(t).insert(this.clean(t, row)).select();
-    if (error) throw error; return data[0];
+    const r = this.clean(t, row);
+    const { data, error } = await this.client.from(t).insert(r).select(this.retorno(t));
+    if (error) throw error; return { ...r, ...data[0] };
   },
   async update(t, id, patch, prev) {
     const k = keyOf(t);
     let q = this.client.from(t).update(this.clean(t, patch)).eq(k, id);
     if (prev && prev.atualizado_em && !TABLES[t].noStamp) q = q.eq('atualizado_em', prev.atualizado_em);
-    const { data, error } = await q.select();
+    const { data, error } = await q.select(this.retorno(t));
     if (error) throw error;
+    if (data.length && this.PROTEGIDAS[t]) { const p = this.clean(t, patch); this.PROTEGIDAS[t].forEach(c => { data[0][c] = c in p ? p[c] : prev ? prev[c] : null; }); }
     if (!data.length) throw new ErroRegra('Este registro foi alterado por outra pessoa enquanto você editava (ou você não tem permissão). Recarregue os dados e tente de novo.');
     return data[0];
   },
   async remove(t, match) {
     let q = this.client.from(t).delete(); Object.entries(match).forEach(([k, v]) => q = q.eq(k, v));
-    const { data, error } = await q.select(); if (error) throw error;
+    const { data, error } = await q.select(this.retorno(t)); if (error) throw error;
     if (!data.length) throw new ErroRegra('Você não tem permissão para excluir este registro.');
   },
 };
@@ -871,6 +903,7 @@ const Data = {
   async remove(t, id) {
     const k = keyOf(t);
     const o = D[t].find(r => r[k] === id); if (!o) return;
+    travasExclusao(t, o);
     if (ME.online) {
       await SB.remove(t, { [k]: id });
       await SB.reload([...new Set([t, ...dependentesDe(t), ...(DEPENDENTES[t] || [])])]);

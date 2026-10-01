@@ -2,7 +2,7 @@
 
 Programa de gestão de projetos, equipe, financeiro e infraestrutura do laboratório.
 O produto final é **um único arquivo HTML** (funciona offline, sem instalar nada), montado a partir das partes em `app/`.
-Versão do programa: **2.24** · versão do esquema do banco: **1.4**. Implantação no Supabase: veja `../Guia de implantação online (Supabase).docx`.
+Versão do programa: **2.25** · versão do esquema do banco: **1.5**. Implantação no Supabase: veja `../Guia de implantação online (Supabase).docx`.
 
 ```
 Software de Gestão/
@@ -11,9 +11,9 @@ Software de Gestão/
 ├─ gpmot_schema.sql                              ← esquema do banco (cópia de codigo-fonte/banco/)
 ├─ gpmot-portfolio-26-09-23.json                 ← dados do programa antigo (usados nos testes)
 ├─ H - Fundep_…_revisao_final.xlsx               ← planilha do edital (tem CPFs — nunca copiar para o código-fonte)
-└─ codigo-fonte/                                 (30 arquivos)
+└─ codigo-fonte/                                 (32 arquivos)
    ├─ README.md · build.cjs · .gitignore
-   ├─ app/          8 partes do programa (editar aqui) + marca/ (logotipo e ícones)
+   ├─ app/          8 partes do programa (editar aqui) + marca/ (logotipo e ícones) + vendor/ (biblioteca supabase-js)
    ├─ banco/        gpmot_schema.sql (banco completo) + atualização da versão anterior
    ├─ docs/         versão publicada pelo GitHub Pages (gerada pelo build)
    └─ testes/       tela.cjs · banco.sh + banco.sql + banco_esperado.txt · online.cjs + simulador_supabase.cjs · package.json
@@ -37,7 +37,7 @@ Com `--url` o build também grava `docs/index.html`, a cópia publicada pelo **G
 
 **Identidade visual:** `app/marca/` tem o logotipo do GPMOT vetorizado (cor `#003963`), os ícones do aplicativo (PNG 192/512 e versão *maskable*) e `gpmot.ico` para atalhos do Windows. O programa usa o símbolo no menu lateral, o logotipo nas telas de entrada e o ícone na aba do navegador (tudo embutido no HTML, pela constante `MARCA` em `p3_ui.js`).
 
-As partes são concatenadas nesta ordem, num único `<script>` (as funções de uma parte podem usar as das outras):
+As partes são concatenadas nesta ordem, num único `<script>` (as funções de uma parte podem usar as das outras); antes dele o build embute `app/vendor/supabase-js-2.117.2.min.js` (versão fixa, conferida por SHA-256 em `build.cjs`):
 
 | Parte | Conteúdo |
 |---|---|
@@ -52,6 +52,15 @@ As partes são concatenadas nesta ordem, num único `<script>` (as funções de 
 
 **Regra de ouro:** toda regra de negócio existe em dois lugares — no banco (`banco/gpmot_schema.sql`, que é quem decide no modo online) e em `p2_core.js` (que faz o papel do banco no modo local). Ao mudar uma, mude a outra e rode os dois conjuntos de testes.
 
+## Segurança
+
+O arquivo HTML é público (GitHub Pages) e a chave *publishable* também: **quem protege os dados é o banco**. Todo acesso passa pelas regras de `banco/gpmot_schema.sql` (RLS linha a linha, gatilhos e permissões por coluna), valendo igualmente para quem usa o programa e para quem chama a API diretamente.
+
+- **Banco:** nada para quem não fez login; login novo entra inativo até a Direção liberar; valores de projetos e aditivos só chegam a quem tem cargo (as colunas de valor não se leem nas tabelas — o programa lê pelas visões `v_projetos_tela` / `v_aditivos_tela`); dados pessoais de terceiros mascarados para a Leitura (`v_pessoas`); coordenação só definida pela Direção; e-mail do cadastro só alterado pela Direção/gestão de pessoas; links só `http(s)`; sem TRUNCATE; funções com caminho de busca fixo. Seção 15 do esquema e teste `15_protecoes_seguranca`.
+- **Programa:** política de segurança de conteúdo (CSP) gerada pelo build — só rodam os scripts do próprio arquivo (conferidos por hash), sem código em atributos `onclick`, e as conexões só vão ao banco do laboratório; biblioteca embutida (nada é baixado de terceiros); todo texto vindo do banco passa por `esc()` e todo link por `urlSegura()`; não abre dentro de outra página.
+- **Nunca** coloque em arquivos a chave secreta (`sb_secret_…`/service_role), a senha do banco ou senhas de e-mail. Ao mudar colunas ou permissões, lembre que um novo `grant select … on all tables` reabre as colunas de valor: execute de novo o bloco “valores” da seção 15d.
+- A cada mudança (tabelas, funções ou telas novas), rode os três conjuntos de testes; o `online.cjs` confere que um membro sem cargo não obtém valores nem consultando a API diretamente.
+
 ## Testes
 
 Ficam em `testes/`, com uma instalação única (Node.js 18+):
@@ -60,7 +69,6 @@ Ficam em `testes/`, com uma instalação única (Node.js 18+):
 cd codigo-fonte/testes
 npm install                        # Playwright, supabase-js, esbuild, pg (uma vez)
 npx playwright install chromium    # navegador de testes (uma vez)
-npm run preparar                   # empacota o supabase-js para o teste online (uma vez)
 ```
 
 Monte o programa antes (`node build.cjs`). Capturas e logs vão para `testes/saida/` — podem conter dados pessoais; não compartilhe essa pasta.
@@ -91,7 +99,7 @@ Requer **PostgreSQL 16** local e `psql` no PATH (no Windows, Git Bash ou WSL). C
 
 ### Online — `node online.cjs`
 
-Recria um banco de teste no PostgreSQL local, sobe `simulador_supabase.cjs` (o subconjunto da API da Supabase que o programa usa, executando tudo com o papel `authenticated`, de modo que permissões, políticas, gatilhos e visões valem de verdade) e roda o programa com a biblioteca oficial `supabase-js`. Cobre: chave secreta recusada; login por código; aprovação; envio e reenvio do backup (inclusive dados antigos com campos faltando); gravações com gatilhos; edição simultânea; membro vendo só o que o banco permite; Suporte técnico permanente; Leitura recebendo do banco só os próprios projetos, sem valores nem dados pessoais; vice-coordenação; e a lista `COLUNAS` do programa igual ao esquema.
+Recria um banco de teste no PostgreSQL local, sobe `simulador_supabase.cjs` (o subconjunto da API da Supabase que o programa usa, executando tudo com o papel `authenticated`, de modo que permissões, políticas, gatilhos e visões valem de verdade) e roda o programa com a biblioteca oficial `supabase-js`. Cobre: chave secreta recusada; login por código; aprovação; envio e reenvio do backup (inclusive dados antigos com campos faltando); gravações com gatilhos; edição simultânea; membro vendo só o que o banco permite; Suporte técnico permanente; Leitura recebendo do banco só os próprios projetos, sem valores nem dados pessoais; membro sem cargo sem valores de projetos, nem pela API direta; vice-coordenação; e a lista `COLUNAS` do programa igual ao esquema.
 
 ## Fluxo para alterar o programa
 

@@ -22,11 +22,24 @@ if (URL_SB || CHAVE) {
   if (!html.includes(alvo)) { console.error('Não encontrei SUPABASE_CONFIG em p2_core.js'); process.exit(1); }
   html = html.replace(alvo, `const SUPABASE_CONFIG = { url: ${JSON.stringify(URL_SB)}, anonKey: ${JSON.stringify(CHAVE)} };`);
 }
-const destino = path.join(__dirname, 'app', 'gpmot.html'); fs.writeFileSync(destino, html);
 const js = html.slice(html.indexOf('<script>') + 8, html.lastIndexOf('</script>'));
 const tmp = path.join(os.tmpdir(), 'gpmot_check.js'); fs.writeFileSync(tmp, js);
 const r = spawnSync(process.execPath, ['--check', tmp], { encoding: 'utf8' });
 if (r.status !== 0) { console.error('ERRO DE SINTAXE:\n' + r.stderr); process.exit(1); }
+// biblioteca do Supabase embutida (versão fixa, conferida pelo SHA-256): nada é baixado de terceiros ao abrir o programa
+const LIB = 'supabase-js-2.117.2.min.js', LIB_SHA256 = 'f39f713bb8ce1ccb1ba2f15f16b26c89d38cd62fbe31ce7775a86c71b87ed2d8';
+const lib = fs.readFileSync(path.join(__dirname, 'app', 'vendor', LIB), 'utf8');
+if (require('crypto').createHash('sha256').update(lib).digest('hex') !== LIB_SHA256) { console.error('app/vendor/' + LIB + ' foi alterado (SHA-256 não confere).'); process.exit(1); }
+if (/<\/script|<!--/i.test(lib)) { console.error('Biblioteca com trecho incompatível com HTML.'); process.exit(1); }
+html = html.replace('\n<script>\n', () => '\n<script>' + lib + '\n</script>\n<script>\n');
+// Política de segurança de conteúdo (CSP): só rodam os dois scripts deste arquivo (conferidos por hash);
+// nada de código injetado, de outros sites ou de atributos onclick; conexões só com o banco do laboratório.
+const hashes = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => `'sha256-${require('crypto').createHash('sha256').update(m[1].replace(/\r\n?/g, '\n')).digest('base64')}'`);
+const conectar = URL_SB ? `${URL_SB} ${URL_SB.replace(/^https:/, 'wss:')}` : 'https: wss: http://localhost:* ws://localhost:*';
+const CSP = `default-src 'none'; script-src ${hashes.join(' ')}; style-src 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; connect-src ${conectar}; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'`;
+if (!html.includes('__CSP__')) { console.error('Não encontrei __CSP__ em p1_head.html'); process.exit(1); }
+html = html.replace('__CSP__', CSP);
+const destino = path.join(__dirname, 'app', 'gpmot.html'); fs.writeFileSync(destino, html);
 const versao = (js.match(/VERSAO = '([\d.]+)'/) || [])[1];
 console.log(`BUILD_OK — versão ${versao} — ${(html.length / 1024).toFixed(0)} KB → ${destino}`);
 if (URL_SB) {

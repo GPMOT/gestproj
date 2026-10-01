@@ -532,7 +532,7 @@ VIEWS.prospeccao = () => {
         <td>${!a ? badge('a avaliar', 'b-yellow') : a.bloqueada ? badge('bloqueado', 'b-red') : badge('passou', 'b-green')}</td>
         <td class="num">${a && !a.bloqueada ? Math.round(a.ia) : '—'}</td><td class="num">${a && !a.bloqueada ? num(a.ie).toFixed(1) : '—'}</td><td class="num" style="font-weight:700;color:#a8500f">${a && !a.bloqueada ? num(a.ip).toFixed(1) : '—'}</td>
         <td>${a && !a.bloqueada && a.quadrante ? badge(QUAD[a.quadrante][0], QUAD[a.quadrante][1]) : '—'}</td>
-        <td>${gere ? `<select onchange="run(()=>Data.update('prospeccoes','${p.id}',{situacao:this.value}).then(render))" style="width:auto;font-size:12px;padding:3px 5px">${Object.entries(PIPE).map(([k, v]) => `<option value="${k}"${p.situacao === k ? ' selected' : ''}>${v[0]}</option>`).join('')}</select>` : badgeOf(PIPE, p.situacao)}</td>
+        <td>${gere ? `<select data-onchange="prospSituacao" data-id="${p.id}" style="width:auto;font-size:12px;padding:3px 5px">${Object.entries(PIPE).map(([k, v]) => `<option value="${k}"${p.situacao === k ? ' selected' : ''}>${v[0]}</option>`).join('')}</select>` : badgeOf(PIPE, p.situacao)}</td>
         <td style="white-space:nowrap">${gere ? `<button class="btn-s" data-a="prAvaliar" data-id="${p.id}">${a ? 'Reavaliar' : 'Avaliar'}</button> ${!p.projeto_id && (Perm.dir() || Perm.tem('projetos_criar')) ? `<button class="btn-s" data-a="prPromover" data-id="${p.id}">Promover →</button>` : ''}` : ''} ${nA ? `<button class="btn-s" data-a="prHist" data-id="${p.id}">histórico</button>` : ''}</td></tr>`; }).join('')}</table></div>` : '<div class="empty">Nenhuma prospecção neste filtro.</div>'}
   <div class="card mt"><div class="bold mb">Mapa 2×2 — atratividade × esforço</div>${graficoProsp(list)}</div>`;
 };
@@ -565,9 +565,9 @@ A.prPromover = d => {
 };
 function painelSubmissao() {
   return `<div class="card mb"><div class="between"><div><div class="bold">Nova submissão a partir de edital</div><div class="small muted">Cole o texto do edital/proposta (ou carregue um .txt) para pré-preencher a prospecção.</div></div>
-    <input type="file" accept=".txt,.md,.csv" id="subFile" style="width:auto;font-size:12px" onchange="lerArquivoSubmissao(this.files[0])"></div>
+    <input type="file" accept=".txt,.md,.csv" id="subFile" style="width:auto;font-size:12px" data-onchange="lerSubmissao"></div>
     ${UI.subArquivo ? `<div class="small muted mt">Arquivo: ${esc(UI.subArquivo)}</div>` : ''}
-    <textarea id="subTexto" rows="3" class="mt" placeholder="Cole aqui o texto do edital…" oninput="UI.subTexto=this.value">${esc(UI.subTexto || '')}</textarea>
+    <textarea id="subTexto" rows="3" class="mt" placeholder="Cole aqui o texto do edital…" data-oninput="subTexto">${esc(UI.subTexto || '')}</textarea>
     <div class="row mt"><button class="btn-p" data-a="prExtrair">Pré-preencher campos</button><button data-a="prLimpar">Limpar</button><span class="small faint">PDF/Word: copie o texto e cole acima.</span></div></div>`;
 }
 function lerArquivoSubmissao(f) {

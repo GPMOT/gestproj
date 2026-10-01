@@ -13,10 +13,10 @@ VIEWS.relatorios = () => {
   const c = UI.rel, fins = [...new Set(D.projetos.map(p => p.financiador).filter(Boolean))].sort();
   return chips + `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(380px,1fr))">
     <div class="card"><div class="bold mb">Escopo</div>
-      <div class="fgrid"><div class="full"><label class="fl">Projetos incluídos</label><select onchange="UI.rel.escopo=this.value;render()"><option value="completo"${c.escopo === 'completo' ? ' selected' : ''}>Portfólio completo (vigentes)</option><option value="financiador"${c.escopo === 'financiador' ? ' selected' : ''}>Por financiador</option><option value="todos"${c.escopo === 'todos' ? ' selected' : ''}>Todos os projetos (inclui encerrados)</option></select></div>
-      ${c.escopo === 'financiador' ? `<div class="full"><label class="fl">Financiador</label><select onchange="UI.rel.financiador=this.value">${fins.map(f => `<option${c.financiador === f ? ' selected' : ''}>${esc(f)}</option>`).join('')}</select></div>` : ''}</div>
+      <div class="fgrid"><div class="full"><label class="fl">Projetos incluídos</label><select data-onchange="relEscopo"><option value="completo"${c.escopo === 'completo' ? ' selected' : ''}>Portfólio completo (vigentes)</option><option value="financiador"${c.escopo === 'financiador' ? ' selected' : ''}>Por financiador</option><option value="todos"${c.escopo === 'todos' ? ' selected' : ''}>Todos os projetos (inclui encerrados)</option></select></div>
+      ${c.escopo === 'financiador' ? `<div class="full"><label class="fl">Financiador</label><select data-onchange="relFinanciador">${fins.map(f => `<option${c.financiador === f ? ' selected' : ''}>${esc(f)}</option>`).join('')}</select></div>` : ''}</div>
       <div class="small muted mt">Relatório geral do laboratório: portfólio, saúde dos projetos, cronogramas, equipe, gerências e infraestrutura.</div></div>
-    <div class="card"><div class="bold mb">Seções do relatório</div><div class="checks">${SECOES_REL.map(([k, l]) => `<label><input type="checkbox" ${c.secoes[k] ? 'checked' : ''} onchange="UI.rel.secoes['${k}']=this.checked"> ${l}${k === 'financeiro' && !D.projetos.some(p => Perm.veFin(p.id)) ? ' (sem acesso)' : ''}</label>`).join('')}</div></div>
+    <div class="card"><div class="bold mb">Seções do relatório</div><div class="checks">${SECOES_REL.map(([k, l]) => `<label><input type="checkbox" ${c.secoes[k] ? 'checked' : ''} data-onchange="relSecao" data-k="${k}"> ${l}${k === 'financeiro' && !D.projetos.some(p => Perm.veFin(p.id)) ? ' (sem acesso)' : ''}</label>`).join('')}</div></div>
   </div>
   ${barraGerarRel('relGerar', 'Valores financeiros só aparecem na seção Financeiro, e apenas dos projetos cujo financeiro você pode ver.')}`;
 };
@@ -130,10 +130,10 @@ function cardUsuarios() {
   const vis = lista.filter(pf => fil === 'todos' || (fil === 'pendentes' ? !pf.ativo : fil === 'ativos' ? pf.ativo : pf.papel === fil));
   const linha = pf => `<tr${!pf.ativo ? ' style="background:var(--yellow-bg)"' : ''}>
       <td><b>${esc(pf.email)}</b>${fixo(pf) ? '<div class="small muted">Suporte técnico permanente</div>' : ''}${!pf.ativo ? '<div class="small" style="color:var(--yellow-txt);font-weight:600">aguardando aprovação</div>' : ''}</td>
-      <td style="min-width:220px"><select onchange="run(()=>Data.update('perfis','${pf.id}',{pessoa_id:this.value||null}).then(render))"><option value="">— ligar a uma pessoa —</option>${optPessoas().map(([v, l]) => `<option value="${v}"${pf.pessoa_id === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>${pf.ativo && !pf.pessoa_id ? '<div class="small" style="color:var(--yellow-txt)">sem pessoa: não aparece como responsável nem vê "Minha semana"</div>' : ''}</td>
-      <td style="min-width:170px"><select ${travado(pf) ? `disabled title="${fixo(pf) ? 'Acesso permanente do Suporte técnico' : 'Só o Suporte técnico altera este perfil'}"` : ''} onchange="run(()=>Data.update('perfis','${pf.id}',{papel:this.value}).then(render))">${PAPEIS.filter(([v]) => v !== 'suporte' || Perm.suporte() || pf.papel === 'suporte').map(([v, l]) => `<option value="${v}"${pf.papel === v ? ' selected' : ''}>${l}</option>`).join('')}</select></td>
+      <td style="min-width:220px"><select data-onchange="perfilPessoa" data-id="${pf.id}"><option value="">— ligar a uma pessoa —</option>${optPessoas().map(([v, l]) => `<option value="${v}"${pf.pessoa_id === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>${pf.ativo && !pf.pessoa_id ? '<div class="small" style="color:var(--yellow-txt)">sem pessoa: não aparece como responsável nem vê "Minha semana"</div>' : ''}</td>
+      <td style="min-width:170px"><select ${travado(pf) ? `disabled title="${fixo(pf) ? 'Acesso permanente do Suporte técnico' : 'Só o Suporte técnico altera este perfil'}"` : ''} data-onchange="perfilPapel" data-id="${pf.id}">${PAPEIS.filter(([v]) => v !== 'suporte' || Perm.suporte() || pf.papel === 'suporte').map(([v, l]) => `<option value="${v}"${pf.papel === v ? ' selected' : ''}>${l}</option>`).join('')}</select></td>
       <td class="small">${cargosDe(pf.pessoa_id).map(c => `<span class="tag">${esc(c)}</span>`).join(' ') || '<span class="faint">—</span>'}</td>
-      <td style="text-align:center"><input type="checkbox" style="width:auto" ${pf.ativo ? 'checked' : ''} ${travado(pf) ? 'disabled' : ''} title="${pf.ativo ? 'Acesso liberado' : 'Liberar acesso'}" onchange="run(()=>Data.update('perfis','${pf.id}',{ativo:this.checked}).then(render))"></td>
+      <td style="text-align:center"><input type="checkbox" style="width:auto" ${pf.ativo ? 'checked' : ''} ${travado(pf) ? 'disabled' : ''} title="${pf.ativo ? 'Acesso liberado' : 'Liberar acesso'}" data-onchange="perfilAtivo" data-id="${pf.id}"></td>
       <td class="small muted">${fmtD(String(pf.criado_em || '').slice(0, 10))}</td></tr>`;
   return `<div class="card" style="grid-column:1/-1"><div class="between mb" style="flex-wrap:wrap;gap:8px"><span class="bold">Usuários e acessos <span class="small muted" style="font-weight:400">· ${lista.length} login(s)${pend ? ` · <b style="color:var(--yellow-txt)">${pend} aguardando aprovação</b>` : ''}${semPessoa ? ` · ${semPessoa} sem pessoa ligada` : ''}</span></span>
       <div class="row">${[['todos', 'Todos'], ['pendentes', 'Aguardando'], ['ativos', 'Ativos'], ...PAPEIS].map(([v, l]) => `<button class="chip${fil === v ? ' on' : ''}" data-a="setf" data-f="usrFil" data-v="${v}">${l}</button>`).join('')}</div></div>
@@ -151,7 +151,7 @@ VIEWS.config = () => {
     <div class="fgrid"><div><label class="fl">Pessoa</label><select id="sim_p"><option value="">— nenhuma (administrador) —</option>${(D_TODOS ? D_TODOS.pessoas : D.pessoas).filter(p => p.ativo !== false).slice().sort(byName('nome')).map(p => [p.id, p.nome]).map(([v, l]) => `<option value="${v}"${sim.pessoa_id === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select></div>
     <div><label class="fl">Papel</label><select id="sim_r">${PAPEIS.map(([v, l]) => `<option value="${v}"${sim.papel === v ? ' selected' : ''}>${l}</option>`).join('')}</select></div></div>
     <div class="mactions"><button class="btn-p" data-a="simAplicar">Aplicar</button></div>
-    <div class="small muted">Permissões efetivas agora: ${Perm.minhas().map(p => `<span class="tag">${p}</span>`).join('') || '<i>nenhuma de gerência</i>'}${Perm.coordenaAlgum() ? ' + coordenação de ' + D.alocacoes.filter(a => a.pessoa_id === ME.pessoa_id && (a.coordena || a.vice_coordena)).map(a => siglaProjeto(a.projeto_id)).join(', ') : ''}</div></div>` : ''}
+    <div class="small muted">Permissões efetivas agora: ${Perm.minhas().map(p => `<span class="tag">${p}</span>`).join('') || '<i>nenhuma de gerência</i>'}${Perm.coordenaAlgum() ? ' + coordenação de ' + D.alocacoes.filter(a => a.pessoa_id === ME.pessoa_id && (a.coordena || a.vice_coordena)).map(a => esc(siglaProjeto(a.projeto_id))).join(', ') : ''}</div></div>` : ''}
 
   <div class="card"><div class="bold mb">Armazenamento <span class="small muted" style="font-weight:400">· onde ficam os dados</span></div>
     ${ME.online ? `<div class="alert ok">Online: os dados ficam no banco do laboratório (Supabase) e são compartilhados por toda a equipe.<div class="small mt">${esc(cfg.url || '')}</div></div>
@@ -165,10 +165,10 @@ VIEWS.config = () => {
   <div class="card"><div class="bold mb">Backup <span class="small muted" style="font-weight:400">· cópia de segurança em arquivo</span></div>
     <div class="small muted mb">${ME.online ? 'Baixa um arquivo JSON com os dados que você pode ver. Guarde uma cópia com frequência — no plano gratuito da Supabase não há backup automático.' : 'Baixa um arquivo JSON com todos os dados deste navegador.'}</div>
     <div class="row"><button data-a="bkExportar">↓ Exportar backup</button>
-      ${Perm.dir() ? `<label class="row" style="cursor:pointer"><span class="btn" style="border:1px solid #c8c6c0;border-radius:7px;padding:5px 12px;background:#fff">↑ ${ME.online ? 'Enviar backup ao banco' : 'Importar backup'}</span><input type="file" accept=".json" style="display:none" onchange="importarArquivo(this.files[0],'backup');this.value=''"></label>` : ''}</div>
+      ${Perm.dir() ? `<label class="row" style="cursor:pointer"><span class="btn" style="border:1px solid #c8c6c0;border-radius:7px;padding:5px 12px;background:#fff">↑ ${ME.online ? 'Enviar backup ao banco' : 'Importar backup'}</span><input type="file" accept=".json" style="display:none" data-onchange="importarBackup"></label>` : ''}</div>
     ${Perm.dir() ? `<div class="small muted mt">${ME.online ? '<b>Enviar backup ao banco</b> grava no banco o conteúdo do arquivo: registros com o mesmo identificador são sobrescritos pela versão do arquivo e os que não existem são criados; nada é apagado. Serve para migrar dados ou recuperar registros.' : '<b>Importar backup</b> substitui todos os dados deste navegador pelos do arquivo.'}</div>
     <div class="sec">Dados da versão anterior</div><div class="small muted mb">Converte o JSON exportado pelo programa antigo (gpmot-portfolio-*.json) para a nova estrutura. Você verá um resumo antes de confirmar.</div>
-    <label class="row" style="cursor:pointer"><span style="border:1px solid #c8c6c0;border-radius:7px;padding:5px 12px;background:#fff">↑ Importar JSON do programa antigo</span><input type="file" accept=".json" style="display:none" onchange="importarArquivo(this.files[0],'v1');this.value=''"></label>` : ''}
+    <label class="row" style="cursor:pointer"><span style="border:1px solid #c8c6c0;border-radius:7px;padding:5px 12px;background:#fff">↑ Importar JSON do programa antigo</span><input type="file" accept=".json" style="display:none" data-onchange="importarV1"></label>` : ''}
     ${!ME.online && Perm.dir() ? `<div class="sec">Zona de risco</div><button class="btn-d" data-a="zerar">Apagar todos os dados deste navegador</button>` : ''}</div>
 
   ${Perm.tem('historico_ver') ? `<div class="card" style="grid-column:1/-1"><div class="between mb"><span class="bold">Histórico de alterações</span>${ME.online ? '<button class="btn-s" data-a="histCarregar">carregar últimas 300</button>' : ''}</div>
@@ -219,7 +219,12 @@ function importarArquivo(f, tipo) {
 async function enviarAoBanco(T0) {
   let T = T0;
   const limpar = (t, r) => { const x = completarObrigatorios(t, soColunas(t, r)); delete x.criado_em; delete x.atualizado_em; delete x.atualizado_por; ['criado_por', 'avaliado_por'].forEach(k => { if (x[k] && String(x[k]).startsWith('local:')) x[k] = null; }); if (t === 'avaliacoes' && r.avaliado_em) x.avaliado_em = r.avaliado_em; return x; };
-  const up = async (t, rows, onConflict) => { for (let i = 0; i < rows.length; i += 400) { const { error } = await SB.client.from(t).upsert(rows.slice(i, i + 400).map(r => limpar(t, r)), { ...(onConflict ? { onConflict } : {}), ...(t === 'avaliacoes' ? { ignoreDuplicates: true } : {}) });   /* avaliações não se alteram depois de gravadas: o reenvio ignora as que já existem */ if (error) throw new ErroRegra(`Falha ao enviar ${t}: ${traduzErro(error)}`); } };
+  // projetos e aditivos: as colunas de valor não se leem direto no banco (v1.5), então vão pela função
+  // enviar_backup_protegido (só Direção/Suporte); em banco anterior à 1.5, pelo envio comum
+  let rpcProt = true;
+  const upProt = async (t, rows) => { for (let i = 0; i < rows.length; i += 400) { const { error } = await SB.client.rpc('enviar_backup_protegido', { p_tabela: t, p_linhas: rows.slice(i, i + 400).map(r => limpar(t, r)) }); if (error && /PGRST202|could not find the function|does not exist/i.test((error.message || '') + (error.code || ''))) { rpcProt = false; return upComum(t, rows); } if (error) throw new ErroRegra(`Falha ao enviar ${t}: ${traduzErro(error)}`); } };
+  const up = (t, rows, onConflict) => SB.PROTEGIDAS[t] && rpcProt ? upProt(t, rows) : upComum(t, rows, onConflict);
+  const upComum = async (t, rows, onConflict) => { for (let i = 0; i < rows.length; i += 400) { const { error } = await SB.client.from(t).upsert(rows.slice(i, i + 400).map(r => limpar(t, r)), { ...(onConflict ? { onConflict } : {}), ...(t === 'avaliacoes' ? { ignoreDuplicates: true } : {}) });   /* avaliações não se alteram depois de gravadas: o reenvio ignora as que já existem */ if (error) throw new ErroRegra(`Falha ao enviar ${t}: ${traduzErro(error)}`); } };
   const g = t => T[t] || [];
   await up('rubricas', g('rubricas').slice().sort(by('ordem')), 'codigo');
   await up('pessoas', g('pessoas')); await up('projetos', g('projetos'));
@@ -386,9 +391,9 @@ function telaLogin(msg, etapa) {
       : `<div class="small muted mb">Entre com seu e-mail institucional. Você receberá um código de acesso por e-mail.</div>`}
     ${msg ? `<div class="alert ${codigo ? 'ok' : 'warn'}">${esc(msg)}</div>` : ''}
     ${codigo ? `<label class="fl">Código recebido</label><input id="lg_code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456" style="font-size:20px;letter-spacing:4px">
-      <div class="mactions"><button class="btn-s" onclick="telaLogin()">Trocar e-mail</button><button class="btn-s" onclick="enviarLink(true)">Reenviar</button><button class="btn-p" id="lg_ok" onclick="confirmarCodigo()">Entrar</button></div>`
+      <div class="mactions"><button class="btn-s" data-onclick="telaLogin">Trocar e-mail</button><button class="btn-s" data-onclick="enviarLinkNovo">Reenviar</button><button class="btn-p" id="lg_ok" data-onclick="confirmarCodigo">Entrar</button></div>`
       : `<label class="fl">E-mail</label><input id="lg_email" type="email" placeholder="nome@ufsm.br" value="${esc(LOGIN_EMAIL)}">
-      <div class="mactions">${SUPABASE_CONFIG.url ? '' : '<button class="btn-s" onclick="usarLocal()">Usar modo local</button>'}<button class="btn-p" id="lg_env" onclick="enviarLink()">Enviar código</button></div>`}`);
+      <div class="mactions">${SUPABASE_CONFIG.url ? '' : '<button class="btn-s" data-onclick="usarLocal">Usar modo local</button>'}<button class="btn-p" id="lg_env" data-onclick="enviarLink">Enviar código</button></div>`}`);
   const f = document.getElementById(codigo ? 'lg_code' : 'lg_email'); if (f) { f.focus(); f.onkeydown = ev => { if (ev.key === 'Enter') codigo ? confirmarCodigo() : enviarLink(); }; }
 }
 async function enviarLink(reenviar) {
@@ -421,7 +426,7 @@ async function entrarOnline(session) {
   telaSimples('<div class="small muted">Carregando dados…</div>');
   await SB.loadAll();
   const pf = D.perfis.find(p => p.id === ME.uid);
-  if (!pf || !pf.ativo) { telaSimples(`<div class="title mb">Acesso aguardando aprovação</div><div class="small">Seu login (${esc(ME.email)}) foi registrado. A Direção precisa ativar seu acesso e ligá-lo ao seu cadastro.</div><div class="mactions"><button onclick="A.sair()">Sair</button></div>`); return; }
+  if (!pf || !pf.ativo) { telaSimples(`<div class="title mb">Acesso aguardando aprovação</div><div class="small">Seu login (${esc(ME.email)}) foi registrado. A Direção precisa ativar seu acesso e ligá-lo ao seu cadastro.</div><div class="mactions"><button data-onclick="sair">Sair</button></div>`); return; }
   ME.papel = pf.papel; ME.pessoa_id = pf.pessoa_id;
   ME.fixos = [];
   for (const fn of ['emails_suporte_tecnico', 'emails_direcao_fixa']) {   // a segunda é da versão 1.3 do banco
@@ -481,7 +486,7 @@ async function boot() {
       await entrarOnline(session);
     } catch (e) {
       console.error(e);
-      telaSimples(`<div class="title mb">Não foi possível conectar ao banco online</div><div class="merr">${esc(traduzErro(e))}</div><div class="mactions"><button onclick="location.reload()">Tentar de novo</button>${SUPABASE_CONFIG.url ? '' : '<button onclick="usarLocal()">Usar modo local</button>'}</div>`);
+      telaSimples(`<div class="title mb">Não foi possível conectar ao banco online</div><div class="merr">${esc(traduzErro(e))}</div><div class="mactions"><button data-onclick="recarregarPagina">Tentar de novo</button>${SUPABASE_CONFIG.url ? '' : '<button data-onclick="usarLocal">Usar modo local</button>'}</div>`);
     }
     return;
   }

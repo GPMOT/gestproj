@@ -32,11 +32,32 @@ function render() {
 }
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-a]'); if (!el) return;
+  const lk = e.target.closest('a[href]'); if (lk && lk !== el && el.contains(lk)) return;   // link dentro de linha clicável: só abre o link
   if (el.closest('#modal-root') && !el.dataset.a.startsWith('m_') && !el.closest('.mbody-actions')) { /* ações dentro de modais usam prefixo m_ */ }
   const f = A[el.dataset.a]; if (!f) return;
   e.preventDefault(); e.stopPropagation();
   run(() => f(el.dataset, el));
 });
+/* eventos sem código embutido no HTML (permite a política de segurança sem 'unsafe-inline'):
+   data-onclick / data-onchange / data-oninput = nome de uma função de EV */
+const EV = {
+  usarLocal: () => usarLocal(), telaLogin: () => telaLogin(), recarregarPagina: () => location.reload(),
+  enviarLink: () => enviarLink(), enviarLinkNovo: () => enviarLink(true), confirmarCodigo: () => confirmarCodigo(), sair: () => run(() => A.sair()),
+  perfilPessoa: el => run(() => Data.update('perfis', el.dataset.id, { pessoa_id: el.value || null }).then(render)),
+  perfilPapel: el => run(() => Data.update('perfis', el.dataset.id, { papel: el.value }).then(render)),
+  perfilAtivo: el => run(() => Data.update('perfis', el.dataset.id, { ativo: el.checked }).then(render)),
+  importarV1: el => { importarArquivo(el.files[0], 'v1'); el.value = ''; },
+  importarBackup: el => { importarArquivo(el.files[0], 'backup'); el.value = ''; },
+  relSecao: el => { UI.rel.secoes[el.dataset.k] = el.checked; }, relFinanciador: el => { UI.rel.financiador = el.value; },
+  relEscopo: el => { UI.rel.escopo = el.value; render(); },
+  subTexto: el => { UI.subTexto = el.value; },
+  prospSituacao: el => run(() => Data.update('prospeccoes', el.dataset.id, { situacao: el.value }).then(render)),
+  lerSubmissao: el => lerArquivoSubmissao(el.files[0]),
+};
+['click', 'change', 'input'].forEach(tipo => document.addEventListener(tipo, e => {
+  const el = e.target.closest && e.target.closest('[data-on' + tipo + ']'); if (!el) return;
+  const f = EV[el.getAttribute('data-on' + tipo)]; if (f) f(el, e);
+}));
 /* filtros: data-f="chave" em inputs/selects */
 document.addEventListener('input', e => {
   const el = e.target; if (!el.dataset || !el.dataset.f || el.closest('#modal-root')) return;
@@ -1029,7 +1050,7 @@ A.vagaBolsa = d => {
   });
 };
 /* ── Documentos e pendências do projeto ─────────────────────────────── */
-const linkDoc = d => d.url ? `<a href="${esc(d.url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="${esc(d.url)}">${esc(d.titulo)} ↗</a>` : `<b>${esc(d.titulo)}</b>`;
+const linkDoc = d => urlSegura(d.url) ? `<a href="${esc(urlSegura(d.url))}" target="_blank" rel="noopener" title="${esc(d.url)}">${esc(d.titulo)} ↗</a>` : `<b>${esc(d.titulo)}</b>`;
 function projDocs(p) {
   const gere = Perm.gereProjeto(p.id), fp = UI.f.pdSt || 'abertas';
   const pend = D.pendencias.filter(x => x.projeto_id === p.id);
@@ -1406,7 +1427,7 @@ function equipeVagas() {
     if (aberta === e.id && gc) sub = `<tr><td></td><td colspan="${Perm.veFin(e.projeto_id) ? 7 : 6}" style="background:#faf8f3">
       <div class="between mb"><span class="bold small">Candidatos — ${esc(e.nome_plano)}</span><button class="btn-s" data-a="candNovo" data-vaga="${e.id}">+ candidato</button></div>
       ${cands.length ? `<table class="t small"><tr><th>Nome</th><th>Curso / formação</th><th>Origem</th><th class="num">Nota</th><th>Situação</th><th></th></tr>${cands.sort((a, b) => num(b.nota) - num(a.nota)).map(c => `<tr class="click" data-a="candEditar" data-id="${c.id}">
-        <td><b>${esc(c.nome)}</b>${c.email ? `<div class="muted">${esc(c.email)}</div>` : ''}</td><td>${esc(c.curso || '')}${c.lattes ? ` · <a href="${esc(c.lattes)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Lattes ↗</a>` : ''}</td><td>${esc(c.origem || '')}</td>
+        <td><b>${esc(c.nome)}</b>${c.email ? `<div class="muted">${esc(c.email)}</div>` : ''}</td><td>${esc(c.curso || '')}${urlSegura(c.lattes) ? ` · <a href="${esc(urlSegura(c.lattes))}" target="_blank" rel="noopener">Lattes ↗</a>` : ''}</td><td>${esc(c.origem || '')}</td>
         <td class="num">${c.nota != null ? String(c.nota).replace('.', ',') : '—'}</td><td>${badge(ST_CAND[c.status][0], ST_CAND[c.status][1])}</td>
         <td>${gere && ['entrevista', 'aprovado'].includes(c.status) ? `<button class="btn-s" data-a="candContratar" data-id="${c.id}">Contratar</button>` : ''}</td></tr>`).join('')}</table>`
         : '<div class="empty small">Nenhum candidato registrado.</div>'}</td></tr>`;
@@ -1571,7 +1592,7 @@ function pessoaDetalhe(p) {
       ${p.curso ? `<span class="k">Curso</span><span>${esc(p.curso)}${p.semestre ? ' · ' + p.semestre + 'º semestre' : ''}</span>` : ''}
       ${p.foco ? `<span class="k">Foco</span><span>${esc(p.foco)}</span>` : ''}
       ${p.formacao ? `<span class="k">Formação</span><span>${esc(p.formacao)}</span>` : ''}
-      ${p.lattes ? `<span class="k">Lattes</span><span><a href="${esc(p.lattes)}" target="_blank" rel="noopener">${esc(p.lattes.replace(/^https?:\/\//, ''))} ↗</a></span>` : ''}
+      ${urlSegura(p.lattes) ? `<span class="k">Lattes</span><span><a href="${esc(urlSegura(p.lattes))}" target="_blank" rel="noopener">${esc(p.lattes.replace(/^https?:\/\//, ''))} ↗</a></span>` : ''}
       <span class="k">Ingresso</span><span>${fmtD(p.ingresso)}${p.saida ? ` · <b style="color:var(--yellow-txt)">saída ${fmtD(p.saida)}</b>` : ''}</span>
       <span class="k">Carga atual</span><span>${pillCarga(Calc.carga(p.id))}</span>
       <span class="k">Disponibilidade</span><span>${num(p.disponibilidade_pct)}% · ${esc(lbl(PERFIS_DISP, p.perfil_disponibilidade))}${p.obs_disponibilidade ? ' · ' + esc(p.obs_disponibilidade) : ''}</span></div>
