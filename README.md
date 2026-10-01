@@ -2,7 +2,7 @@
 
 Programa de gestão de projetos, equipe, financeiro e infraestrutura do laboratório.
 O produto final é **um único arquivo HTML** (funciona offline, sem instalar nada), montado a partir das partes em `app/`.
-Versão do programa: **2.26** · versão do esquema do banco: **1.5**. Implantação no Supabase: veja `../Guia de implantação online (Supabase).docx`.
+Versão do programa: **2.27** · versão do esquema do banco: **1.6**. Implantação no Supabase: veja `../Guia de implantação online (Supabase).docx`.
 
 ```
 Software de Gestão/
@@ -11,7 +11,7 @@ Software de Gestão/
 ├─ gpmot_schema.sql                              ← esquema do banco (cópia de codigo-fonte/banco/)
 ├─ gpmot-portfolio-26-09-23.json                 ← dados do programa antigo (usados nos testes)
 ├─ H - Fundep_…_revisao_final.xlsx               ← planilha do edital (tem CPFs — nunca copiar para o código-fonte)
-└─ codigo-fonte/                                 (33 arquivos)
+└─ codigo-fonte/                                 (34 arquivos)
    ├─ README.md · build.cjs · .gitignore
    ├─ app/          9 partes do programa (editar aqui) + marca/ (logotipo e ícones) + vendor/ (biblioteca supabase-js)
    ├─ banco/        gpmot_schema.sql (banco completo) + atualização da versão anterior
@@ -52,6 +52,14 @@ As partes são concatenadas nesta ordem, num único `<script>` (as funções de 
 | `p5_final.js` | relatório do laboratório, configurações, backup, conversão do programa antigo, envio ao banco online e inicialização |
 
 **Regra de ouro:** toda regra de negócio existe em dois lugares — no banco (`banco/gpmot_schema.sql`, que é quem decide no modo online) e em `p2_core.js` (que faz o papel do banco no modo local). Ao mudar uma, mude a outra e rode os dois conjuntos de testes.
+
+## Reprogramação do cronograma
+
+Projetos atrasam: os prazos das atividades podem ser ajustados por **Direção, coordenação (e vice) e gerências** — estas pela permissão `cronograma_gerir` (dada a todas as gerências; a Direção pode retirá-la em Gerências). Gerências mudam prazos e andamento, não a estrutura do cronograma (código, título, responsável, entregas), que é da coordenação.
+
+- **Reprogramar prazos…** (aba Cronograma físico): seleciona atividades ou etapas inteiras, desloca N meses (início e término, só término ou só início) ou digita os novos meses; motivo obrigatório e documento (ofício, aceite do financiador); avisa quando o término passa da vigência (aditivo de prazo).
+- **Linha de base**: na 1ª mudança de cada atividade o banco guarda os meses originais (`mes_inicio_base`, `mes_fim_base`); a tabela mostra “orig.” e o desvio, o Gantt mostra o plano original em cinza, e os indicadores mostram quantas atividades foram reprogramadas e o deslocamento do término. Só a Direção redefine a linha de base (ex.: após aditivo aprovado).
+- **Registro** (`reprogramacoes`): data, autor (gravado pelo banco), motivo, documento e cada atividade “de → para”; listado no fim da aba. A ficha de uma atividade também exige motivo quando os meses mudam.
 
 ## Importação de planos de trabalho
 
@@ -111,6 +119,7 @@ Abre `app/gpmot.html` no Chromium, carrega os dados do programa antigo e, quando
 | t15–t18 | Painel, relatório físico-financeiro (.docx), Cronograma do portfólio, Financeiro geral |
 | t19 | tela de abertura (1 s) e janela Sobre |
 | t21 | Plano de Trabalho SIGITEC (PDF) no projeto Petrobras: 22 conferências, orçamento, cronograma, equipe e bolsas, itens, desembolso, relatórios; reimportação sem duplicar; ida e volta pelo plano padrão (.json). Usa o PDF da pasta `Software de Gestão` (nome com “SIGITEC”); sem ele, o teste é pulado |
+| t22 | reprogramação do cronograma: Direção desloca uma etapa inteira (motivo obrigatório, documento, plano original guardado, indicadores, Gantt com linha de base); gerência com `cronograma_gerir` muda prazos mas não a estrutura; ficha da atividade exige motivo; membro sem cargo não reprograma; Direção adota nova linha de base |
 | t20 | perfis (Suporte técnico, Leitura, vice-coordenação) e valores de projeto: visíveis a quem tem cargo; Membro sem cargo e Leitura não veem |
 | `desempenho` | diagnóstico: tempo de cada tela com ≈ 11 mil registros (`node tela.cjs desempenho`) |
 | `celular` | diagnóstico: telas num celular de 390 px (`node tela.cjs celular`) |

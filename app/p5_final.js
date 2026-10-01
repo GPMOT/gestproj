@@ -224,7 +224,7 @@ async function enviarAoBanco(T0) {
   let rpcProt = true;
   const upProt = async (t, rows) => { for (let i = 0; i < rows.length; i += 400) { const { error } = await SB.client.rpc('enviar_backup_protegido', { p_tabela: t, p_linhas: rows.slice(i, i + 400).map(r => limpar(t, r)) }); if (error && /PGRST202|could not find the function|does not exist/i.test((error.message || '') + (error.code || ''))) { rpcProt = false; return upComum(t, rows); } if (error) throw new ErroRegra(`Falha ao enviar ${t}: ${traduzErro(error)}`); } };
   const up = (t, rows, onConflict) => SB.PROTEGIDAS[t] && rpcProt ? upProt(t, rows) : upComum(t, rows, onConflict);
-  const upComum = async (t, rows, onConflict) => { for (let i = 0; i < rows.length; i += 400) { const { error } = await SB.client.from(t).upsert(rows.slice(i, i + 400).map(r => limpar(t, r)), { ...(onConflict ? { onConflict } : {}), ...(t === 'avaliacoes' ? { ignoreDuplicates: true } : {}) });   /* avaliações não se alteram depois de gravadas: o reenvio ignora as que já existem */ if (error) throw new ErroRegra(`Falha ao enviar ${t}: ${traduzErro(error)}`); } };
+  const upComum = async (t, rows, onConflict) => { for (let i = 0; i < rows.length; i += 400) { const { error } = await SB.client.from(t).upsert(rows.slice(i, i + 400).map(r => limpar(t, r)), { ...(onConflict ? { onConflict } : {}), ...(['avaliacoes', 'reprogramacoes'].includes(t) ? { ignoreDuplicates: true } : {}) });   /* avaliações não se alteram depois de gravadas: o reenvio ignora as que já existem */ if (error) throw new ErroRegra(`Falha ao enviar ${t}: ${traduzErro(error)}`); } };
   const g = t => T[t] || [];
   await up('rubricas', g('rubricas').slice().sort(by('ordem')), 'codigo');
   await up('pessoas', g('pessoas')); await up('projetos', g('projetos'));
@@ -232,6 +232,7 @@ async function enviarAoBanco(T0) {
   await up('aditivos', g('aditivos')); await up('projetos', g('projetos')); await up('entregas', g('entregas'));
   await up('documentos', g('documentos').map(d => ({ ...d, criado_por: String(d.criado_por || '').startsWith('local:') ? null : d.criado_por }))); await up('pendencias', g('pendencias').map(d => ({ ...d, criado_por: String(d.criado_por || '').startsWith('local:') ? null : d.criado_por })));
   await up('cronograma', g('cronograma').slice().sort((a, b) => Calc.codCmp(a.codigo, b.codigo)), 'projeto_id,codigo');
+  await up('reprogramacoes', g('reprogramacoes'));
   // gerências já existentes no banco (criadas pelo SQL) são reaproveitadas pelo nome
   const gmap = {}; g('gerencias').forEach(x => { const ex = D.gerencias.find(y => norm(y.nome) === norm(x.nome)); gmap[x.id] = ex ? ex.id : x.id; });
   await up('gerencias', g('gerencias').map(x => ({ ...x, id: gmap[x.id] })));

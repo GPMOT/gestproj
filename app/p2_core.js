@@ -10,7 +10,7 @@ if (window.top !== window.self) { document.documentElement.hidden = true; try { 
    - Modo online: preencha SUPABASE_CONFIG abaixo (ou em Configurações)
      e o programa passa a ler e gravar no banco Supabase, com login.
    ════════════════════════════════════════════════════════════════════ */
-const VERSAO = '2.26';
+const VERSAO = '2.27';
 const VERSAO_DATA = '01/10/2026';
 const SUPABASE_CONFIG = { url: '', anonKey: '' };   // ← preencher na implantação
 
@@ -64,6 +64,7 @@ const PERMISSOES = [
   ['prospeccao_gerir', 'Registrar e avaliar prospecções'],
   ['historico_ver', 'Consultar o histórico de alterações'],
   ['infraestrutura_gerir', 'Gerir infraestrutura (itens, agenda, manutenção, habilitações)'],
+  ['cronograma_gerir', 'Reprogramar prazos do cronograma de qualquer projeto'],
 ];
 const PAPEIS = [['suporte', 'Suporte técnico'], ['direcao', 'Direção'], ['membro', 'Membro'], ['leitura', 'Leitura']];
 const TIPOS_VINC = [['bolsa', 'Bolsa'], ['tecnico', 'Pagamento técnico'], ['servico', 'Serviço'], ['externo', 'Apoio externo'], ['outro', 'Outro']];
@@ -113,10 +114,10 @@ const checklistPadrao = () => { const c = { entrada: 0, saida: 0 }; return CHECK
 const ST_CRONO = { planejada: ['Planejada', 'b-gray'], em_andamento: ['Em andamento', 'b-blue'], concluida: ['Concluída', 'b-green'], cancelada: ['Cancelada', 'b-gray'] };
 const ST_ENTREGA = { pendente: ['Pendente', 'b-gray'], em_elaboracao: ['Em elaboração', 'b-yellow'], entregue: ['Entregue', 'b-blue'], aprovado: ['Aprovado', 'b-green'], dispensado: ['Dispensado', 'b-gray'] };
 const GERENCIAS_PADRAO = [
-  ['Gerência de Projetos', 'Acompanha cronogramas, status e entregas de todo o portfólio; organiza alocações; conduz a prospecção de novos projetos.', ['projetos_criar', 'projetos_editar', 'alocacoes_gerir', 'tarefas_gerir', 'prospeccao_gerir']],
-  ['Gerência Técnica', 'Distribui e acompanha o trabalho técnico da equipe e dos bolsistas; mantém cadastro de pessoas, habilidades e disponibilidade.', ['alocacoes_gerir', 'tarefas_gerir', 'pessoas_gerir']],
-  ['Gerência de Infraestrutura', 'Cuida de bancos de ensaio, células de teste, instrumentação, manutenção, segurança (PPCI) e compras de infraestrutura.', ['infraestrutura_gerir']],
-  ['Gerência Financeira', 'Controla orçamento aprovado, execução e saldo por rubrica; bolsas e pagamentos; prestação de contas com as fundações.', ['financeiro_ver', 'financeiro_editar', 'historico_ver']]];
+  ['Gerência de Projetos', 'Acompanha cronogramas, status e entregas de todo o portfólio; organiza alocações; conduz a prospecção de novos projetos.', ['projetos_criar', 'projetos_editar', 'alocacoes_gerir', 'tarefas_gerir', 'prospeccao_gerir', 'cronograma_gerir']],
+  ['Gerência Técnica', 'Distribui e acompanha o trabalho técnico da equipe e dos bolsistas; mantém cadastro de pessoas, habilidades e disponibilidade.', ['alocacoes_gerir', 'tarefas_gerir', 'pessoas_gerir', 'cronograma_gerir']],
+  ['Gerência de Infraestrutura', 'Cuida de bancos de ensaio, células de teste, instrumentação, manutenção, segurança (PPCI) e compras de infraestrutura.', ['infraestrutura_gerir', 'cronograma_gerir']],
+  ['Gerência Financeira', 'Controla orçamento aprovado, execução e saldo por rubrica; bolsas e pagamentos; prestação de contas com as fundações.', ['financeiro_ver', 'financeiro_editar', 'historico_ver', 'cronograma_gerir']]];
 
 /* ── tabelas (espelho do banco) ─────────────────────────────────── */
 const TABLES = {
@@ -124,6 +125,7 @@ const TABLES = {
   tarefas: {}, tarefa_responsaveis: { key: null, noStamp: true }, rubricas: { key: 'codigo', noStamp: true },
   vinculos_financeiros: {}, orcamento_rubricas: {}, plano_itens: {}, desembolsos: {}, desembolso_rubricas: { key: null, noStamp: true }, despesas: {}, prospeccoes: {}, avaliacoes: { noStamp: true },
   historico: { noStamp: true, noHist: true, key: 'id' },
+  reprogramacoes: { noStamp: true },
   infra_itens: {}, infra_habilitacoes: {}, infra_reservas: {}, infra_manutencoes: {},
 };
 /* Colunas de cada tabela no banco (gpmot_schema.sql). Campos fora desta lista não são gravados,
@@ -135,7 +137,8 @@ const COLUNAS = Object.fromEntries(Object.entries({
   avaliacoes: 'id prospeccao_id avaliado_em avaliado_por filtros notas esforcos ia ie ip bloqueada quadrante parecer',
   candidatos: 'id vaga_id projeto_id nome email curso lattes origem status nota pessoa_id obs criado_em atualizado_em atualizado_por',
   checklist_itens: 'id fase nome descricao tipos obrigatorio ordem ativo',
-  cronograma: 'id projeto_id codigo titulo descricao entrega validador mes_inicio mes_fim responsavel_texto responsavel_id percentual status data_conclusao evidencia obs ordem criado_em atualizado_em atualizado_por',
+  cronograma: 'id projeto_id codigo titulo descricao entrega validador mes_inicio mes_fim responsavel_texto responsavel_id percentual status data_conclusao evidencia obs ordem criado_em atualizado_em atualizado_por mes_inicio_base mes_fim_base',
+  reprogramacoes: 'id projeto_id data motivo documento alteracoes criado_em criado_por autor',
   desembolso_rubricas: 'desembolso_id projeto_id rubrica valor',
   desembolsos: 'id projeto_id numero descricao fundacao data_prevista valor_previsto status data_recebida valor_recebido documento obs criado_em atualizado_em atualizado_por',
   despesas: 'id projeto_id rubrica data competencia descricao favorecido documento valor pessoa_id vinculo_id item_id obs criado_em criado_por atualizado_em atualizado_por',
@@ -284,6 +287,8 @@ const Perm = {
   veValores: () => Perm.dir() || (Perm.podeEditar() && (Perm.gerenciasAtivas().length > 0 || Perm.coordenaAlgum())),
   alocado: pid => !!ME.pessoa_id && D.alocacoes.some(a => a.projeto_id === pid && a.pessoa_id === ME.pessoa_id),
   gereProjeto: pid => Perm.dir() || Perm.coordena(pid) || Perm.tem('projetos_editar'),
+  /* reprogramar prazos do cronograma: Direção, coordenação e gerências com cronograma_gerir */
+  gereCronograma: pid => Perm.gereProjeto(pid) || Perm.tem('cronograma_gerir'),
   veFin: pid => Perm.dir() || Perm.coordena(pid) || Perm.tem('financeiro_ver'),
   editaFin: pid => Perm.dir() || Perm.coordena(pid) || Perm.tem('financeiro_editar'),
   gereTarefas: pid => !!pid && (Perm.gereProjeto(pid) || Perm.tem('tarefas_gerir')),
@@ -322,7 +327,8 @@ const POLICY = {
   equipe_plano: { all: r => Perm.gereAlocacao(r.projeto_id) },
   equipe_plano_bolsas: { all: r => Perm.editaFin(r.projeto_id) },
   aditivos: { all: r => Perm.gereProjeto(r.projeto_id) },
-  cronograma: { ins: n => Perm.gereProjeto(n.projeto_id), upd: (n, o) => Perm.gereProjeto(o.projeto_id) || (Perm.podeEditar() && !!ME.pessoa_id && o.responsavel_id === ME.pessoa_id), del: (n, o) => Perm.gereProjeto(o.projeto_id) },
+  reprogramacoes: { ins: n => Perm.gereCronograma(n.projeto_id), upd: () => false, del: () => Perm.dir() },
+  cronograma: { ins: n => Perm.gereProjeto(n.projeto_id), upd: (n, o) => Perm.gereCronograma(o.projeto_id) || (Perm.podeEditar() && !!ME.pessoa_id && o.responsavel_id === ME.pessoa_id), del: (n, o) => Perm.gereProjeto(o.projeto_id) },
   candidatos: { all: r => Perm.gereCandidatos(r.projeto_id) },
   checklist_itens: { all: () => Perm.dir() || Perm.tem('pessoas_gerir') },
   pessoa_checklist: { all: r => Perm.gerePessoa(r.pessoa_id) },
@@ -575,9 +581,11 @@ function travas(t, n, o) {
     if (((!o && n.vice_coordena) || (o && (!!n.vice_coordena !== !!o.vice_coordena || (o.vice_coordena && troca))))
         && !(Perm.coordenaTitular(n.projeto_id) && (!o || Perm.coordenaTitular(o.projeto_id)))) falha('Somente a Direção ou o coordenador do projeto podem definir a vice-coordenação.');
   }
+  if (t === 'cronograma' && o && !Perm.dir() && ['mes_inicio_base', 'mes_fim_base'].some(k => (o.mes_inicio_base != null || o.mes_fim_base != null) && (n[k] ?? null) !== (o[k] ?? null)))
+    falha('Somente a Direção redefine a linha de base (plano original) do cronograma.');
   if (t === 'cronograma' && o && !Perm.gereProjeto(o.projeto_id)) {
-    for (const k of ['codigo', 'titulo', 'mes_inicio', 'mes_fim', 'responsavel_id', 'projeto_id', 'entrega', 'descricao'])
-      if (JSON.stringify(n[k] ?? null) !== JSON.stringify(o[k] ?? null)) falha('O responsável pela atividade só atualiza andamento, conclusão, evidência e observações. O planejamento é da coordenação.');
+    for (const k of ['codigo', 'titulo', 'responsavel_id', 'projeto_id', 'entrega', 'descricao', ...(Perm.tem('cronograma_gerir') ? [] : ['mes_inicio', 'mes_fim'])])
+      if (JSON.stringify(n[k] ?? null) !== JSON.stringify(o[k] ?? null)) falha(Perm.tem('cronograma_gerir') ? 'A gerência reprograma prazos e atualiza o andamento; a estrutura do cronograma (código, título, responsável, entregas) é da coordenação.' : 'O responsável pela atividade só atualiza andamento, conclusão, evidência e observações. O planejamento é da coordenação.');
   }
   if (t === 'pendencias' && o && !Perm.gereProjeto(o.projeto_id)) {
     for (const k of ['titulo', 'prazo', 'responsavel_id', 'projeto_id', 'prioridade', 'categoria'])
@@ -688,7 +696,7 @@ function aplicarVisaoLocal() {
   D_TODOS = {}; Object.keys(TABLES).forEach(t => D_TODOS[t] = D[t]);
   const eu = ME.pessoa_id, part = new Set(D.projetos.filter(p => Perm.participa(p.id)).map(p => p.id));
   D.projetos = D.projetos.filter(p => part.has(p.id));
-  ['alocacoes', 'aditivos', 'documentos', 'pendencias', 'entregas', 'cronograma', 'equipe_plano'].forEach(t => D[t] = D[t].filter(r => part.has(r.projeto_id)));
+  ['alocacoes', 'aditivos', 'documentos', 'pendencias', 'entregas', 'cronograma', 'equipe_plano', 'reprogramacoes'].forEach(t => D[t] = D[t].filter(r => part.has(r.projeto_id)));
   D.documentos = D.documentos.filter(d => !d.restrito);
   const minhas = new Set(D.tarefa_responsaveis.filter(r => eu && r.pessoa_id === eu).map(r => r.tarefa_id));
   D.tarefas = D.tarefas.filter(t => (t.projeto_id && part.has(t.projeto_id)) || minhas.has(t.id));
@@ -790,6 +798,9 @@ function efeitosAntes(t, n, o) {
   }
   if (t === 'entregas' && ['entregue', 'aprovado'].includes(n.status) && !n.data_entrega) n.data_entrega = hoje();
   if (t === 'cronograma') {
+    /* linha de base: na 1ª mudança de meses, guarda os meses anteriores (igual ao gatilho do banco) */
+    if (o && o.mes_inicio_base == null && o.mes_fim_base == null && (+n.mes_inicio !== +o.mes_inicio || +n.mes_fim !== +o.mes_fim) && (o.mes_inicio != null || o.mes_fim != null)
+        && (n.mes_inicio_base == null && n.mes_fim_base == null || !Perm.dir())) { n.mes_inicio_base = o.mes_inicio; n.mes_fim_base = o.mes_fim; }
     n.percentual = Math.round(num(n.percentual));
     if (n.status === 'concluida') n.percentual = 100;
     if (n.percentual === 100 && ['planejada', 'em_andamento'].includes(n.status)) n.status = 'concluida';
@@ -1023,7 +1034,10 @@ const Calc = {
         const pct = c.status === 'cancelada' ? null : num(c.percentual), prev = previstoFolha(c.mes_inicio, c.mes_fim);
         const atras = c.status !== 'cancelada' && c.status !== 'concluida' && c.mes_fim != null && mAt > c.mes_fim;
         const naoIni = c.status === 'planejada' && num(c.percentual) === 0 && c.mes_inicio != null && mAt >= c.mes_inicio && !atras;
-        const r = { c, nivel, folha: true, ini: c.mes_inicio, fim: c.mes_fim, pct, prev, peso: c.status === 'cancelada' ? 0 : dur, atras, naoIni, n: 1 };
+        const temBase = c.mes_inicio_base != null || c.mes_fim_base != null;
+        const base = temBase ? { ini: c.mes_inicio_base, fim: c.mes_fim_base } : null;
+        const r = { c, nivel, folha: true, ini: c.mes_inicio, fim: c.mes_fim, pct, prev, peso: c.status === 'cancelada' ? 0 : dur, atras, naoIni, n: 1,
+          base, bIni: temBase ? c.mes_inicio_base : c.mes_inicio, bFim: temBase ? c.mes_fim_base : c.mes_fim, desvio: temBase && c.mes_fim != null && c.mes_fim_base != null ? c.mes_fim - c.mes_fim_base : 0, nReprog: temBase && (c.mes_inicio !== c.mes_inicio_base || c.mes_fim !== c.mes_fim_base) ? 1 : 0 };
         rows[i] = r; return r;
       }
       const sub = fs.map(f => walk(f, nivel + 1));
@@ -1031,7 +1045,10 @@ const Calc = {
       const peso = sub.reduce((s, x) => s + x.peso, 0);
       const pond = k => peso ? Math.round(sub.reduce((s, x) => s + num(x[k]) * x.peso, 0) / peso) : 0;
       const r = { c, nivel, folha: false, ini: isFinite(ini) ? ini : null, fim: isFinite(fim) ? fim : null, pct: pond('pct'), prev: pond('prev'), peso,
-        atras: sub.some(x => x.atras), naoIni: sub.some(x => x.naoIni), n: sub.reduce((s, x) => s + x.n, 0), nAtras: sub.reduce((s, x) => s + (x.folha ? +x.atras : x.nAtras || 0), 0) };
+        atras: sub.some(x => x.atras), naoIni: sub.some(x => x.naoIni), n: sub.reduce((s, x) => s + x.n, 0), nAtras: sub.reduce((s, x) => s + (x.folha ? +x.atras : x.nAtras || 0), 0),
+        nReprog: sub.reduce((s, x) => s + x.nReprog, 0) };
+      if (r.nReprog) { const bi = Math.min(...sub.map(x => x.bIni ?? Infinity)), bf = Math.max(...sub.map(x => x.bFim ?? -Infinity)); r.bIni = isFinite(bi) ? bi : null; r.bFim = isFinite(bf) ? bf : null; r.base = { ini: r.bIni, fim: r.bFim }; r.desvio = r.fim != null && r.bFim != null ? r.fim - r.bFim : 0; }
+      else { r.bIni = r.ini; r.bFim = r.fim; r.desvio = 0; }
       rows[i] = r; return r;
     };
     const raizes = filhos.get(null) || [];
@@ -1039,6 +1056,9 @@ const Calc = {
     const peso = tops.reduce((s, x) => s + x.peso, 0);
     const tot = { pct: peso ? Math.round(tops.reduce((s, x) => s + num(x.pct) * x.peso, 0) / peso) : 0, prev: peso ? Math.round(tops.reduce((s, x) => s + num(x.prev) * x.peso, 0) / peso) : 0,
       folhas: rows.filter(r => r.folha).length, atrasadas: rows.filter(r => r.folha && r.atras).length, concluidas: rows.filter(r => r.folha && r.c.status === 'concluida').length, mesAtual: mAt };
+    { const fl = rows.filter(r => r.folha && r.c.status !== 'cancelada'), mx = k => Math.max(...fl.map(r => r[k] ?? -Infinity));
+      tot.reprogramadas = fl.filter(r => r.nReprog).length; tot.fimAtual = isFinite(mx('fim')) ? mx('fim') : null; tot.fimBase = isFinite(mx('bFim')) ? mx('bFim') : null;
+      tot.desvio = tot.fimAtual != null && tot.fimBase != null ? tot.fimAtual - tot.fimBase : 0; }
     return { rows, tot };
   },
   folhasCronograma: pid => { const cs = D.cronograma.filter(c => c.projeto_id === pid); return cs.filter(c => !cs.some(x => x.codigo.startsWith(c.codigo + '.'))).sort((a, b) => Calc.codCmp(a.codigo, b.codigo)); },

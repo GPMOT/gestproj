@@ -743,3 +743,67 @@ select count(*) as funcoes_sem_caminho_fixo from pg_proc p join pg_namespace n o
 select count(*) filter (where has_function_privilege('anon', p.oid, 'execute')) as funcoes_para_anon
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
  where n.nspname = 'public' and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e');
+-- @@ 16_reprogramacao_cronograma
+\set ON_ERROR_STOP 0
+\pset footer off
+-- v1.6: Direção, coordenação e gerências (cronograma_gerir) reprogramam os meses; linha de base guardada
+-- na 1ª mudança; responsável só atualiza andamento; registro de reprogramações.
+insert into pessoas(id,nome,email,tipo) values
+ ('00000000-0000-0000-0000-00000000000a','Lucas','lucas@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000b','Mario','mario@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000c','Igor','igor@ufsm.br','doutorando'),
+ ('00000000-0000-0000-0000-00000000000d','Ana','ana@ufsm.br','ic'),
+ ('00000000-0000-0000-0000-00000000000e','Gil','gil@ufsm.br','tecnico'),
+ ('00000000-0000-0000-0000-00000000000f','Bia','bia@ufsm.br','mestrando');
+insert into auth.users values
+ ('10000000-0000-0000-0000-00000000000a','lucas@ufsm.br'),('10000000-0000-0000-0000-00000000000b','mario@ufsm.br'),
+ ('10000000-0000-0000-0000-00000000000c','igor@ufsm.br'),('10000000-0000-0000-0000-00000000000d','ana@ufsm.br'),
+ ('10000000-0000-0000-0000-00000000000e','gil@ufsm.br'),('10000000-0000-0000-0000-00000000000f','bia@ufsm.br');
+update perfis set ativo = true, papel = 'membro';
+update perfis set papel = 'direcao' where email = 'lucas@ufsm.br';
+update perfis set papel = 'leitura' where email = 'ana@ufsm.br';
+insert into gerencia_membros(gerencia_id,pessoa_id) select id, '00000000-0000-0000-0000-00000000000e' from gerencias where nome = 'Gerência Técnica';
+insert into projetos(id,sigla,inicio,fim) values ('20000000-0000-0000-0000-000000000001','PETRO','2025-04-01','2027-09-30');
+insert into alocacoes(pessoa_id,projeto_id,coordena) values
+ ('00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',true),
+ ('00000000-0000-0000-0000-00000000000c','20000000-0000-0000-0000-000000000001',false),
+ ('00000000-0000-0000-0000-00000000000d','20000000-0000-0000-0000-000000000001',false);
+insert into cronograma(id,projeto_id,codigo,titulo,mes_inicio,mes_fim,responsavel_id) values
+ ('30000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','2.3','Teste combustível 1',6,8,'00000000-0000-0000-0000-00000000000c'),
+ ('30000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000001','2.4','Teste combustível 2',8,10,null);
+\echo == gerência (cronograma_gerir) reprograma: os meses originais ficam como linha de base
+set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000e';
+update cronograma set mes_inicio = 9, mes_fim = 11 where id = '30000000-0000-0000-0000-000000000001' returning codigo, mes_inicio, mes_fim, mes_inicio_base, mes_fim_base;
+\echo == gerência não muda a estrutura da atividade
+update cronograma set titulo = 'Outro' where id = '30000000-0000-0000-0000-000000000001';
+\echo == responsável atualiza o andamento, mas não os prazos
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000c';
+update cronograma set percentual = 20 where id = '30000000-0000-0000-0000-000000000001' returning percentual, status;
+update cronograma set mes_fim = 14 where id = '30000000-0000-0000-0000-000000000001';
+\echo == membro sem vínculo com a atividade não altera nada (nenhuma linha)
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000f';
+update cronograma set mes_fim = 14 where id = '30000000-0000-0000-0000-000000000002';
+\echo == coordenação reprograma de novo: a linha de base continua a original
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+update cronograma set mes_inicio = 10, mes_fim = 12 where id = '30000000-0000-0000-0000-000000000001' returning mes_inicio, mes_fim, mes_inicio_base, mes_fim_base;
+\echo == só a Direção redefine a linha de base
+update cronograma set mes_inicio_base = 10 where id = '30000000-0000-0000-0000-000000000001';
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000a';
+update cronograma set mes_inicio_base = null, mes_fim_base = null where id = '30000000-0000-0000-0000-000000000001' returning mes_inicio_base, mes_fim_base;
+\echo == registro das reprogramações: autor gravado pelo banco; motivo obrigatório; quem não pode não registra
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000e';
+insert into reprogramacoes(projeto_id,motivo,alteracoes,criado_por) values ('20000000-0000-0000-0000-000000000001','Atraso na entrega dos motores','[{"codigo":"2.3","de":[6,8],"para":[9,11]}]','10000000-0000-0000-0000-00000000000a') returning (criado_por = '10000000-0000-0000-0000-00000000000e') as autor_real, autor;
+insert into reprogramacoes(projeto_id,motivo) values ('20000000-0000-0000-0000-000000000001','  ');
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000f';
+insert into reprogramacoes(projeto_id,motivo) values ('20000000-0000-0000-0000-000000000001','Tentativa sem permissão');
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000d';
+select motivo, alteracoes->0->>'codigo' as atividade from reprogramacoes;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000e';
+delete from reprogramacoes;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000a';
+\echo == sem a permissão cronograma_gerir, a gerência deixa de reprogramar
+update gerencias set permissoes = array_remove(permissoes, 'cronograma_gerir') where nome = 'Gerência Técnica';
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000e';
+update cronograma set mes_fim = 13 where id = '30000000-0000-0000-0000-000000000002';
+select count(*) as registros from reprogramacoes;
+reset role;

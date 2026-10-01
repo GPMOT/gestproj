@@ -1,25 +1,25 @@
 -- @@ 02_gerencias_permissoes
 psql:02_gerencias_permissoes.sql:33: ERROR:  new row for relation "gerencias" violates check constraint "permissoes_validas"
 === permissões de cada um
-   quem   |                minhas_permissoes                 
-----------+--------------------------------------------------
- Thompson | {financeiro_editar,financeiro_ver,historico_ver}
+   quem   |                         minhas_permissoes                         
+----------+-------------------------------------------------------------------
+ Thompson | {cronograma_gerir,financeiro_editar,financeiro_ver,historico_ver}
 
- quem |                                minhas_permissoes                                
-------+---------------------------------------------------------------------------------
- Jean | {alocacoes_gerir,projetos_criar,projetos_editar,prospeccao_gerir,tarefas_gerir}
+ quem |                                        minhas_permissoes                                         
+------+--------------------------------------------------------------------------------------------------
+ Jean | {alocacoes_gerir,cronograma_gerir,projetos_criar,projetos_editar,prospeccao_gerir,tarefas_gerir}
 
- quem |   minhas_permissoes    
-------+------------------------
- Igor | {infraestrutura_gerir}
+ quem |            minhas_permissoes            
+------+-----------------------------------------
+ Igor | {cronograma_gerir,infraestrutura_gerir}
 
   quem  | minhas_permissoes 
 --------+-------------------
  Hausen | {}
 
- quem  |               minhas_permissoes               
--------+-----------------------------------------------
- Mario | {alocacoes_gerir,pessoas_gerir,tarefas_gerir}
+ quem  |                       minhas_permissoes                        
+-------+----------------------------------------------------------------
+ Mario | {alocacoes_gerir,cronograma_gerir,pessoas_gerir,tarefas_gerir}
 
 === THOMPSON (Gerência Financeira, não coordena nada)
  vinculos_visiveis_esperado_2 
@@ -196,7 +196,7 @@ psql:06_cronograma_fisico.sql:11: ERROR:  new row for relation "cronograma" viol
 psql:06_cronograma_fisico.sql:12: ERROR:  new row for relation "cronograma" violates check constraint "meses_validos"
 == Igor responsável: atualiza % ok, muda meses bloqueado
 psql:06_cronograma_fisico.sql:17: ERROR:  O responsável pela atividade só atualiza andamento, conclusão, evidência e observações
-CONTEXT:  PL/pgSQL function tg_protege_cronograma() line 8 at RAISE
+CONTEXT:  PL/pgSQL function tg_protege_cronograma() line 9 at RAISE
  codigo | percentual |  status   | concl 
 --------+------------+-----------+-------
  2      |          0 | planejada | f
@@ -702,4 +702,49 @@ psql:15_protecoes_seguranca.sql:129: ERROR:  permission denied for function ve_v
  funcoes_para_anon 
 -------------------
                  0
+
+-- @@ 16_reprogramacao_cronograma
+== gerência (cronograma_gerir) reprograma: os meses originais ficam como linha de base
+ codigo | mes_inicio | mes_fim | mes_inicio_base | mes_fim_base 
+--------+------------+---------+-----------------+--------------
+ 2.3    |          9 |      11 |               6 |            8
+
+== gerência não muda a estrutura da atividade
+psql:16_reprogramacao_cronograma.sql:32: ERROR:  O responsável pela atividade só atualiza andamento, conclusão, evidência e observações
+CONTEXT:  PL/pgSQL function tg_protege_cronograma() line 9 at RAISE
+== responsável atualiza o andamento, mas não os prazos
+ percentual |    status    
+------------+--------------
+         20 | em_andamento
+
+psql:16_reprogramacao_cronograma.sql:36: ERROR:  O responsável pela atividade só atualiza andamento, conclusão, evidência e observações
+CONTEXT:  PL/pgSQL function tg_protege_cronograma() line 9 at RAISE
+== membro sem vínculo com a atividade não altera nada (nenhuma linha)
+== coordenação reprograma de novo: a linha de base continua a original
+ mes_inicio | mes_fim | mes_inicio_base | mes_fim_base 
+------------+---------+-----------------+--------------
+         10 |      12 |               6 |            8
+
+== só a Direção redefine a linha de base
+psql:16_reprogramacao_cronograma.sql:44: ERROR:  Somente a Direção redefine a linha de base (plano original) do cronograma
+CONTEXT:  PL/pgSQL function tg_cronograma_base() line 16 at RAISE
+ mes_inicio_base | mes_fim_base 
+-----------------+--------------
+                 |             
+
+== registro das reprogramações: autor gravado pelo banco; motivo obrigatório; quem não pode não registra
+ autor_real | autor 
+------------+-------
+ t          | Gil
+
+psql:16_reprogramacao_cronograma.sql:50: ERROR:  new row for relation "reprogramacoes" violates check constraint "reprogramacoes_motivo_check"
+psql:16_reprogramacao_cronograma.sql:52: ERROR:  new row violates row-level security policy for table "reprogramacoes"
+            motivo             | atividade 
+-------------------------------+-----------
+ Atraso na entrega dos motores | 2.3
+
+== sem a permissão cronograma_gerir, a gerência deixa de reprogramar
+ registros 
+-----------
+         1
 

@@ -746,8 +746,9 @@ function barraAvanco(pct, prev) {
   return `<span class="pbar" style="width:90px;position:relative" title="Realizado ${p}%${prev != null ? ` · previsto para hoje ${prev}%` : ''}"><span style="width:${p}%;background:${p >= 100 ? 'var(--green)' : atras ? 'var(--red)' : 'var(--blue)'}"></span>${prev != null && prev > 0 && prev < 100 ? `<i style="position:absolute;top:-2px;bottom:-2px;left:${prev}%;width:2px;background:#1c1c1a;opacity:.55"></i>` : ''}</span><span class="small" style="font-variant-numeric:tabular-nums">${p}%</span>`;
 }
 function projCronograma(p) {
-  const { rows, tot } = Calc.cronograma(p), gere = Perm.gereProjeto(p.id);
+  const { rows, tot } = Calc.cronograma(p), gere = Perm.gereProjeto(p.id), gereC = Perm.gereCronograma(p.id);
   const fs = UI.f.crFiltro || 'todas', vis = UI.sub.crono || 'tabela';
+  const reprogs = D.reprogramacoes.filter(r => r.projeto_id === p.id).sort((a, b) => String(b.data).localeCompare(String(a.data)) || String(b.criado_em).localeCompare(String(a.criado_em)));
   const fech = UI.cronFech[p.id] || new Set();
   const durProj = monthsIncl(p.inicio, p.fim);
   const passa = r => fs === 'todas' ? true : !r.folha ? false : fs === 'atual' ? (r.ini != null && r.ini <= tot.mesAtual && tot.mesAtual <= r.fim && r.c.status !== 'concluida') : fs === 'atrasadas' ? r.atras || r.naoIni : r.c.status === 'concluida';
@@ -756,32 +757,36 @@ function projCronograma(p) {
   else { const folhas = rows.filter(passa); const cods = new Set(); folhas.forEach(r => { const seg = r.c.codigo.split('.'); for (let i = 1; i <= seg.length; i++) cods.add(seg.slice(0, i).join('.')); }); mostrar = rows.filter(r => cods.has(r.c.codigo)); }
   const mets = [['Avanço físico realizado', tot.pct + '%', tot.pct + 10 < tot.prev ? 'color:var(--red)' : ''], ['Previsto para hoje', tot.prev + '%'], ['Mês atual do projeto', tot.mesAtual < 1 ? 'não iniciado' : tot.mesAtual > durProj ? 'encerrado' : `${tot.mesAtual} de ${durProj}`],
     ['Atividades', `${tot.concluidas} / ${tot.folhas} concluídas`], ['Atrasadas', tot.atrasadas, tot.atrasadas ? 'color:var(--red)' : '']];
+  if (tot.reprogramadas || reprogs.length) mets.push(['Reprogramadas', `${tot.reprogramadas} ativ.${tot.desvio ? ` · término ${tot.desvio > 0 ? '+' : ''}${tot.desvio} m` : ''}`, tot.desvio > 0 ? 'color:var(--yellow-txt)' : '']);
   const head = `<div class="metrics">${mets.map(([k, v, s]) => `<div class="metric"><div class="k">${k}</div><div class="v" style="font-size:18px;${s || ''}">${v}</div></div>`).join('')}</div>
   <div class="toolbar"><div class="row">
       <select data-f="crFiltro" style="width:auto">${[['todas', 'Todas as atividades'], ['atual', 'Previstas para o mês atual'], ['atrasadas', 'Atrasadas / não iniciadas'], ['concluidas', 'Concluídas']].map(([v, l]) => `<option value="${v}"${fs === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
       <button class="chip${vis === 'tabela' ? ' on' : ''}" data-a="sub" data-g="crono" data-v="tabela">Tabela</button><button class="chip${vis === 'gantt' ? ' on' : ''}" data-a="sub" data-g="crono" data-v="gantt">Gantt</button>
       ${fs === 'todas' && rows.some(r => !r.folha) ? `<button class="btn-s" data-a="cronTodos" data-projeto="${p.id}" data-v="${fech.size ? 'abrir' : 'fechar'}">${fech.size ? 'Expandir tudo' : 'Recolher etapas'}</button>` : ''}</div>
-    ${gere ? `<div class="row"><button data-a="importarPlanilha" data-projeto="${p.id}">Importar plano de trabalho…</button><button class="btn-p" data-a="atividadeNova" data-projeto="${p.id}">+ Atividade</button></div>` : ''}</div>`;
+    ${gere || gereC ? `<div class="row">${gereC && rows.length ? `<button data-a="cronReprogramar" data-projeto="${p.id}" title="Ajustar início e término de várias atividades de uma vez, com motivo registrado">Reprogramar prazos…</button>` : ''}${gere ? `<button data-a="importarPlanilha" data-projeto="${p.id}">Importar plano de trabalho…</button><button class="btn-p" data-a="atividadeNova" data-projeto="${p.id}">+ Atividade</button>` : ''}</div>` : ''}</div>`;
   if (!rows.length) return head + `<div class="empty">Nenhuma atividade no cronograma. ${gere ? 'Importe o cronograma da planilha do edital ou cadastre as metas, etapas e atividades.' : ''}</div>`;
-  const legenda = `<div class="small muted mt">Meses contados a partir do início do projeto (mês 1 = ${fmtMes(p.inicio)}). Barra: realizado; traço: previsto para hoje. Grupos somam as atividades ponderando pela duração.</div>`;
-  if (vis === 'gantt') return head + ganttCronograma(p, mostrar, tot) + legenda;
+  const legenda = `<div class="small muted mt">Meses contados a partir do início do projeto (mês 1 = ${fmtMes(p.inicio)}). Barra: realizado; traço: previsto para hoje. Grupos somam as atividades ponderando pela duração.${tot.reprogramadas ? ' “orig.” e a linha cinza no Gantt: plano original, antes das reprogramações.' : ''}</div>`;
+  const hist = reprogs.length ? `<div class="card mt"><div class="bold mb">Reprogramações (${reprogs.length})</div>${reprogs.map(r => { const alt = Array.isArray(r.alteracoes) ? r.alteracoes : [];
+    return `<details class="small" style="padding:4px 0;border-top:1px solid var(--line)"><summary><b>${fmtD(r.data)}</b> · ${esc(r.autor || quem(r.criado_por))} · ${alt.length} atividade(s) — ${esc(r.motivo)}${r.documento ? ` <span class="muted">(${esc(r.documento)})</span>` : ''}</summary>
+      <div style="padding:4px 0 2px 16px">${alt.map(a => `<div><b>${esc(a.codigo)}</b> ${esc(a.titulo || '')}: meses ${esc((a.de || []).join('–'))} → <b>${esc((a.para || []).join('–'))}</b></div>`).join('')}</div></details>`; }).join('')}</div>` : '';
+  if (vis === 'gantt') return head + ganttCronograma(p, mostrar, tot) + legenda + hist;
   return head + `<div class="card tw" style="padding:4px 8px"><table class="t orc"><tr><th>Código</th><th>Atividade</th><th>Meses</th><th>Período</th><th>Responsável</th><th>Andamento</th><th>Situação</th></tr>
     ${mostrar.map(r => {
-      const c = r.c, pode = r.folha ? (gere || (Perm.podeEditar() && c.responsavel_id === ME.pessoa_id)) : gere;
+      const c = r.c, pode = r.folha ? (gereC || (Perm.podeEditar() && c.responsavel_id === ME.pessoa_id)) : gere;
       const aberto = !fech.has(c.codigo);
       const sit = r.folha ? (r.atras ? badge('atrasada', 'b-red') : r.naoIni ? badge('deveria ter iniciado', 'b-yellow') : badgeOf(ST_CRONO, c.status)) : (r.nAtras ? badge(r.nAtras + ' atrasada(s)', 'b-red') : '');
       const nT = r.folha ? D.tarefas.filter(t => t.atividade_id === c.id).length : 0;
       return `<tr class="${r.folha ? '' : (r.nivel === 0 ? 'grp grp0' : 'grp')}${pode ? ' click' : ''}" ${pode ? `data-a="atividadeEditar" data-id="${c.id}"` : ''}>
         <td class="cod">${!r.folha && fs === 'todas' ? `<span class="crtg" data-a="cronToggle" data-projeto="${p.id}" data-cod="${c.codigo}" title="${aberto ? 'recolher' : 'expandir'}">${aberto ? '▾' : '▸'}</span> ` : ''}${esc(c.codigo)}</td>
         <td style="padding-left:${8 + r.nivel * 16}px">${esc(c.titulo)}${r.folha && c.entrega ? `<div class="small muted">↳ ${esc(c.entrega.length > 110 ? c.entrega.slice(0, 108) + '…' : c.entrega)}</div>` : ''}${nT ? ` <span class="b b-gray" title="tarefas ligadas">${nT} tarefa(s)</span>` : ''}${!r.folha ? ` <span class="small muted">(${r.n})</span>` : ''}</td>
-        <td class="small" style="white-space:nowrap">${r.ini != null ? `${r.ini}–${r.fim ?? '?'}` : '—'}</td>
+        <td class="small" style="white-space:nowrap">${r.ini != null ? `${r.ini}–${r.fim ?? '?'}` : '—'}${r.base && (r.base.ini !== r.ini || r.base.fim !== r.fim) ? `<div class="muted" title="Plano original, antes das reprogramações">orig. ${r.base.ini ?? '?'}–${r.base.fim ?? '?'}${r.desvio ? ` <b style="color:${r.desvio > 0 ? 'var(--yellow-txt)' : 'var(--green)'}">${r.desvio > 0 ? '+' : ''}${r.desvio}</b>` : ''}</div>` : ''}</td>
         <td class="small" style="white-space:nowrap">${r.ini != null ? `${fmtMes(Calc.mesData(p, r.ini))} → ${r.fim != null ? fmtMes(Calc.mesData(p, r.fim)) : '?'}` : ''}</td>
         <td class="small">${esc(c.responsavel_id ? nomePessoa(c.responsavel_id) : (c.responsavel_texto || ''))}</td>
         <td style="white-space:nowrap">${r.pct != null ? barraAvanco(r.pct, r.prev) : '—'}</td><td>${sit}</td></tr>`;
-    }).join('')}</table></div>` + legenda;
+    }).join('')}</table></div>` + legenda + hist;
 }
 function ganttCronograma(p, rows, tot) {
-  const N = Math.max(monthsIncl(p.inicio, p.fim), ...rows.map(r => r.fim || 0), 1);
+  const N = Math.max(monthsIncl(p.inicio, p.fim), ...rows.map(r => Math.max(r.fim || 0, (r.base && r.base.fim) || 0)), 1);
   const LW = 300, per = Math.max(10, Math.min(28, 900 / N)), rowH = 21, headH = 30, W = LW + N * per + 10, H = headH + rows.length * rowH + 8;
   const x = m => LW + (m - 1) * per;
   const o = [`<svg viewBox="0 0 ${W} ${H}" style="width:${W}px;max-width:100%;height:auto;font-family:'Segoe UI',sans-serif">`];
@@ -796,6 +801,8 @@ function ganttCronograma(p, rows, tot) {
     const y = headH + i * rowH + 3, c = r.c;
     const lab = `${c.codigo} ${c.titulo}`;
     o.push(`<text x="${4 + r.nivel * 10}" y="${y + 11}" fill="${r.folha ? '#444' : '#1c1c1a'}" font-size="10.5" font-weight="${r.folha ? 400 : 700}">${esc(lab.length > 44 - r.nivel * 2 ? lab.slice(0, 43 - r.nivel * 2) + '…' : lab)}<title>${esc(lab)}</title></text>`);
+    if (r.base && r.base.ini != null && r.base.fim != null && (r.base.ini !== r.ini || r.base.fim !== r.fim))
+      o.push(`<rect x="${x(r.base.ini)}" y="${y + 15}" width="${(r.base.fim - r.base.ini + 1) * per}" height="3" rx="1.5" fill="#8a8984" opacity=".55"><title>Plano original: meses ${r.base.ini}–${r.base.fim}</title></rect>`);
     if (r.ini == null || r.fim == null) return;
     const bx = x(r.ini), bw = (r.fim - r.ini + 1) * per;
     if (!r.folha) { o.push(`<rect x="${bx}" y="${y + 3}" width="${bw}" height="7" fill="#3d4450" rx="2"/><rect x="${bx}" y="${y + 3}" width="${bw * num(r.pct) / 100}" height="7" fill="#5b9be8" rx="2"/>`); return; }
@@ -808,14 +815,88 @@ function ganttCronograma(p, rows, tot) {
 }
 A.cronToggle = d => { const s = UI.cronFech[d.projeto] || (UI.cronFech[d.projeto] = new Set()); s.has(d.cod) ? s.delete(d.cod) : s.add(d.cod); render(); };
 A.cronTodos = d => { if (d.v === 'abrir') UI.cronFech[d.projeto] = new Set(); else UI.cronFech[d.projeto] = new Set(Calc.cronograma(byId('projetos', d.projeto)).rows.filter(r => !r.folha && r.nivel >= 1).map(r => r.c.codigo)); render(); };
+/* ── reprogramação do cronograma: vários prazos de uma vez, com motivo registrado ── */
+A.cronReprogramar = d => {
+  const p = byId('projetos', d.projeto); if (!Perm.gereCronograma(p.id)) falha('Somente Direção, coordenação e gerências reprogramam o cronograma.');
+  const { rows } = Calc.cronograma(p), N = monthsIncl(p.inicio, p.fim);
+  const folhas = rows.filter(r => r.folha), novo = new Map(folhas.map(r => [r.c.id, { ini: r.ini, fim: r.fim }]));
+  const linha = r => { const c = r.c, n = novo.get(c.id) || {};
+    if (!r.folha) return `<tr class="grp${r.nivel === 0 ? ' grp0' : ''}"><td><input type="checkbox" class="rp-grp" data-cod="${esc(c.codigo)}" title="selecionar as atividades deste grupo"></td><td class="cod">${esc(c.codigo)}</td><td colspan="6" style="padding-left:${8 + r.nivel * 14}px"><b>${esc(c.titulo)}</b></td></tr>`;
+    const concl = ['concluida', 'cancelada'].includes(c.status);
+    return `<tr data-id="${c.id}" class="${concl ? 'faint' : ''}"><td><input type="checkbox" class="rp-sel" data-id="${c.id}" data-cod="${esc(c.codigo)}"></td><td class="cod">${esc(c.codigo)}</td>
+      <td style="padding-left:${8 + r.nivel * 14}px">${esc(c.titulo)}${r.base ? `<div class="small muted">orig. ${r.base.ini ?? '?'}–${r.base.fim ?? '?'}</div>` : ''}</td><td class="small">${badgeOf(ST_CRONO, c.status)}${c.percentual ? ` ${c.percentual}%` : ''}</td>
+      <td class="small num" style="white-space:nowrap">${r.ini ?? '?'}–${r.fim ?? '?'}</td>
+      <td><input type="number" class="rp-ini" data-id="${c.id}" min="1" value="${n.ini ?? ''}" style="width:64px"></td><td><input type="number" class="rp-fim" data-id="${c.id}" min="1" value="${n.fim ?? ''}" style="width:64px"></td>
+      <td class="small rp-d" data-id="${c.id}"></td></tr>`; };
+  const html = `<div class="between mb"><h3 style="margin:0">Reprogramar prazos — ${esc(p.sigla)}</h3><button class="btn-s" id="rp_x">✕</button></div>
+  <div class="note small mb">Meses contados do início do projeto (mês 1 = ${fmtMes(p.inicio)}; vigência: ${N} meses). Selecione as atividades e desloque-as juntas, ou digite o novo início/término de cada uma. Na primeira reprogramação de cada atividade, o plano original fica guardado para comparação.</div>
+  <div class="fgrid"><div class="full"><label class="fl">Motivo da reprogramação *</label><textarea id="rp_mot" rows="2" placeholder="Ex.: atraso na entrega dos motores pelo fornecedor; testes de longa duração deslocados"></textarea></div>
+    <div><label class="fl">Data</label><input type="date" id="rp_data" value="${hoje()}"></div><div><label class="fl">Documento (ofício, e-mail, aceite do financiador)</label><input id="rp_doc"></div></div>
+  <div class="row small mt mb" style="gap:8px;flex-wrap:wrap"><b>Selecionadas: <span id="rp_n">0</span></b>
+    <button class="btn-s" id="rp_pend">Não concluídas</button><button class="btn-s" id="rp_nenh">Nenhuma</button>
+    <span style="margin-left:10px">Deslocar em</span><input type="number" id="rp_desl" value="1" style="width:60px"><span>mês(es)</span>
+    <select id="rp_modo" style="width:auto"><option value="ambos">início e término</option><option value="fim">só o término (estende)</option><option value="ini">só o início</option></select>
+    <button class="btn-s" id="rp_aplica">Aplicar às selecionadas</button><button class="btn-s" id="rp_desfaz">Desfazer</button></div>
+  <div class="tw" style="max-height:46vh;overflow:auto"><table class="t small"><tr><th></th><th>Código</th><th>Atividade</th><th>Situação</th><th class="num">Atual</th><th>Novo início</th><th>Novo término</th><th>Mudança</th></tr>${rows.map(linha).join('')}</table></div>
+  <div id="rp_av" class="small mt"></div>
+  ${Perm.dir() ? `<label class="row small mt"><input type="checkbox" id="rp_base"> Adotar o cronograma resultante como nova linha de base (plano original) — use após aditivo aprovado pelo financiador</label>` : ''}
+  <div class="merr" id="rp_err" style="display:none"></div>
+  <div class="mactions"><button id="rp_c">Cancelar</button><button class="btn-p" id="rp_ok">Salvar reprogramação</button></div>`;
+  openModal(html, { wide: true, sticky: true, noFocus: true });
+  const root = document.getElementById('modal-root'), q = x => root.querySelector(x), qa = x => [...root.querySelectorAll(x)];
+  const porId = new Map(folhas.map(r => [r.c.id, r]));
+  const mudancas = () => folhas.filter(r => { const n = novo.get(r.c.id); return (n.ini ?? null) !== (r.ini ?? null) || (n.fim ?? null) !== (r.fim ?? null); });
+  const atualiza = () => {
+    q('#rp_n').textContent = qa('.rp-sel:checked').length;
+    qa('.rp-grp').forEach(g => { const it = qa('.rp-sel').filter(x => x.dataset.cod.startsWith(g.dataset.cod + '.')), k = it.filter(x => x.checked).length; g.checked = k > 0 && k === it.length; g.indeterminate = k > 0 && k < it.length; });
+    const avisos = [];
+    folhas.forEach(r => { const n = novo.get(r.c.id), cel = q(`.rp-d[data-id="${r.c.id}"]`); const di = (n.ini ?? 0) - (r.ini ?? 0), df = (n.fim ?? 0) - (r.fim ?? 0);
+      q(`.rp-ini[data-id="${r.c.id}"]`).value = n.ini ?? ''; q(`.rp-fim[data-id="${r.c.id}"]`).value = n.fim ?? '';
+      const mud = di || df; cel.innerHTML = mud ? `<b>${n.ini ?? '?'}–${n.fim ?? '?'}</b> <span class="muted">(${di > 0 ? '+' : ''}${di} / ${df > 0 ? '+' : ''}${df})</span>` : '';
+      if (n.ini != null && n.fim != null && n.fim < n.ini) avisos.push(`<span style="color:var(--red)">✗ ${esc(r.c.codigo)}: término antes do início.</span>`);
+      else if (n.ini != null && n.ini < 1) avisos.push(`<span style="color:var(--red)">✗ ${esc(r.c.codigo)}: início antes do mês 1.</span>`);
+      else if (mud && n.fim > N) avisos.push(`⚠ ${esc(r.c.codigo)} termina no mês ${n.fim}, depois da vigência (${N} meses): será preciso aditivo de prazo.`);
+      if (mud && r.c.status === 'concluida') avisos.push(`⚠ ${esc(r.c.codigo)} já está concluída.`); });
+    const m = mudancas().length; q('#rp_av').innerHTML = (m ? `<b>${m} atividade(s) com prazo alterado.</b> ` : '<span class="muted">Nenhuma alteração ainda.</span> ') + (avisos.length ? '<br>' + avisos.join('<br>') : '');
+  };
+  qa('.rp-sel').forEach(x => x.onchange = atualiza);
+  qa('.rp-grp').forEach(g => g.onchange = () => { qa('.rp-sel').filter(x => x.dataset.cod.startsWith(g.dataset.cod + '.')).forEach(x => x.checked = g.checked); atualiza(); });
+  q('#rp_pend').onclick = () => { qa('.rp-sel').forEach(x => x.checked = !['concluida', 'cancelada'].includes(porId.get(x.dataset.id).c.status)); atualiza(); };
+  q('#rp_nenh').onclick = () => { qa('.rp-sel').forEach(x => x.checked = false); atualiza(); };
+  const ler = (el, k) => el.oninput = () => { const n = novo.get(el.dataset.id), v = el.value === '' ? null : Math.round(+el.value); n[k] = v; atualiza(); };
+  qa('.rp-ini').forEach(el => ler(el, 'ini')); qa('.rp-fim').forEach(el => ler(el, 'fim'));
+  q('#rp_aplica').onclick = () => { const dlt = Math.round(+q('#rp_desl').value || 0), modo = q('#rp_modo').value; const sel = qa('.rp-sel:checked');
+    if (!sel.length) { q('#rp_err').textContent = 'Selecione as atividades a deslocar.'; q('#rp_err').style.display = 'block'; return; } q('#rp_err').style.display = 'none';
+    sel.forEach(x => { const n = novo.get(x.dataset.id); if (modo !== 'fim' && n.ini != null) n.ini += dlt; if (modo !== 'ini' && n.fim != null) n.fim += dlt; }); atualiza(); };
+  q('#rp_desfaz').onclick = () => { folhas.forEach(r => novo.set(r.c.id, { ini: r.ini, fim: r.fim })); atualiza(); };
+  q('#rp_x').onclick = q('#rp_c').onclick = closeModal;
+  q('#rp_ok').onclick = () => run(async () => {
+    const err = m => { const e = q('#rp_err'); e.textContent = m; e.style.display = 'block'; };
+    const motivo = q('#rp_mot').value.trim(), lista = mudancas(), novaBase = !!(q('#rp_base') && q('#rp_base').checked);
+    if (!lista.length && !novaBase) return err('Nenhum prazo foi alterado.');
+    if (motivo.length < 5) return err('Informe o motivo da reprogramação.');
+    const ruim = lista.find(r => { const n = novo.get(r.c.id); return n.ini == null || n.fim == null || n.ini < 1 || n.fim < n.ini; }); if (ruim) return err(`Verifique os meses de ${ruim.c.codigo}.`);
+    if (novaBase && !(await confirmar('A linha de base atual será substituída: o cronograma resultante passa a ser o "plano original" para as próximas comparações. Continuar?'))) return;
+    const btn = q('#rp_ok'); btn.disabled = true;
+    try {
+      const alt = [];
+      for (const r of lista) { const n = novo.get(r.c.id); await Data.update('cronograma', r.c.id, { mes_inicio: n.ini, mes_fim: n.fim }); alt.push({ codigo: r.c.codigo, titulo: r.c.titulo, de: [r.ini, r.fim], para: [n.ini, n.fim] }); }
+      if (novaBase) for (const c of D.cronograma.filter(x => x.projeto_id === p.id && (x.mes_inicio_base != null || x.mes_fim_base != null))) await Data.update('cronograma', c.id, { mes_inicio_base: null, mes_fim_base: null });
+      await Data.insert('reprogramacoes', { projeto_id: p.id, autor: ME.pessoa_id ? nomePessoa(ME.pessoa_id) : (ME.email || null), data: isDate(q('#rp_data').value) ? q('#rp_data').value : hoje(), motivo: novaBase && !lista.length ? motivo + ' (nova linha de base)' : motivo + (novaBase ? ' — adotado como nova linha de base' : ''), documento: q('#rp_doc').value.trim() || null, alteracoes: alt });
+      closeModal(); render(); flash(`✓ Reprogramação registrada: ${alt.length} atividade(s)${novaBase ? ' · nova linha de base' : ''}`);
+    } catch (e) { btn.disabled = false; throw e; }
+  });
+  atualiza();
+};
 function camposAtividade(p, c) {
-  const gere = Perm.gereProjeto(p.id);
+  const gere = Perm.gereProjeto(p.id), gereC = Perm.gereCronograma(p.id);
   const grupo = c && D.cronograma.some(x => x.projeto_id === p.id && x.codigo.startsWith(c.codigo + '.'));
   const N = monthsIncl(p.inicio, p.fim);
   return [{ k: 'codigo', l: 'Código (ex.: 2.5.1)', req: true, ro: !gere }, { k: 'titulo', l: 'Título', req: true, ro: !gere, full: true },
   { k: 'descricao', l: 'Descrição', t: 'textarea', rows: 2, ro: !gere },
-  { k: 'mes_inicio', l: `Mês de início (1 a ${N})`, t: 'number', min: 1, ro: !gere, hide: grupo, help: `Mês 1 = ${fmtMes(p.inicio)}` },
-  { k: 'mes_fim', l: 'Mês de término', t: 'number', min: 1, ro: !gere, hide: grupo },
+  { k: 'mes_inicio', l: `Mês de início (1 a ${N})`, t: 'number', min: 1, ro: !gereC, hide: grupo, help: `Mês 1 = ${fmtMes(p.inicio)}${c && (c.mes_inicio_base != null || c.mes_fim_base != null) ? ` · plano original: meses ${c.mes_inicio_base ?? '?'}–${c.mes_fim_base ?? '?'}` : ''}` },
+  { k: 'mes_fim', l: 'Mês de término', t: 'number', min: 1, ro: !gereC, hide: grupo },
+  ...(c && gereC && !grupo ? [{ k: '_motivo', l: 'Motivo da mudança de prazo (obrigatório se alterar os meses)', t: 'textarea', rows: 2, full: true }] : []),
   { k: 'entrega', l: 'Entrega prevista / resultado', t: 'textarea', rows: 2, ro: !gere, hide: grupo },
   { k: 'validador', l: 'Validador da entrega', ro: !gere, hide: grupo, full: true },
   { k: 'responsavel_id', l: 'Responsável (cadastro)', t: 'select', opts: optPessoas(), ro: !gere, hide: grupo },
@@ -834,7 +915,14 @@ A.atividadeEditar = d => { const c = byId('cronograma', d.id), p = byId('projeto
   form({ title: `${c.codigo} — ${p.sigla}`, fields: camposAtividade(p, c), values: c, wide: true,
     intro: c.mes_inicio ? `<div class="small muted mb">Período: ${fmtD(Calc.mesData(p, c.mes_inicio))} a ${c.mes_fim ? fmtD(Calc.mesDataFim(p, c.mes_fim)) : '?'}${c.data_conclusao ? ` · concluída em ${fmtD(c.data_conclusao)}` : ''}</div>` : '',
     after: ts.length ? `<div class="sec">Tarefas ligadas (${ts.length})</div>${listaTarefas(ts, { proj: false })}` : '',
-    onSave: x => Data.update('cronograma', c.id, fixAtiv(x)),
+    onSave: async x => {
+      const motivo = String(x._motivo || '').trim(); delete x._motivo; fixAtiv(x);
+      const mudou = ('mes_inicio' in x && (x.mes_inicio ?? null) !== (c.mes_inicio ?? null)) || ('mes_fim' in x && (x.mes_fim ?? null) !== (c.mes_fim ?? null));
+      if (mudou && motivo.length < 5) falha('Informe o motivo da mudança de prazo (ex.: atraso na entrega dos motores).');
+      const de = [c.mes_inicio, c.mes_fim];
+      await Data.update('cronograma', c.id, x);
+      if (mudou) await Data.insert('reprogramacoes', { projeto_id: p.id, autor: ME.pessoa_id ? nomePessoa(ME.pessoa_id) : (ME.email || null), data: hoje(), motivo, alteracoes: [{ codigo: c.codigo, titulo: c.titulo, de, para: [x.mes_inicio ?? c.mes_inicio, x.mes_fim ?? c.mes_fim] }] });
+    },
     onDelete: gere ? async () => { const sub = D.cronograma.filter(y => y.projeto_id === p.id && y.codigo.startsWith(c.codigo + '.')); for (const y of sub) await Data.remove('cronograma', y.id); await Data.remove('cronograma', c.id); } : null,
     deleteConfirm: `Excluir ${c.codigo} — ${c.titulo}${D.cronograma.some(y => y.projeto_id === p.id && y.codigo.startsWith(c.codigo + '.')) ? '\ne todas as etapas/atividades dentro dele' : ''}?` }); };
 

@@ -1203,6 +1203,80 @@ const TESTES = {
     await b.close(); process.exit(falhas || errs.length ? 1 : 0);
   })();
 },
+'t22': () => {
+  // Reprogramação do cronograma: Direção, coordenação e gerências; linha de base; registro; membro sem cargo não reprograma
+  const { chromium } = require('playwright'); const fs = require('fs');
+  (async () => {
+    const b = await chromium.launch(); const pg = await b.newPage({ viewport: { width: 1400, height: 900 } });
+    const errs = []; pg.on('pageerror', e => errs.push('PAGEERR ' + e.message)); pg.on('console', m => { if (m.type() === 'error' && !/ErroRegra/.test(m.text())) errs.push('CONSOLE ' + m.text()); });
+    let falhas = 0; const ok = (c, m, x) => { console.log((c ? '✓ ' : '✗ ') + m + (x !== undefined ? ' — ' + JSON.stringify(x) : '')); if (!c) falhas++; };
+    await pg.goto(CFG.APP); await pg.waitForTimeout(200);
+    const old = JSON.parse(fs.readFileSync(CFG.DADOS_V1, 'utf8'));
+    const ids = await pg.evaluate(async d => { localStorage.clear(); Local.load(); const { T } = converterV1(d); Object.keys(TABLES).forEach(t => D[t] = T[t] || []); seedPadrao(); Local.persistAll();
+      const lucas = D.pessoas.find(p => p.nome.startsWith('Lucas')); aplicarSim({ papel: 'direcao', pessoa_id: lucas.id });
+      const p = D.projetos.find(x => /petrobras/i.test(x.sigla));
+      const mk = (codigo, titulo, mi, mf) => Data.insert('cronograma', { projeto_id: p.id, codigo, titulo, mes_inicio: mi, mes_fim: mf, status: 'planejada', percentual: 0 });
+      await mk('1', 'Preparação', null, null); await mk('1.1', 'Adequação da célula', 1, 6); await mk('2', 'Ensaios', null, null);
+      await mk('2.1', 'Combustível 1', 6, 8); await mk('2.2', 'Combustível 2', 8, 10); await mk('2.3', 'Combustível 3', 10, 12);
+      const outros = D.pessoas.filter(x => x.id !== lucas.id && !D.alocacoes.some(a => a.projeto_id === p.id && a.pessoa_id === x.id && a.coordena));
+      const gerente = outros[0], membro = outros[1], coord = D.alocacoes.find(a => a.projeto_id === p.id && a.coordena);
+      await Data.insert('gerencia_membros', { gerencia_id: D.gerencias.find(g => /T[eé]cnica/.test(g.nome)).id, pessoa_id: gerente.id, funcao: 'titular', desde: '2020-01-01' });
+      return { p: p.id, gerente: gerente.id, membro: membro.id, coord: coord && coord.pessoa_id };
+    }, old);
+    const abre = async () => { await pg.evaluate(id => A.projAbrir({ id, aba: 'cronograma' }), ids.p); await pg.waitForTimeout(150); };
+    // 1. Direção desloca a etapa 2 inteira em 2 meses
+    await abre(); await pg.click('[data-a="cronReprogramar"]'); await pg.waitForSelector('#rp_ok');
+    await pg.check('.rp-grp[data-cod="2"]'); await pg.fill('#rp_desl', '2'); await pg.click('#rp_aplica');
+    ok(/3 atividade\(s\) com prazo alterado/.test(await pg.textContent('#rp_av')), 'prévia: 3 atividades alteradas', await pg.textContent('#rp_av'));
+    await pg.click('#rp_ok'); await pg.waitForTimeout(200);
+    ok(await pg.isVisible('#rp_err'), 'motivo é obrigatório');
+    await pg.fill('#rp_mot', 'Atraso na entrega dos motores pelo fornecedor'); await pg.fill('#rp_doc', 'Ofício 12/2026'); await pg.click('#rp_ok'); await pg.waitForTimeout(400);
+    let r = await pg.evaluate(id => ({ m: D.cronograma.filter(c => c.projeto_id === id).sort((a, b) => Calc.codCmp(a.codigo, b.codigo)).map(c => `${c.codigo}:${c.mes_inicio ?? ''}-${c.mes_fim ?? ''}/${c.mes_inicio_base ?? ''}-${c.mes_fim_base ?? ''}`).join(' '),
+      reg: D.reprogramacoes.filter(x => x.projeto_id === id).map(x => [x.motivo, x.documento, x.alteracoes.length]), tot: (({ reprogramadas, desvio, fimAtual, fimBase }) => ({ reprogramadas, desvio, fimAtual, fimBase }))(Calc.cronograma(byId('projetos', id)).tot) }), ids.p);
+    ok(r.m === '1:-/- 1.1:1-6/- 2:-/- 2.1:8-10/6-8 2.2:10-12/8-10 2.3:12-14/10-12', 'etapa 2 deslocada 2 meses, plano original guardado', r.m);
+    ok(r.reg.length === 1 && r.reg[0][2] === 3 && r.reg[0][1] === 'Ofício 12/2026', 'reprogramação registrada com motivo, documento e 3 atividades', r.reg);
+    ok(r.tot.reprogramadas === 3 && r.tot.desvio === 2, 'indicadores: 3 reprogramadas, término +2 meses', r.tot);
+    const tela = await pg.evaluate(() => ({ orig: [...document.querySelectorAll('#app td')].filter(td => /orig\. 6–8/.test(td.textContent)).length, hist: /Reprogramações \(1\)/.test(document.querySelector('#app').innerText) }));
+    ok(tela.orig === 1 && tela.hist, 'tabela mostra o plano original e o histórico', tela);
+    await pg.click('[data-a="sub"][data-g="crono"][data-v="gantt"]'); await pg.waitForTimeout(150);
+    ok(await pg.$$eval('#app svg rect[opacity=".55"]', x => x.length) >= 3, 'Gantt mostra a linha de base das atividades reprogramadas');
+    await pg.screenshot({ path: CFG.saida('r1_gantt_reprogramado.png') });
+    // 2. gerência (cronograma_gerir) reprograma pela ficha da atividade, com motivo; não muda a estrutura
+    const g = await pg.evaluate(async x => { aplicarSim({ papel: 'membro', pessoa_id: x.gerente }); A.projAbrir({ id: x.p, aba: 'cronograma' });
+      const c = D.cronograma.find(c => c.projeto_id === x.p && c.codigo === '1.1');
+      const botao = !!document.querySelector('[data-a="cronReprogramar"]'), novaAtv = !!document.querySelector('[data-a="atividadeNova"]');
+      const titulo = await Data.update('cronograma', c.id, { titulo: 'Outro' }).then(() => 'gravou', e => e.message);
+      const meses = await Data.update('cronograma', c.id, { mes_fim: 7 }).then(r => `${r.mes_inicio}-${r.mes_fim}/${r.mes_inicio_base}-${r.mes_fim_base}`, e => e.message);
+      return { botao, novaAtv, titulo, meses }; }, ids);
+    ok(g.botao && !g.novaAtv, 'gerência vê "Reprogramar prazos" (mas não cria atividades)', g);
+    ok(/estrutura do cronograma/.test(g.titulo) && g.meses === '1-7/1-6', 'gerência muda prazos, não a estrutura', g);
+    await abre(); await pg.click('[data-a="sub"][data-g="crono"][data-v="tabela"]'); await pg.waitForTimeout(100);
+    await pg.click('tr[data-a="atividadeEditar"] >> text=Combustível 1'); await pg.waitForSelector('#m_ok');
+    ok(await pg.isVisible('#fld__motivo'), 'ficha da atividade pede o motivo');
+    await pg.fill('#fld_mes_fim', '11');
+    await pg.click('#m_ok'); await pg.waitForTimeout(200);
+    const semMot = await pg.evaluate(() => document.querySelector('#m_err') && document.querySelector('#m_err').style.display !== 'none' ? document.querySelector('#m_err').textContent : '');
+    ok(/motivo/i.test(semMot), 'sem motivo, a ficha não grava a mudança de prazo', semMot);
+    await pg.fill('#fld__motivo', 'Ajuste combinado na reunião de acompanhamento');
+    await pg.click('#m_ok'); await pg.waitForTimeout(300);
+    r = await pg.evaluate(id => ({ c: (c => `${c.mes_inicio}-${c.mes_fim}/${c.mes_inicio_base}-${c.mes_fim_base}`)(D.cronograma.find(c => c.projeto_id === id && c.codigo === '2.1')), n: D.reprogramacoes.filter(x => x.projeto_id === id).length }), ids.p);
+    ok(r.c === '8-11/6-8' && r.n === 2, 'ficha: prazo gravado, linha de base mantida e reprogramação registrada', r);
+    // 3. membro sem cargo não reprograma
+    const m = await pg.evaluate(async x => { aplicarSim({ papel: 'membro', pessoa_id: x.membro }); A.projAbrir({ id: x.p, aba: 'cronograma' });
+      const c = D.cronograma.find(c => c.projeto_id === x.p && c.codigo === '2.2');
+      return { botao: !!document.querySelector('[data-a="cronReprogramar"]'), upd: await Data.update('cronograma', c.id, { mes_fim: 15 }).then(() => 'gravou', e => e.message),
+        reg: await Data.insert('reprogramacoes', { projeto_id: x.p, motivo: 'tentativa', alteracoes: [] }).then(() => 'gravou', e => e.message) }; }, ids);
+    ok(!m.botao && m.upd !== 'gravou' && m.reg !== 'gravou', 'membro sem cargo não reprograma nem registra', m);
+    // 4. Direção adota nova linha de base
+    await pg.evaluate(x => { aplicarSim({ papel: 'direcao', pessoa_id: null }); A.projAbrir({ id: x.p, aba: 'cronograma' }); }, ids); await pg.waitForTimeout(150);
+    await pg.click('[data-a="cronReprogramar"]'); await pg.waitForSelector('#rp_base'); await pg.check('#rp_base'); await pg.fill('#rp_mot', 'Aditivo de prazo aprovado pela Petrobras');
+    await pg.click('#rp_ok'); await pg.waitForSelector('#c_yes'); await pg.click('#c_yes'); await pg.waitForTimeout(400);
+    r = await pg.evaluate(id => ({ base: D.cronograma.filter(c => c.projeto_id === id && (c.mes_inicio_base != null || c.mes_fim_base != null)).length, n: D.reprogramacoes.filter(x => x.projeto_id === id).length, tot: Calc.cronograma(byId('projetos', id)).tot.reprogramadas }), ids.p);
+    ok(r.base === 0 && r.n === 3 && r.tot === 0, 'nova linha de base adotada e registrada', r);
+    console.log(errs.join('\n') || 'sem erros na página');
+    await b.close(); process.exit(falhas || errs.length ? 1 : 0);
+  })();
+},
 };
 
 // ── execução ──────────────────────────────────────────────────────────
