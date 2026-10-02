@@ -7,7 +7,7 @@
 //       Use só a chave PÚBLICA (publishable/anon). A chave secreta nunca vai para o programa.
 const fs = require('fs'), path = require('path'), os = require('os'), { spawnSync } = require('child_process');
 const A = f => fs.readFileSync(path.join(__dirname, 'app', f), 'utf8');
-const ORDEM = ['p1_head.html', 'p2_core.js', 'p3_ui.js', null, 'p4a_extract.js', 'p4_modulos.js', 'p6_import.js', 'p6b_plano.js', 'p7_rel.js', 'p5_final.js'];
+const ORDEM = ['p1_head.html', 'p2_core.js', 'p3_ui.js', null, 'p4a_extract.js', 'p4_modulos.js', 'p6_import.js', 'p6b_plano.js', 'p6c_reformulacao.js', 'p7_rel.js', 'p5_final.js'];
 let html = '';
 for (const f of ORDEM) html += f ? A(f) : '\n/* ── extração de dados de texto (portado da versão anterior) ── */\n';
 html += '\n</script>\n</body>\n</html>\n';

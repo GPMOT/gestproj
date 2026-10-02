@@ -28,9 +28,13 @@ if (!DADOS_V1) throw new Error('Não encontrei o JSON do programa antigo (gpmot-
 const PDF_ORIG = process.env.GPMOT_PLANO_PDF || achar(/sigitec.*\.pdf$/i);
 let PLANO_PDF = null;
 if (PDF_ORIG) { PLANO_PDF = path.join(require('os').tmpdir(), `gpmot_plano_${process.pid}.pdf`); fs.copyFileSync(PDF_ORIG, PLANO_PDF); process.on('exit', () => { try { fs.unlinkSync(PLANO_PDF); } catch { } }); }
+// solicitação de reformulação financeira do SIGITEC (PDF) usada pelo t23 — idem
+const REF_ORIG = process.env.GPMOT_REFORMULACAO_PDF || achar(/solicita.*(aditiv|reformula).*\.pdf$/i);
+let REFORM_PDF = null;
+if (REF_ORIG) { REFORM_PDF = path.join(require('os').tmpdir(), `gpmot_reform_${process.pid}.pdf`); fs.copyFileSync(REF_ORIG, REFORM_PDF); process.on('exit', () => { try { fs.unlinkSync(REFORM_PDF); } catch { } }); }
 // arquivo de backup gerado pelo t03 e reutilizado pelo t06 (caminho sem acento, fora do código-fonte)
 const BACKUP = path.join(require('os').tmpdir(), 'gpmot_backup_teste.json');
-const CFG = { BACKUP, PLANO_PDF, APP: pathToFileURL(path.join(RAIZ, 'app', 'gpmot.html')).href, DADOS_V1, PLANILHA, SAIDA, saida: n => path.join(SAIDA, n) };
+const CFG = { BACKUP, PLANO_PDF, REFORM_PDF, APP: pathToFileURL(path.join(RAIZ, 'app', 'gpmot.html')).href, DADOS_V1, PLANILHA, SAIDA, saida: n => path.join(SAIDA, n) };
 
 const TESTES = {
 't01': () => {
@@ -1273,6 +1277,84 @@ const TESTES = {
     await pg.click('#rp_ok'); await pg.waitForSelector('#c_yes'); await pg.click('#c_yes'); await pg.waitForTimeout(400);
     r = await pg.evaluate(id => ({ base: D.cronograma.filter(c => c.projeto_id === id && (c.mes_inicio_base != null || c.mes_fim_base != null)).length, n: D.reprogramacoes.filter(x => x.projeto_id === id).length, tot: Calc.cronograma(byId('projetos', id)).tot.reprogramadas }), ids.p);
     ok(r.base === 0 && r.n === 3 && r.tot === 0, 'nova linha de base adotada e registrada', r);
+    console.log(errs.join('\n') || 'sem erros na página');
+    await b.close(); process.exit(falhas || errs.length ? 1 : 0);
+  })();
+},
+'t23': () => {
+  // Reformulação financeira (SIGITEC/Petrobras): leitura, conferências, prévia × sistema, registro como submetida, aplicação; gerência pode; membro não
+  const { chromium } = require('playwright'); const fs = require('fs');
+  (async () => {
+    if (!CFG.PLANO_PDF || !CFG.REFORM_PDF) { console.log('(sem os PDFs do SIGITEC na pasta Software de Gestão — teste pulado)'); process.exit(0); }
+    const b = await chromium.launch(); const pg = await b.newPage({ viewport: { width: 1400, height: 900 }, acceptDownloads: true });
+    const errs = []; pg.on('pageerror', e => errs.push('PAGEERR ' + e.message)); pg.on('console', m => { if (m.type() === 'error' && !/ErroRegra/.test(m.text())) errs.push('CONSOLE ' + m.text()); });
+    let falhas = 0; const ok = (c, m, x) => { console.log((c ? '✓ ' : '✗ ') + m + (x !== undefined ? ' — ' + JSON.stringify(x) : '')); if (!c) falhas++; };
+    await pg.goto(CFG.APP); await pg.waitForTimeout(200);
+    const old = JSON.parse(fs.readFileSync(CFG.DADOS_V1, 'utf8'));
+    const ids = await pg.evaluate(async d => { localStorage.clear(); Local.load(); const { T } = converterV1(d); Object.keys(TABLES).forEach(t => D[t] = T[t] || []); seedPadrao(); Local.persistAll();
+      const lucas = D.pessoas.find(p => p.nome.startsWith('Lucas')); aplicarSim({ papel: 'direcao', pessoa_id: lucas.id });
+      const p = D.projetos.find(x => /petrobras/i.test(x.sigla));
+      const outros = D.pessoas.filter(x => x.id !== lucas.id && !D.alocacoes.some(a => a.projeto_id === p.id && a.pessoa_id === x.id));
+      await Data.insert('gerencia_membros', { gerencia_id: D.gerencias.find(g => /Infraestrutura/.test(g.nome)).id, pessoa_id: outros[0].id, funcao: 'titular', desde: '2020-01-01' });
+      return { p: p.id, gerente: outros[0].id, membro: outros[1].id }; }, old);
+    // 1. o plano de trabalho original entra no projeto (como no t21)
+    { const [fc] = await Promise.all([pg.waitForEvent('filechooser'), pg.evaluate(id => A.importarPlanilha({ projeto: id }), ids.p)]); await fc.setFiles(CFG.PLANO_PDF); await pg.waitForSelector('#im_ok', { timeout: 20000 }); await pg.click('#im_ok'); await pg.waitForTimeout(1500); }
+    const antes = await pg.evaluate(id => ({ rub: Object.fromEntries(D.orcamento_rubricas.filter(x => x.projeto_id === id).map(x => [x.rubrica, num(x.aprovado)])), itens: D.plano_itens.filter(x => x.projeto_id === id && x.status !== 'cancelado').length }), ids.p);
+    ok(antes.itens === 106, 'plano original importado (106 itens)', antes);
+    // 2. gerência (só financeiro_reformular) vê o Financeiro do projeto, sem contrato/despesas, e carrega a solicitação
+    const vis = await pg.evaluate(x => { aplicarSim({ papel: 'membro', pessoa_id: x.gerente }); A.projAbrir({ id: x.p, aba: 'financeiro' }); UI.sub.projFin = 'reformulacoes'; render();
+      return { aba: !!document.querySelector('[data-a="refImportar"]'), contrato: !!document.querySelector('[data-v="contrato"][data-g="projFin"]'), desp: !!document.querySelector('#app [data-a="despVer"]'), veFin: Perm.veFin(x.p), ref: Perm.reformulaFin(x.p) }; }, ids);
+    ok(vis.aba && !vis.contrato && !vis.desp && !vis.veFin && vis.ref, 'gerência: aba Reformulações com importação, sem contrato e despesas', vis);
+    const abre = async () => { const [fc] = await Promise.all([pg.waitForEvent('filechooser'), pg.click('[data-a="refImportar"]')]); await fc.setFiles(CFG.REFORM_PDF); await pg.waitForSelector('#rf_ok', { timeout: 20000 }); };
+    await abre();
+    await pg.screenshot({ path: CFG.saida('f1_previa_reformulacao.png'), fullPage: false });
+    const pv = await pg.evaluate(() => { const root = document.querySelector('#modal-root');
+      return { conf: root.querySelector('details summary').innerText, nat: [...root.querySelectorAll('.rf-nat')].map(s => s.value), modo: [...root.querySelectorAll('input[name="rf_modo"]')].filter(x => x.checked).map(x => x.value)[0],
+        rend: !!root.querySelector('#rf_rend'), des: !!root.querySelector('#rf_des'), num: root.querySelector('#rf_num').value, data: root.querySelector('#rf_data').value,
+        sits: [...root.querySelectorAll('table')[2].querySelectorAll('tr')].slice(1).map(tr => tr.lastElementChild.innerText.replace(/\s+/g, ' ')), aviso: !!root.querySelector('.alert.warn') }; });
+    ok(/todas as 29 conferem/.test(pv.conf), 'todas as conferências da solicitação batem', pv.conf);
+    ok(pv.nat.join(',') === '2.1,1.1.1,1.2.1,1.2.2,1.3,1.4,1.4,1.5' && pv.num === '5' && pv.data === '2026-09-29', 'naturezas → rubricas, nº 5 e data da submissão', [pv.nat, pv.num, pv.data]);
+    ok(pv.sits.length === 13 && pv.sits.filter(x => /será incluído/.test(x)).length === 5 && /⚠ no sistema R\$ 15\.116,91/.test(pv.sits[0]), 'prévia compara cada item com o plano do sistema (vigente ≠ sistema sinalizado)', pv.sits);
+    ok(pv.modo === 'sincronizar' && pv.rend && pv.des, 'sugere sincronizar com o orçamento proposto completo; rendimentos e desembolso marcados', pv);
+    await pg.click('#rf_ok'); await pg.waitForTimeout(800);
+    const reg = await pg.evaluate(id => ({ n: D.reformulacoes.filter(r => r.projeto_id === id).map(r => [r.numero, r.situacao, r.data, num(r.remanejado), num(r.rendimentos), !!r.aplicada_em]),
+      rub: Object.fromEntries(D.orcamento_rubricas.filter(x => x.projeto_id === id).map(x => [x.rubrica, num(x.aprovado)])) }), ids.p);
+    ok(reg.n.length === 1 && JSON.stringify(reg.n[0]) === JSON.stringify([5, 'submetida', '2026-09-29', 178385.37, 94181.67, false]) && JSON.stringify(reg.rub) === JSON.stringify(antes.rub), 'registrada como submetida; orçamento ainda não muda', reg);
+    // aplicar
+    await pg.click('tr[data-a="refVer"]'); await pg.waitForSelector('#rv_ap'); await pg.click('#rv_ap'); await pg.waitForSelector('#c_yes'); await pg.click('#c_yes'); await pg.waitForTimeout(1500);
+    const dep = await pg.evaluate(id => { const its = D.plano_itens.filter(x => x.projeto_id === id), r = D.reformulacoes.find(r => r.projeto_id === id);
+      return { rub: Object.fromEntries(D.orcamento_rubricas.filter(x => x.projeto_id === id).map(x => [x.rubrica, num(x.aprovado)])), ativos: its.filter(x => x.status !== 'cancelado').length, canc: its.filter(x => x.status === 'cancelado').map(x => x.descricao),
+        cab: its.filter(x => /Cabeçote/.test(x.descricao)).map(x => [x.valor_previsto, x.status]), novos: its.filter(x => /Recertifica|Inertiza|Limpeza de reserv|Análises químicas de acomp/.test(x.descricao)).map(x => [x.descricao.slice(0, 40), x.valor_previsto]),
+        sit: r.situacao, aplicada: !!r.aplicada_em, res: r.alteracoes.resultado, parc: D.desembolsos.filter(d => d.projeto_id === id).map(d => [d.numero, d.status, Object.fromEntries(D.desembolso_rubricas.filter(z => z.desembolso_id === d.id).map(z => [z.rubrica, z.valor]))]) }; }, ids.p);
+    const soma = await pg.evaluate(id => D.plano_itens.filter(x => x.projeto_id === id && x.status !== 'cancelado').reduce((t, x) => t + num(x.valor_previsto), 0), ids.p);
+    ok(dep.sit === 'aprovada' && dep.aplicada && Math.abs(dep.rub['1.3'] - 2815072.39) < 0.01 && Math.abs(dep.rub['1.4'] - (351785.37 + 49833.69 + 94181.67)) < 0.01 && dep.rub['1.5'] === 682190.21, 'aprovada e aplicada: material −178.385,37; serviços +178.385,37 + rendimentos', dep.rub);
+    ok(dep.canc.includes('Bielas') && dep.canc.includes('Bicos injetores') && dep.canc.length === 15 && dep.ativos === 100, 'itens excluídos (e os de reformulações anteriores) cancelados; 100 itens ativos', [dep.ativos, dep.canc.length]);
+    ok(dep.cab.length === 1 && dep.cab[0][0] === 76112.25 && dep.novos.length === 5 && dep.novos.some(x => x[1] === 63619.44) && dep.novos.some(x => x[1] === 33762), 'cabeçote alterado; 5 serviços incluídos (com rendimentos)', [dep.cab, dep.novos]);
+    ok(Math.abs(soma - (6077620 - 1616103.6 + 94181.67)) < 0.01, 'plano de aplicação = orçamento proposto sem bolsas + rendimentos', soma);
+    ok(dep.parc[1][2]['1.3'] === 921614.63 && dep.parc[1][2]['1.4'] === 241785.37 && dep.res.parcelas === 1, '2ª parcela redistribuída', dep.parc[1]);
+    await pg.click('tr[data-a="refVer"]'); await pg.waitForSelector('#rv_x'); await pg.screenshot({ path: CFG.saida('f2_reformulacao_aplicada.png'), fullPage: false });
+    const det = await pg.evaluate(() => { const r = document.querySelector('#modal-root'); return { aberto: !!r.querySelector('#rv_x'), ap: !!r.querySelector('#rv_ap') }; });
+    ok(det.aberto && !det.ap, 'reformulação aplicada não oferece aplicar de novo', det);
+    await pg.evaluate(() => closeModal());
+    const de2 = await pg.evaluate(id => aplicarReformulacao(D.reformulacoes.find(r => r.projeto_id === id).id).then(() => 'aplicou', e => e.message), ids.p);
+    ok(/já foi aplicada/.test(de2), 'não aplica duas vezes', de2);
+    // a mesma solicitação de novo: avisa que já está registrada; exporta a reformulação padrão (.json) e ela é lida e conferida
+    await abre();
+    ok(/já está registrada/.test(await pg.textContent('#modal-root .note')), 'avisa que a 5ª reformulação já está registrada');
+    const [dl] = await Promise.all([pg.waitForEvent('download'), pg.click('#rf_pad')]); const js = path.join(require('os').tmpdir(), `gpmot_reform_${process.pid}.json`); await dl.saveAs(js); await pg.click('#rf_c');
+    const o = JSON.parse(fs.readFileSync(js, 'utf8')); fs.unlinkSync(js);
+    const rj = await pg.evaluate(o => { const R = lerReformulacaoPadrao(o, 'x.json'); return { f: o.formato, it: R.itens.length, conf: R.conferencias.filter(c => !c.ok).map(c => c.txt), n: R.conferencias.length, prop: R.proposto.itens.length, rend: R.rendimentos, des: (R.proposto.desembolso || { parcelas: [] }).parcelas.length }; }, o);
+    ok(rj.f === 'gpmot-reformulacao-1' && rj.it === 13 && !rj.conf.length && rj.n >= 2 && rj.prop === 109 && rj.rend === 94181.67 && rj.des === 3, 'reformulação padrão (.json) exportada, lida e conferida', rj);
+    const rec = await pg.evaluate(() => { try { lerReformulacaoPadrao({ a: 1 }, 'x.json'); return 'aceitou'; } catch (e) { return e.message; } });
+    ok(/gpmot-reformulacao-1/.test(rec), 'JSON fora do formato é recusado', rec);
+    // membro sem cargo: não vê o Financeiro do projeto nem registra/aplica
+    const m = await pg.evaluate(async x => { aplicarSim({ papel: 'membro', pessoa_id: x.membro }); A.projAbrir({ id: x.p, aba: 'financeiro' });
+      const orc = D.orcamento_rubricas.find(r => r.projeto_id === x.p);
+      return { aba: !!document.querySelector('#app [data-a="projAba"][data-v="financeiro"]'), ins: await Data.insert('reformulacoes', { projeto_id: x.p, numero: 6, alteracoes: {} }).then(() => 'gravou', e => e.message),
+        upd: orc ? await Data.update('orcamento_rubricas', orc.id, { aprovado: 1 }).then(() => 'gravou', e => e.message) : 'sem rubrica' }; }, ids);
+    ok(!m.aba && m.ins !== 'gravou' && m.upd !== 'gravou', 'membro sem cargo não vê nem registra reformulações', m);
+    await pg.evaluate(x => { aplicarSim({ papel: 'direcao', pessoa_id: null }); A.projAbrir({ id: x.p, aba: 'financeiro' }); UI.sub.projFin = 'plano'; render(); }, ids); await pg.waitForTimeout(150);
+    await pg.screenshot({ path: CFG.saida('f3_plano_reformulado.png'), fullPage: false });
     console.log(errs.join('\n') || 'sem erros na página');
     await b.close(); process.exit(falhas || errs.length ? 1 : 0);
   })();

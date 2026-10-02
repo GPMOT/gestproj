@@ -807,3 +807,53 @@ set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000e';
 update cronograma set mes_fim = 13 where id = '30000000-0000-0000-0000-000000000002';
 select count(*) as registros from reprogramacoes;
 reset role;
+-- @@ 17_reformulacao_financeira
+\set ON_ERROR_STOP 0
+\pset footer off
+-- v1.7: reformulação financeira — Direção, coordenação e gerências (financeiro_reformular) registram e aplicam;
+-- gerência vê orçamento, plano e desembolso, mas não bolsas nem despesas; membro sem cargo não vê nem altera.
+insert into pessoas(id,nome,email,tipo) values
+ ('00000000-0000-0000-0000-00000000000a','Lucas','lucas@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000b','Mario','mario@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000e','Gil','gil@ufsm.br','tecnico'),
+ ('00000000-0000-0000-0000-00000000000f','Bia','bia@ufsm.br','mestrando');
+insert into auth.users values
+ ('10000000-0000-0000-0000-00000000000a','lucas@ufsm.br'),('10000000-0000-0000-0000-00000000000b','mario@ufsm.br'),
+ ('10000000-0000-0000-0000-00000000000e','gil@ufsm.br'),('10000000-0000-0000-0000-00000000000f','bia@ufsm.br');
+update perfis set ativo = true, papel = 'membro';
+update perfis set papel = 'direcao' where email = 'lucas@ufsm.br';
+insert into gerencia_membros(gerencia_id,pessoa_id) select id, '00000000-0000-0000-0000-00000000000e' from gerencias where nome = 'Gerência Técnica';
+insert into projetos(id,sigla,inicio,fim,valor_total) values ('20000000-0000-0000-0000-000000000001','PETRO','2025-06-30','2027-12-26',1000);
+insert into alocacoes(pessoa_id,projeto_id,coordena) values ('00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',true);
+insert into orcamento_rubricas(projeto_id,rubrica,aprovado,previsto) values
+ ('20000000-0000-0000-0000-000000000001','1.3',600,600),('20000000-0000-0000-0000-000000000001','1.4',400,400);
+insert into plano_itens(id,projeto_id,rubrica,numero,descricao,valor_previsto) values
+ ('40000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','1.3',1,'Bielas',100),
+ ('40000000-0000-0000-0000-000000000002','20000000-0000-0000-0000-000000000001','1.4',1,'Manutenção do MEV',400);
+insert into despesas(projeto_id,rubrica,data,descricao,valor) values ('20000000-0000-0000-0000-000000000001','1.3','2025-08-01','Compra',50);
+\echo == gerência (financeiro_reformular) vê orçamento e plano, mas não as despesas
+set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000e';
+select (select count(*) from orcamento_rubricas) as orcamento, (select count(*) from plano_itens) as itens, (select count(*) from despesas) as despesas;
+\echo == gerência registra a reformulação submetida e, aprovada, aplica no orçamento e nos itens
+insert into reformulacoes(id,projeto_id,numero,situacao,justificativa,alteracoes,remanejado) values
+ ('50000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001',5,'submetida','Remanejamento para serviços','{"rubricas":[{"rubrica":"1.3","de":600,"para":500},{"rubrica":"1.4","de":400,"para":500}]}',100)
+ returning numero, situacao, autor;
+update orcamento_rubricas set aprovado = aprovado - 100 where rubrica = '1.3' returning rubrica, aprovado;
+update orcamento_rubricas set aprovado = aprovado + 100 where rubrica = '1.4' returning rubrica, aprovado;
+update plano_itens set status = 'cancelado', valor_previsto = 0 where id = '40000000-0000-0000-0000-000000000001' returning descricao, status, valor_previsto;
+insert into plano_itens(projeto_id,rubrica,numero,descricao,valor_previsto) values ('20000000-0000-0000-0000-000000000001','1.4',2,'Análises químicas de acompanhamento',100) returning descricao;
+update reformulacoes set situacao = 'aprovada', aplicada_em = now() where numero = 5 returning situacao, aplicada_em is not null as aplicada;
+\echo == gerência não lança despesas nem apaga a reformulação
+insert into despesas(projeto_id,rubrica,data,descricao,valor) values ('20000000-0000-0000-0000-000000000001','1.3','2025-08-01','x',1);
+delete from reformulacoes;
+\echo == membro sem cargo não vê nem registra
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000f';
+select (select count(*) from orcamento_rubricas) as orcamento, (select count(*) from reformulacoes) as reformulacoes;
+insert into reformulacoes(projeto_id,justificativa) values ('20000000-0000-0000-0000-000000000001','x');
+update orcamento_rubricas set aprovado = 0;
+\echo == coordenação vê o registro; a situação só aceita os valores previstos
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+select numero, situacao, autor, remanejado from reformulacoes;
+insert into reformulacoes(projeto_id,situacao) values ('20000000-0000-0000-0000-000000000001','aceita');
+reset role;
+select rubrica, aprovado from orcamento_rubricas order by rubrica;

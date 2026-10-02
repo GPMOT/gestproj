@@ -1,6 +1,8 @@
 -- ════════════════════════════════════════════════════════════════════
 --  GPMOT/UFSM — Gestão de Portfólio
---  Esquema do banco de dados (PostgreSQL / Supabase) — versão 1.6
+--  Esquema do banco de dados (PostgreSQL / Supabase) — versão 1.7
+--  01/10/2026 — v1.7: reformulações financeiras (remanejamento entre rubricas e itens, desembolso),
+--               registradas por Direção, coordenação e gerências (financeiro_reformular)
 --  01/10/2026 — v1.6: reprogramação de cronograma (Direção, coordenação e gerências com cronograma_gerir),
 --               linha de base (plano original) das atividades e registro das reprogramações
 --  30/09/2026 — v1.5: proteções de segurança — valores de projetos e aditivos fechados no banco
@@ -656,6 +658,7 @@ create table public.pessoa_checklist (
 --   historico_ver         consultar o histórico de alterações
 --   infraestrutura_gerir  (reservado para o futuro módulo de infraestrutura)
 --   cronograma_gerir      reprogramar prazos (meses) das atividades do cronograma de qualquer projeto
+--   financeiro_reformular registrar reformulações financeiras (remanejar rubricas e itens) de qualquer projeto
 create table public.gerencias (
   id             uuid primary key default gen_random_uuid(),
   nome           text not null unique,
@@ -669,7 +672,7 @@ create table public.gerencias (
   constraint permissoes_validas check (permissoes <@ array[
     'projetos_criar','projetos_editar','alocacoes_gerir','tarefas_gerir','pessoas_gerir',
     'financeiro_ver','financeiro_editar','prospeccao_gerir','historico_ver',
-    'infraestrutura_gerir','cronograma_gerir']::text[])
+    'infraestrutura_gerir','cronograma_gerir','financeiro_reformular']::text[])
 );
 create trigger carimbo before update on public.gerencias
   for each row execute function public.tg_carimbo();
@@ -677,16 +680,16 @@ create trigger carimbo before update on public.gerencias
 insert into public.gerencias (nome, descricao, permissoes, ordem) values
   ('Gerência de Projetos',
    'Acompanha cronogramas, status e entregas de todo o portfólio; organiza alocações; conduz a prospecção de novos projetos.',
-   array['projetos_criar','projetos_editar','alocacoes_gerir','tarefas_gerir','prospeccao_gerir','cronograma_gerir'], 1),
+   array['projetos_criar','projetos_editar','alocacoes_gerir','tarefas_gerir','prospeccao_gerir','cronograma_gerir','financeiro_reformular'], 1),
   ('Gerência Técnica',
    'Distribui e acompanha o trabalho técnico da equipe e dos bolsistas; mantém cadastro de pessoas, habilidades e disponibilidade.',
-   array['alocacoes_gerir','tarefas_gerir','pessoas_gerir','cronograma_gerir'], 2),
+   array['alocacoes_gerir','tarefas_gerir','pessoas_gerir','cronograma_gerir','financeiro_reformular'], 2),
   ('Gerência de Infraestrutura',
    'Cuida de bancos de ensaio, células de teste, instrumentação, manutenção, segurança (PPCI) e compras de infraestrutura.',
-   array['infraestrutura_gerir','cronograma_gerir'], 3),
+   array['infraestrutura_gerir','cronograma_gerir','financeiro_reformular'], 3),
   ('Gerência Financeira',
    'Controla orçamento aprovado, execução e saldo por rubrica; bolsas e pagamentos; prestação de contas com as fundações.',
-   array['financeiro_ver','financeiro_editar','historico_ver','cronograma_gerir'], 4);
+   array['financeiro_ver','financeiro_editar','historico_ver','cronograma_gerir','financeiro_reformular'], 4);
 
 -- Quem ocupa cada gerência (uma pessoa pode estar em várias)
 create table public.gerencia_membros (
@@ -2159,3 +2162,95 @@ begin
 end $$;
 -- ATENÇÃO: se no futuro executar de novo "grant select ... on all tables" para authenticated,
 -- execute também o bloco "valores" acima, para fechar outra vez as colunas de valor.
+
+-- ────────────────────────────────────────────────────────────────────
+-- 16. Reformulações financeiras (v1.7)
+--     Remanejamento entre rubricas, inclusão/exclusão/alteração de itens do plano de aplicação
+--     e nova distribuição do desembolso, sempre a partir de uma solicitação ao financiador.
+--     Registram: Direção, coordenação (e vice), gerência com financeiro_editar ou financeiro_reformular.
+-- ────────────────────────────────────────────────────────────────────
+-- vê o orçamento, o plano de aplicação e o desembolso do projeto (não bolsas nem despesas)
+create or replace function public.ve_orcamento(p_projeto uuid)
+returns boolean language sql stable set search_path = public as $$
+  select public.ve_financeiro(p_projeto) or public.tem_permissao('financeiro_reformular')
+$$;
+-- registra e aplica reformulações financeiras do projeto
+create or replace function public.reformula_financeiro(p_projeto uuid)
+returns boolean language sql stable set search_path = public as $$
+  select public.edita_financeiro(p_projeto) or public.tem_permissao('financeiro_reformular')
+$$;
+
+create table public.reformulacoes (
+  id            uuid primary key default gen_random_uuid(),
+  projeto_id    uuid not null references public.projetos(id) on delete cascade,
+  numero        smallint,                                -- 5 = "5ª reformulação"
+  tipo          text not null default 'financeira' check (tipo in ('financeira','prazo','outra')),
+  data          date not null default public.hoje(),     -- data da submissão ao financiador
+  situacao      text not null default 'submetida' check (situacao in ('rascunho','submetida','aprovada','rejeitada')),
+  documento     text,                                    -- identificação do documento (ex.: arquivo do SIGITEC)
+  justificativa text,
+  alteracoes    jsonb not null default '{}',             -- {rubricas: [...], itens: [...], desembolso: [...]}
+  remanejado    numeric(14,2) not null default 0,        -- total movido entre rubricas
+  rendimentos   numeric(14,2) not null default 0,        -- rendimentos de aplicação financeira usados
+  aplicada_em   timestamptz,                             -- quando o orçamento do sistema foi atualizado
+  criado_em     timestamptz not null default now(),
+  criado_por    uuid default auth.uid(),
+  autor         text,
+  atualizado_em timestamptz not null default now(),
+  atualizado_por uuid
+);
+create index on public.reformulacoes (projeto_id, data desc);
+create trigger carimbo before update on public.reformulacoes
+  for each row execute function public.tg_carimbo();
+
+create or replace function public.tg_reformulacao_autor()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is not null and not (public.e_direcao() and new.criado_por is not null and new.autor is not null) then
+    new.criado_por := auth.uid(); new.criado_em := now();
+    new.autor := (select coalesce(p.nome, f.email) from public.perfis f left join public.pessoas p on p.id = f.pessoa_id where f.id = auth.uid());
+  end if;
+  return new;
+end $$;
+create trigger reformulacao_autor before insert on public.reformulacoes
+  for each row execute function public.tg_reformulacao_autor();
+create trigger historico after insert or update or delete on public.reformulacoes
+  for each row execute function public.tg_historico();
+
+alter table public.reformulacoes enable row level security;
+create policy reform_ver     on public.reformulacoes for select to authenticated using (public.ve_orcamento(projeto_id));
+create policy reform_incluir on public.reformulacoes for insert to authenticated with check (public.reformula_financeiro(projeto_id));
+create policy reform_editar  on public.reformulacoes for update to authenticated using (public.reformula_financeiro(projeto_id)) with check (public.reformula_financeiro(projeto_id));
+create policy reform_apagar  on public.reformulacoes for delete to authenticated using (public.e_direcao());
+
+-- orçamento, plano de aplicação e distribuição do desembolso: também para quem reformula
+drop policy if exists orcamento_ver on public.orcamento_rubricas;
+drop policy if exists orcamento_gerir on public.orcamento_rubricas;
+create policy orcamento_ver   on public.orcamento_rubricas for select to authenticated using (public.ve_orcamento(projeto_id));
+create policy orcamento_gerir on public.orcamento_rubricas for all to authenticated
+  using (public.reformula_financeiro(projeto_id)) with check (public.reformula_financeiro(projeto_id));
+drop policy if exists plano_itens_ver on public.plano_itens;
+drop policy if exists plano_itens_gerir on public.plano_itens;
+create policy plano_itens_ver   on public.plano_itens for select to authenticated using (public.ve_orcamento(projeto_id));
+create policy plano_itens_gerir on public.plano_itens for all to authenticated
+  using (public.reformula_financeiro(projeto_id)) with check (public.reformula_financeiro(projeto_id));
+drop policy if exists desembolsos_ver on public.desembolsos;
+create policy desembolsos_ver   on public.desembolsos for select to authenticated using (public.ve_orcamento(projeto_id));
+drop policy if exists desemb_rub_ver on public.desembolso_rubricas;
+drop policy if exists desemb_rub_gerir on public.desembolso_rubricas;
+create policy desemb_rub_ver    on public.desembolso_rubricas for select to authenticated using (public.ve_orcamento(projeto_id));
+create policy desemb_rub_gerir  on public.desembolso_rubricas for all to authenticated
+  using (public.reformula_financeiro(projeto_id)) with check (public.reformula_financeiro(projeto_id));
+
+-- permissões pela API para os objetos novos (não reabre as colunas de valor)
+grant select, insert, update, delete on public.reformulacoes to authenticated, service_role;
+revoke truncate, references, trigger on public.reformulacoes from anon, authenticated;
+revoke all on public.reformulacoes from anon;
+revoke execute on function public.ve_orcamento(uuid), public.reformula_financeiro(uuid), public.tg_reformulacao_autor() from public, anon;
+grant execute on function public.ve_orcamento(uuid), public.reformula_financeiro(uuid), public.tg_reformulacao_autor() to authenticated, service_role;
+do $$ begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+     and not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'reformulacoes') then
+    execute 'alter publication supabase_realtime add table public.reformulacoes';
+  end if;
+end $$;

@@ -233,6 +233,7 @@ async function enviarAoBanco(T0) {
   await up('documentos', g('documentos').map(d => ({ ...d, criado_por: String(d.criado_por || '').startsWith('local:') ? null : d.criado_por }))); await up('pendencias', g('pendencias').map(d => ({ ...d, criado_por: String(d.criado_por || '').startsWith('local:') ? null : d.criado_por })));
   await up('cronograma', g('cronograma').slice().sort((a, b) => Calc.codCmp(a.codigo, b.codigo)), 'projeto_id,codigo');
   await up('reprogramacoes', g('reprogramacoes'));
+  await up('reformulacoes', g('reformulacoes'));
   // gerências já existentes no banco (criadas pelo SQL) são reaproveitadas pelo nome
   const gmap = {}; g('gerencias').forEach(x => { const ex = D.gerencias.find(y => norm(y.nome) === norm(x.nome)); gmap[x.id] = ex ? ex.id : x.id; });
   await up('gerencias', g('gerencias').map(x => ({ ...x, id: gmap[x.id] })));

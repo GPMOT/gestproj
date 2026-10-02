@@ -10,7 +10,7 @@ if (window.top !== window.self) { document.documentElement.hidden = true; try { 
    - Modo online: preencha SUPABASE_CONFIG abaixo (ou em Configurações)
      e o programa passa a ler e gravar no banco Supabase, com login.
    ════════════════════════════════════════════════════════════════════ */
-const VERSAO = '2.27';
+const VERSAO = '2.28';
 const VERSAO_DATA = '01/10/2026';
 const SUPABASE_CONFIG = { url: '', anonKey: '' };   // ← preencher na implantação
 
@@ -65,6 +65,7 @@ const PERMISSOES = [
   ['historico_ver', 'Consultar o histórico de alterações'],
   ['infraestrutura_gerir', 'Gerir infraestrutura (itens, agenda, manutenção, habilitações)'],
   ['cronograma_gerir', 'Reprogramar prazos do cronograma de qualquer projeto'],
+  ['financeiro_reformular', 'Registrar reformulações financeiras (remanejamento de rubricas e itens) de qualquer projeto'],
 ];
 const PAPEIS = [['suporte', 'Suporte técnico'], ['direcao', 'Direção'], ['membro', 'Membro'], ['leitura', 'Leitura']];
 const TIPOS_VINC = [['bolsa', 'Bolsa'], ['tecnico', 'Pagamento técnico'], ['servico', 'Serviço'], ['externo', 'Apoio externo'], ['outro', 'Outro']];
@@ -114,10 +115,10 @@ const checklistPadrao = () => { const c = { entrada: 0, saida: 0 }; return CHECK
 const ST_CRONO = { planejada: ['Planejada', 'b-gray'], em_andamento: ['Em andamento', 'b-blue'], concluida: ['Concluída', 'b-green'], cancelada: ['Cancelada', 'b-gray'] };
 const ST_ENTREGA = { pendente: ['Pendente', 'b-gray'], em_elaboracao: ['Em elaboração', 'b-yellow'], entregue: ['Entregue', 'b-blue'], aprovado: ['Aprovado', 'b-green'], dispensado: ['Dispensado', 'b-gray'] };
 const GERENCIAS_PADRAO = [
-  ['Gerência de Projetos', 'Acompanha cronogramas, status e entregas de todo o portfólio; organiza alocações; conduz a prospecção de novos projetos.', ['projetos_criar', 'projetos_editar', 'alocacoes_gerir', 'tarefas_gerir', 'prospeccao_gerir', 'cronograma_gerir']],
-  ['Gerência Técnica', 'Distribui e acompanha o trabalho técnico da equipe e dos bolsistas; mantém cadastro de pessoas, habilidades e disponibilidade.', ['alocacoes_gerir', 'tarefas_gerir', 'pessoas_gerir', 'cronograma_gerir']],
-  ['Gerência de Infraestrutura', 'Cuida de bancos de ensaio, células de teste, instrumentação, manutenção, segurança (PPCI) e compras de infraestrutura.', ['infraestrutura_gerir', 'cronograma_gerir']],
-  ['Gerência Financeira', 'Controla orçamento aprovado, execução e saldo por rubrica; bolsas e pagamentos; prestação de contas com as fundações.', ['financeiro_ver', 'financeiro_editar', 'historico_ver', 'cronograma_gerir']]];
+  ['Gerência de Projetos', 'Acompanha cronogramas, status e entregas de todo o portfólio; organiza alocações; conduz a prospecção de novos projetos.', ['projetos_criar', 'projetos_editar', 'alocacoes_gerir', 'tarefas_gerir', 'prospeccao_gerir', 'cronograma_gerir', 'financeiro_reformular']],
+  ['Gerência Técnica', 'Distribui e acompanha o trabalho técnico da equipe e dos bolsistas; mantém cadastro de pessoas, habilidades e disponibilidade.', ['alocacoes_gerir', 'tarefas_gerir', 'pessoas_gerir', 'cronograma_gerir', 'financeiro_reformular']],
+  ['Gerência de Infraestrutura', 'Cuida de bancos de ensaio, células de teste, instrumentação, manutenção, segurança (PPCI) e compras de infraestrutura.', ['infraestrutura_gerir', 'cronograma_gerir', 'financeiro_reformular']],
+  ['Gerência Financeira', 'Controla orçamento aprovado, execução e saldo por rubrica; bolsas e pagamentos; prestação de contas com as fundações.', ['financeiro_ver', 'financeiro_editar', 'historico_ver', 'cronograma_gerir', 'financeiro_reformular']]];
 
 /* ── tabelas (espelho do banco) ─────────────────────────────────── */
 const TABLES = {
@@ -125,7 +126,7 @@ const TABLES = {
   tarefas: {}, tarefa_responsaveis: { key: null, noStamp: true }, rubricas: { key: 'codigo', noStamp: true },
   vinculos_financeiros: {}, orcamento_rubricas: {}, plano_itens: {}, desembolsos: {}, desembolso_rubricas: { key: null, noStamp: true }, despesas: {}, prospeccoes: {}, avaliacoes: { noStamp: true },
   historico: { noStamp: true, noHist: true, key: 'id' },
-  reprogramacoes: { noStamp: true },
+  reprogramacoes: { noStamp: true }, reformulacoes: {},
   infra_itens: {}, infra_habilitacoes: {}, infra_reservas: {}, infra_manutencoes: {},
 };
 /* Colunas de cada tabela no banco (gpmot_schema.sql). Campos fora desta lista não são gravados,
@@ -139,6 +140,7 @@ const COLUNAS = Object.fromEntries(Object.entries({
   checklist_itens: 'id fase nome descricao tipos obrigatorio ordem ativo',
   cronograma: 'id projeto_id codigo titulo descricao entrega validador mes_inicio mes_fim responsavel_texto responsavel_id percentual status data_conclusao evidencia obs ordem criado_em atualizado_em atualizado_por mes_inicio_base mes_fim_base',
   reprogramacoes: 'id projeto_id data motivo documento alteracoes criado_em criado_por autor',
+  reformulacoes: 'id projeto_id numero tipo data situacao documento justificativa alteracoes remanejado rendimentos aplicada_em criado_em criado_por autor atualizado_em atualizado_por',
   desembolso_rubricas: 'desembolso_id projeto_id rubrica valor',
   desembolsos: 'id projeto_id numero descricao fundacao data_prevista valor_previsto status data_recebida valor_recebido documento obs criado_em atualizado_em atualizado_por',
   despesas: 'id projeto_id rubrica data competencia descricao favorecido documento valor pessoa_id vinculo_id item_id obs criado_em criado_por atualizado_em atualizado_por',
@@ -168,7 +170,7 @@ const COLUNAS = Object.fromEntries(Object.entries({
 }).map(([t, c]) => [t, new Set(c.split(' '))]));
 /* Campos obrigatórios que têm valor padrão no banco. Dados antigos (de antes de o campo existir)
    chegam sem eles ou vazios; ao enviar ao banco, recebem o mesmo padrão que o banco usaria. */
-const PADRAO_BANCO = {"aditivos":{"tipo":"prazo"},"alocacoes":{"carga_pct":25,"coordena":false,"nivel":1,"status":"ativo","vice_coordena":false},"avaliacoes":{"avaliado_em":"@agora","bloqueada":false,"esforcos":{},"filtros":{},"notas":{}},"candidatos":{"status":"inscrito"},"checklist_itens":{"ativo":true,"obrigatorio":true,"ordem":0,"tipos":[]},"cronograma":{"ordem":0,"percentual":0,"status":"planejada"},"desembolso_rubricas":{"valor":0},"desembolsos":{"status":"prevista","valor_previsto":0},"documentos":{"restrito":false,"tipo":"outro"},"entregas":{"status":"pendente","tipo":"relatorio_parcial"},"equipe_plano":{"categoria":"outro","etapas":[],"ordem":0,"status":"vaga"},"equipe_plano_bolsas":{"meses":1,"rubrica":"1.1.1","valor_mensal":0},"gerencia_membros":{"desde":"@hoje","funcao":"titular"},"gerencias":{"ativa":true,"ordem":0,"permissoes":[]},"infra_habilitacoes":{"desde":"@hoje","nivel":"operador"},"infra_itens":{"categoria":"equipamento","especificacoes":{},"requer_habilitacao":false,"reservavel":true,"status":"operacional"},"infra_manutencoes":{"status":"planejada"},"infra_reservas":{"status":"solicitada"},"orcamento_rubricas":{"aprovado":0,"previsto":0},"pendencias":{"categoria":"administrativa","prioridade":"normal","status":"aberta"},"pessoa_checklist":{"data":"@hoje","feito":true},"pessoas":{"ativo":true,"disponibilidade_pct":100,"habilidades":[],"ordem":0,"perfil_disponibilidade":"interno","risco_sobrecarga":false,"tipo":"outro"},"plano_itens":{"moeda":"BRL","numero":0,"origem":"nacional","status":"previsto","valor_previsto":0},"projetos":{"contrapartida":0,"ordem":0,"placeholder":false,"situacao":"vigente","status":"pendente","tipo":"edital","valor_total":0},"prospeccoes":{"situacao":"avaliacao"},"rubricas":{"ordem":0,"planos":["edital","servico"]},"tarefas":{"concluida":false,"prioridade":"normal","titulo":""},"vinculos_financeiros":{"rubrica":"1.1.1","status":"previsto","tipo":"bolsa","valor_mensal":0}};
+const PADRAO_BANCO = {"aditivos":{"tipo":"prazo"},"alocacoes":{"carga_pct":25,"coordena":false,"nivel":1,"status":"ativo","vice_coordena":false},"avaliacoes":{"avaliado_em":"@agora","bloqueada":false,"esforcos":{},"filtros":{},"notas":{}},"candidatos":{"status":"inscrito"},"checklist_itens":{"ativo":true,"obrigatorio":true,"ordem":0,"tipos":[]},"cronograma":{"ordem":0,"percentual":0,"status":"planejada"},"desembolso_rubricas":{"valor":0},"desembolsos":{"status":"prevista","valor_previsto":0},"documentos":{"restrito":false,"tipo":"outro"},"entregas":{"status":"pendente","tipo":"relatorio_parcial"},"equipe_plano":{"categoria":"outro","etapas":[],"ordem":0,"status":"vaga"},"equipe_plano_bolsas":{"meses":1,"rubrica":"1.1.1","valor_mensal":0},"gerencia_membros":{"desde":"@hoje","funcao":"titular"},"gerencias":{"ativa":true,"ordem":0,"permissoes":[]},"infra_habilitacoes":{"desde":"@hoje","nivel":"operador"},"infra_itens":{"categoria":"equipamento","especificacoes":{},"requer_habilitacao":false,"reservavel":true,"status":"operacional"},"infra_manutencoes":{"status":"planejada"},"infra_reservas":{"status":"solicitada"},"orcamento_rubricas":{"aprovado":0,"previsto":0},"pendencias":{"categoria":"administrativa","prioridade":"normal","status":"aberta"},"pessoa_checklist":{"data":"@hoje","feito":true},"pessoas":{"ativo":true,"disponibilidade_pct":100,"habilidades":[],"ordem":0,"perfil_disponibilidade":"interno","risco_sobrecarga":false,"tipo":"outro"},"plano_itens":{"moeda":"BRL","numero":0,"origem":"nacional","status":"previsto","valor_previsto":0},"projetos":{"contrapartida":0,"ordem":0,"placeholder":false,"situacao":"vigente","status":"pendente","tipo":"edital","valor_total":0},"prospeccoes":{"situacao":"avaliacao"},"reformulacoes":{"alteracoes":{},"remanejado":0,"rendimentos":0,"situacao":"submetida","tipo":"financeira"},"rubricas":{"ordem":0,"planos":["edital","servico"]},"tarefas":{"concluida":false,"prioridade":"normal","titulo":""},"vinculos_financeiros":{"rubrica":"1.1.1","status":"previsto","tipo":"bolsa","valor_mensal":0}};
 function completarObrigatorios(t, row) {
   const P = PADRAO_BANCO[t]; if (!P) return row;
   for (const [c, v] of Object.entries(P)) if (row[c] === undefined || row[c] === null || row[c] === '') {
@@ -291,6 +293,9 @@ const Perm = {
   gereCronograma: pid => Perm.gereProjeto(pid) || Perm.tem('cronograma_gerir'),
   veFin: pid => Perm.dir() || Perm.coordena(pid) || Perm.tem('financeiro_ver'),
   editaFin: pid => Perm.dir() || Perm.coordena(pid) || Perm.tem('financeiro_editar'),
+  /* reformulações financeiras: Direção, coordenação e gerências (financeiro_editar ou financeiro_reformular) */
+  veOrc: pid => Perm.veFin(pid) || Perm.tem('financeiro_reformular'),
+  reformulaFin: pid => Perm.editaFin(pid) || Perm.tem('financeiro_reformular'),
   gereTarefas: pid => !!pid && (Perm.gereProjeto(pid) || Perm.tem('tarefas_gerir')),
   gerePessoa: pid => Perm.dir() || Perm.tem('pessoas_gerir') || D.alocacoes.some(a => a.pessoa_id === pid && Perm.coordena(a.projeto_id)),
   gereCandidatos: pid => Perm.gereProjeto(pid) || Perm.tem('alocacoes_gerir') || Perm.tem('pessoas_gerir'),
@@ -328,6 +333,7 @@ const POLICY = {
   equipe_plano_bolsas: { all: r => Perm.editaFin(r.projeto_id) },
   aditivos: { all: r => Perm.gereProjeto(r.projeto_id) },
   reprogramacoes: { ins: n => Perm.gereCronograma(n.projeto_id), upd: () => false, del: () => Perm.dir() },
+  reformulacoes: { ins: n => Perm.reformulaFin(n.projeto_id), upd: r => Perm.reformulaFin(r.projeto_id), del: () => Perm.dir() },
   cronograma: { ins: n => Perm.gereProjeto(n.projeto_id), upd: (n, o) => Perm.gereCronograma(o.projeto_id) || (Perm.podeEditar() && !!ME.pessoa_id && o.responsavel_id === ME.pessoa_id), del: (n, o) => Perm.gereProjeto(o.projeto_id) },
   candidatos: { all: r => Perm.gereCandidatos(r.projeto_id) },
   checklist_itens: { all: () => Perm.dir() || Perm.tem('pessoas_gerir') },
@@ -342,10 +348,10 @@ const POLICY = {
   },
   tarefa_responsaveis: { all: r => { const t = byId('tarefas', r.tarefa_id); return !!t && Perm.gereTarefa(t); } },
   vinculos_financeiros: { all: r => Perm.editaFin(r.projeto_id) },
-  orcamento_rubricas: { all: r => Perm.editaFin(r.projeto_id) },
-  plano_itens: { all: r => Perm.editaFin(r.projeto_id) },
+  orcamento_rubricas: { all: r => Perm.reformulaFin(r.projeto_id) },
+  plano_itens: { all: r => Perm.reformulaFin(r.projeto_id) },
   desembolsos: { all: r => Perm.editaFin(r.projeto_id) },
-  desembolso_rubricas: { all: r => Perm.editaFin(r.projeto_id) },
+  desembolso_rubricas: { all: r => Perm.reformulaFin(r.projeto_id) },
   despesas: { all: r => Perm.editaFin(r.projeto_id) },
   prospeccoes: { ins: () => Perm.gereProspeccao(), upd: () => Perm.gereProspeccao(), del: () => Perm.dir() },
   avaliacoes: { ins: () => Perm.gereProspeccao(), upd: () => false, del: () => Perm.dir() },
@@ -702,7 +708,7 @@ function aplicarVisaoLocal() {
   D.tarefas = D.tarefas.filter(t => (t.projeto_id && part.has(t.projeto_id)) || minhas.has(t.id));
   const tids = new Set(D.tarefas.map(t => t.id));
   D.tarefa_responsaveis = D.tarefa_responsaveis.filter(r => (eu && r.pessoa_id === eu) || tids.has(r.tarefa_id));
-  ['equipe_plano_bolsas', 'plano_itens', 'desembolsos', 'desembolso_rubricas', 'vinculos_financeiros', 'orcamento_rubricas', 'despesas', 'prospeccoes', 'avaliacoes',
+  ['equipe_plano_bolsas', 'plano_itens', 'reformulacoes', 'desembolsos', 'desembolso_rubricas', 'vinculos_financeiros', 'orcamento_rubricas', 'despesas', 'prospeccoes', 'avaliacoes',
     'infra_itens', 'infra_habilitacoes', 'infra_reservas', 'infra_manutencoes', 'candidatos', 'historico'].forEach(t => D[t] = []);
   D.pessoa_checklist = D.pessoa_checklist.filter(r => r.pessoa_id === eu);
   D.perfis = D.perfis.filter(p => eu && p.pessoa_id === eu);

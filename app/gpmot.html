@@ -1,11 +1,8 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<meta name="robots" content="noindex">
-<link rel="manifest" href="manifest.webmanifest">
-<link rel="apple-touch-icon" href="icone-192.png">
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-yIZVRrKSk4bS+rMBbp5pLSXujBk7t11VWd6fF0hkMLk=' 'sha256-PJj/74WEbZv6R4UAmSoGa8WukkebBvSQs0HySdngWSo='; style-src 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; connect-src https://wsmvuqldcxuosdfisjob.supabase.co wss://wsmvuqldcxuosdfisjob.supabase.co; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-yIZVRrKSk4bS+rMBbp5pLSXujBk7t11VWd6fF0hkMLk=' 'sha256-fYTc2fBg10TwyylW/NH3n4RdLh8aUtlYtMVyWXMCPHY='; style-src 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; connect-src https: wss: http://localhost:* ws://localhost:*; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GPMOT/UFSM — Gestão de Portfólio</title>
@@ -295,7 +292,7 @@ if (window.top !== window.self) { document.documentElement.hidden = true; try { 
    ════════════════════════════════════════════════════════════════════ */
 const VERSAO = '2.28';
 const VERSAO_DATA = '01/10/2026';
-const SUPABASE_CONFIG = { url: "https://wsmvuqldcxuosdfisjob.supabase.co", anonKey: "sb_publishable_LpOyzRZfKrq3uQB2G1ChxA_hd8EaJ89" };   // ← preencher na implantação
+const SUPABASE_CONFIG = { url: '', anonKey: '' };   // ← preencher na implantação
 
 /* ── utilidades ─────────────────────────────────────────────────── */
 const pad2 = n => String(n).padStart(2, '0');

@@ -199,12 +199,12 @@ const MAPA_NATUREZA = [
 const rubricaDaNatureza = nome => { const n = nrmPT(nome); const m = MAPA_NATUREZA.find(([re]) => re.test(n)); return m ? m[1] : null; };
 
 /* ── SIGITEC (Petrobras): "Plano de Trabalho" exportado do sistema em PDF ── */
-async function lerPlanoSIGITEC(buf, nomeArquivo, inflar) {
-  const pags = await lerPDF(buf, inflar);
+async function lerPlanoSIGITEC(buf, nomeArquivo, inflar, opts = {}) {
+  const pags = opts.pags || await lerPDF(buf, inflar);
   const todas = linhasPDF(pags);
-  const lixo = l => /^(PETROBRAS|SIGITEC - Gest[aã]o de Investimentos em Tecnologia|PLANO DE TRABALHO|CRONOGRAMA DE DESEMBOLSO)$/i.test(l.txt) || /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/.test(l.txt) || /^P[aá]gina \d+ de \d+$/i.test(l.txt);
+  const lixo = l => /^(PETROBRAS|SIGITEC - Gest[aã]o de Investimentos em Tecnologia|PLANO DE TRABALHO|CRONOGRAMA DE DESEMBOLSO)$/i.test(l.txt) || /^\d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/.test(l.txt) || /^P[aá]gina \d+ de \d+$/i.test(l.txt) || /^Solicita[cç][aã]o de (Reformula[cç][aã]o|Aditivo|Altera[cç][aã]o)[\w\sçãáéíóúêô/-]*$/i.test(l.txt) || /^(Solicita[cç][aã]o de .*|DIFEREN[CÇ]AS DE OR[CÇ]AMENTO|JUSTIFICATIVA (T[EÉ]CNICA|DAS ALTERA).*) \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}$/i.test(l.txt);
   const L = todas.filter(l => !lixo(l));
-  if (!todas.some(l => /SIGITEC/i.test(l.txt)) || !todas.some(l => /^PLANO DE TRABALHO$/i.test(l.txt))) falha('Este PDF não parece ser um Plano de Trabalho exportado do SIGITEC (Petrobras).');
+  if (!opts.reformulacao && (!todas.some(l => /SIGITEC/i.test(l.txt)) || !todas.some(l => /^PLANO DE TRABALHO$/i.test(l.txt)))) falha('Este PDF não parece ser um Plano de Trabalho exportado do SIGITEC (Petrobras).');
   const R = { formato: 'SIGITEC (Petrobras) — PDF', arquivo: nomeArquivo, abas: [], paginas: pags.length, avisos: [], conferencias: [], declarado: {} };
   const idx = (re, de = 0) => { for (let i = de; i < L.length; i++) if (re.test(L[i].txt)) return i; return -1; };
   const entre = (reIni, reFim, de = 0) => { const a = idx(reIni, de); if (a < 0) return []; const b = idx(reFim, a + 1); return L.slice(a + 1, b < 0 ? L.length : b); };
@@ -300,7 +300,7 @@ async function lerPlanoSIGITEC(buf, nomeArquivo, inflar) {
       const e = R.equipe.find(x => nrmPT(x.nomeOriginal) === nrmPT(bl.nome)); if (!e) { semPar++; return; }
       const nomes = juntaTxt(bl.txt).split(/Etapa:/).flatMap(p => (p.split(/Atividades:/)[1] || '').split(/\s*;\s*/)).map(s => nrmPT(s)).filter(Boolean);
       e.etapas = [...new Set(nomes.map(n => codAtv[n]).filter(Boolean))];
-      const faltam = nomes.filter(n => !codAtv[n]); if (faltam.length) R.avisos.push(`Atividades de ${e.nomeOriginal} não encontradas no cronograma: ${faltam.join('; ')}`);
+      const faltam = nomes.filter(n => !codAtv[n]); if (faltam.length && !opts.reformulacao) R.avisos.push(`Atividades de ${e.nomeOriginal} não encontradas no cronograma: ${faltam.join('; ')}`);
     });
     R.conferencias.push({ ok: !semPar && blocos.length === R.equipe.length, txt: `Matriz equipe × atividades: ${blocos.length - semPar} de ${R.equipe.length} membros` }); }
   /* 4. relatórios previstos → entregas */
@@ -317,7 +317,7 @@ async function lerPlanoSIGITEC(buf, nomeArquivo, inflar) {
   /* 6. relações de itens (por natureza) */
   R.itens = []; R.bolsas = [];
   { const iniRel = []; L.forEach((l, i) => { if (/^Rela[cç][aã]o dos Itens - /.test(l.txt)) iniRel.push(i); });
-    const fimTudo = idx(/^Outras Fontes$/);
+    const fimTudo = idx(/^(Outras Fontes|Documentos( -|$)|DIFEREN[CÇ]AS DE OR[CÇ]AMENTO|JUSTIFICATIVA T[EÉ]CNICA)/);
     iniRel.forEach((a, n) => {
       const b = n + 1 < iniRel.length ? iniRel[n + 1] : (fimTudo < 0 ? L.length : fimTudo);
       const titulo = L[a].txt.replace(/^Rela[cç][aã]o dos Itens - /, ''), partes = titulo.split(/\s+-\s+/), natureza = partes[0], origem = /importad/i.test(titulo) ? 'importado' : 'nacional';
@@ -380,7 +380,7 @@ async function lerPlanoSIGITEC(buf, nomeArquivo, inflar) {
       const parc = meses.map((m, i) => ({ numero: i + 1, mes: m, descricao: `${i + 1}ª parcela (mês ${m})`, valor: 0, porNatureza: {} }));
       for (const l of sec) { const t = l.its.map(x => x.s.trim()).filter(Boolean), iv = t.findIndex(ehValorBR); if (iv < 1 || !parc.length) continue;
         const vals = t.slice(iv).map(valorBR); let nome = juntaTxt(t.slice(0, iv)).replace(/^Despesas (de Capital|Correntes)\s*/i, '').trim();
-        if (/^TOTAL GERAL$/i.test(nome)) { parc.forEach((p, k) => p.valor = vals[k] || 0); R.declarado.totalDesembolso = vals[parc.length]; continue; }
+        if (/^TOTAL GERAL$/i.test(nome)) { parc.forEach((p, k) => p.valor = vals[k] || 0); R.declarado.totalDesembolso = vals[parc.length]; break; }
         if (/^TOTAL DE/i.test(nome) || !nome) continue;
         parc.forEach((p, k) => { if (vals[k]) p.porNatureza[nome] = vals[k]; }); }
       R.desembolso = parc.length ? { fundacao: R.gestora || '', parcelas: parc } : null;
