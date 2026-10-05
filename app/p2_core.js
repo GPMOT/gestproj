@@ -11,7 +11,7 @@ if (window.top !== window.self) { document.documentElement.hidden = true; try { 
      e o programa passa a ler e gravar no banco Supabase, com login.
    ════════════════════════════════════════════════════════════════════ */
 const VERSAO = '2.30';
-const VERSAO_DATA = '01/10/2026';
+const VERSAO_DATA = '05/10/2026';
 const SUPABASE_CONFIG = { url: '', anonKey: '' };   // ← preencher na implantação
 
 /* ── utilidades ─────────────────────────────────────────────────── */
