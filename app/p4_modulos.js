@@ -249,7 +249,7 @@ A.finConciliarTodos = async () => {
 
 /* tabela de orçamento no formato do modelo: grupos somam as rubricas finais */
 function orcTabela(p) {
-  const { rows, tot } = Calc.orcamento(p), pode = Perm.editaFin(p.id);
+  const { rows, tot } = Calc.orcamento(p), pode = Perm.editaFin(p.id), rend = Calc.rendimentos(p.id);
   const inp = (x, campo) => pode && x.folha
     ? `<input class="cin" id="orc_${p.id}_${x.r.codigo}_${campo}" type="text" inputmode="decimal" data-orc="${p.id}|${x.r.codigo}|${campo}" value="${x[campo] ? fmtNum2(x[campo]) : ''}" placeholder="0,00" title="Aceita 1.234,56 ou 1234.56">`
     : fmtBRL2(x[campo]);
@@ -271,7 +271,10 @@ function orcTabela(p) {
   if (rows.some(x => x.folha && x.executado > x.aprovado + 0.005)) avisos.push('Há rubricas com gasto acima do aprovado (em vermelho) — verifique remanejamento.');
   return `<div class="card tw" style="padding:4px 8px"><table class="t orc"><tr><th>Código</th><th>Rubrica</th><th class="num">Aprovado</th><th class="num">Previsto</th><th class="num">Executado</th><th class="num">Saldo</th><th>Execução</th>${pode ? '<th></th>' : ''}</tr>
     ${linhas}
-    <tr class="total"><td></td><td>Total</td><td class="num">${fmtBRL2(tot.aprovado)}</td><td class="num">${fmtBRL2(tot.previsto)}</td><td class="num">${fmtBRL2(tot.executado)}</td><td class="num" style="color:${tot.saldo < 0 ? 'var(--red)' : 'inherit'}">${fmtBRL2(tot.saldo)}</td><td>${tot.aprovado ? barraExec(tot.executado, tot.aprovado) : ''}</td>${pode ? '<td></td>' : ''}</tr></table></div>
+    <tr class="total"><td></td><td>Total</td><td class="num">${fmtBRL2(tot.aprovado)}</td><td class="num">${fmtBRL2(tot.previsto)}</td><td class="num">${fmtBRL2(tot.executado)}</td><td class="num" style="color:${tot.saldo < 0 ? 'var(--red)' : 'inherit'}">${fmtBRL2(tot.saldo)}</td><td>${tot.aprovado ? barraExec(tot.executado, tot.aprovado) : ''}</td>${pode ? '<td></td>' : ''}</tr>
+    ${rend.total ? `<tr class="rend"><td></td><td>Rendimentos de aplicação financeira<div class="small muted">${esc(rend.refs.map(x => (x.numero ? x.numero + 'ª reformulação' : 'reformulação') + ': ' + fmtBRL2(x.valor)).join(' · '))} — em ${esc(Object.entries(rend.porRubrica).map(([c, v]) => c + ' ' + Calc.rotuloRubrica(c).replace(/^\S+\s*/, '') + ' ' + fmtBRL2(v)).join('; '))}</div></td>
+      <td class="num">${fmtBRL2(rend.total)}</td><td colspan="${pode ? 5 : 4}" class="small muted">fora do valor do projeto; usados nos itens do plano de aplicação</td></tr>
+    <tr class="total"><td></td><td>Total com rendimentos</td><td class="num">${fmtBRL2(tot.aprovado + rend.total)}</td><td colspan="${pode ? 5 : 4}"></td></tr>` : ''}</table></div>
   ${pode ? '<div class="small muted mt">Digite Aprovado e Previsto direto nas células das rubricas finais; os grupos (Custeio, Pessoal, Viagens, Capital) somam sozinhos. O Executado vem das despesas lançadas.</div>' : ''}
   ${avisos.map(a => `<div class="alert warn mt">${esc(a)}</div>`).join('')}`;
 }
@@ -817,7 +820,7 @@ function finPlano(p) {
     const its = g.itens.filter(passa);
     const aviso = g.itens.length && Math.abs(g.dif) > 0.5 ? `<span class="small" style="color:var(--yellow-txt)" title="Soma dos itens ≠ aprovado na rubrica">⚠ itens ${g.dif > 0 ? 'acima' : 'abaixo'} do aprovado em ${fmtBRL2(Math.abs(g.dif))}</span>` : '';
     const head = `<tr class="grp"><td class="cod">${esc(g.r.codigo)}</td><td colspan="2"><b>${esc(g.r.nome)}</b> <span class="small muted">· ${g.itens.length} item(ns)</span> ${aviso}</td>
-      <td class="num" style="white-space:nowrap">${fmtBRL(g.aprovado)}</td><td class="num small muted" style="white-space:nowrap">${g.itens.length ? fmtBRL(g.previstoItens) : ''}</td><td class="num">${g.n ? `<span class="execlink" data-a="despVer" data-projeto="${p.id}" data-rubrica="${g.r.codigo}">${fmtBRL(g.executado)}</span>` : fmtBRL(0)}</td>
+      <td class="num" style="white-space:nowrap">${fmtBRL(g.aprovado)}${g.rendimentos ? `<div class="small muted" title="Rendimentos de aplicação financeira autorizados em reformulação (fora do aprovado)">+ ${fmtBRL(g.rendimentos)} rend.</div>` : ''}</td><td class="num small muted" style="white-space:nowrap">${g.itens.length ? fmtBRL(g.previstoItens) : ''}</td><td class="num">${g.n ? `<span class="execlink" data-a="despVer" data-projeto="${p.id}" data-rubrica="${g.r.codigo}">${fmtBRL(g.executado)}</span>` : fmtBRL(0)}</td>
       <td class="num" style="color:${g.aprovado - g.executado < -0.005 ? 'var(--red)' : 'inherit'}">${fmtBRL(g.aprovado - g.executado)}</td><td></td>${pode ? `<td>${g.r.codigo.startsWith('1.1') ? '' : `<button class="btn-s" data-a="itemPlanoNovo" data-projeto="${p.id}" data-rubrica="${g.r.codigo}">+ item</button>`}</td>` : ''}</tr>`;
     const bolsas = bolsasPlanoRubrica(p, g.r.codigo, pode);
     const linhas = its.map(x => { const i = x.i, st = ST_ITEM[i.status] || [i.status, 'b-gray'];

@@ -151,8 +151,11 @@ async function lerReformulacao(f) {
 
 /* ── comparação com o sistema ─────────────────────────────────────────────── */
 const chaveItem = s => nrmPT(s).replace(/[^a-z0-9]+/g, ' ').trim();
-function acharItemPlano(pid, rubrica, descricao, origem, usados = new Set()) {
+function acharItemPlano(pid, rubrica, descricao, origem, usados = new Set(), qualquer = false) {
   const k = chaveItem(descricao); if (!k) return null;
+  if (qualquer) return acharItemPlano(pid, rubrica, descricao, origem, usados) || (() => {   // mesmo item lançado em outra rubrica (mapa natureza → rubrica mudou)
+    const l = D.plano_itens.filter(x => x.projeto_id === pid && x.rubrica !== rubrica && !usados.has(x.id) && chaveItem(x.descricao) === k);
+    return l.find(x => x.status !== 'cancelado' && (x.origem || 'nacional') === origem) || l.find(x => x.status !== 'cancelado') || l[0] || null; })();
   const c = D.plano_itens.filter(x => x.projeto_id === pid && x.rubrica === rubrica && !usados.has(x.id));
   const iguais = c.filter(x => chaveItem(x.descricao) === k);
   const pref = l => l.find(x => x.status !== 'cancelado' && (x.origem || 'nacional') === origem) || l.find(x => x.status !== 'cancelado') || l.find(x => (x.origem || 'nacional') === origem) || l[0] || null;
@@ -172,7 +175,7 @@ function retratoReformulacao(R, p) {
   itens.forEach(i => { const d = r2((i.prop.aplic || 0) - (i.vig.aplic || 0)); if (d && rubricas[i.rubrica]) rubricas[i.rubrica].rendimentos = r2(rubricas[i.rubrica].rendimentos + d); });
   Object.values(rubricas).forEach(r => { r.diferenca = r2(r.proposto - r.vigente); const ex = D.orcamento_rubricas.find(x => x.projeto_id === p.id && x.rubrica === r.rubrica); r.sistema = ex ? num(ex.aprovado) : 0; });
   const pr = R.proposto || {}; if (pr.naturezas && pr.naturezas.length) { pr.naturezas.forEach(n => { n.rubrica = rubDe(n.nome); }); aplicarNaturezas(pr); }
-  const propostos = (pr.itens || []).filter(i => i.rubrica).map(i => ({ rubrica: i.rubrica, origem: i.origem || 'nacional', descricao: i.descricao, quantidade: i.quantidade ?? null, valor_unitario: i.valor_unitario ?? null,
+  const propostos = (pr.itens || []).filter(i => i.rubrica).map(i => ({ rubrica: i.rubrica, natureza: i.natureza || null, origem: i.origem || 'nacional', descricao: i.descricao, quantidade: i.quantidade ?? null, valor_unitario: i.valor_unitario ?? null,
     moeda: i.moeda || 'BRL', cambio: i.cambio ?? null, detalhe: i.detalhe || null, justificativa: i.justificativa || null, valor: r2(i.valor_previsto || 0), aplic: aplicDe.get(i.rubrica + '|' + chaveItem(i.descricao)) || 0 }));
   const desembolso = pr.desembolso ? pr.desembolso.parcelas.map(x => ({ numero: x.numero, mes: x.mes || null, valor: x.valor, dist: x.dist || {} })) : [];
   return { documento: { arquivo: R.arquivo || null, formato: R.formato || null, processo: R.processo || null, tipo: R.tipoSolicitacao || null, situacao: R.situacaoDoc || null, elaborada_por: R.elaboradaPor || null },
@@ -183,7 +186,7 @@ function retratoReformulacao(R, p) {
 /* situação de cada item da solicitação frente ao plano de aplicação do sistema */
 function compararItens(alt, pid) {
   const usados = new Set();
-  return alt.itens.map(i => { const ex = acharItemPlano(pid, i.rubrica, i.descricao, i.origem, usados); if (ex) usados.add(ex.id);
+  return alt.itens.map(i => { const ex = acharItemPlano(pid, i.rubrica, i.descricao, i.origem, usados, true); if (ex) usados.add(ex.id);
     const vs = ex ? num(ex.valor_previsto) : null;
     const sit = i.op === 'I' ? (ex && ex.status !== 'cancelado' ? 'existe' : 'novo') : !ex ? 'falta' : Math.abs(vs - i.vig.valor) >= 0.01 ? 'difere' : 'ok';
     return { i, ex, sit }; });
@@ -192,10 +195,10 @@ function compararItens(alt, pid) {
 function planoSincronizacao(alt, pid) {
   const usados = new Set(), upd = [], ins = [], canc = [], travados = [];
   const rubs = new Set(alt.propostos.map(x => x.rubrica));
-  alt.propostos.forEach(x => { const ex = acharItemPlano(pid, x.rubrica, x.descricao, x.origem, usados), zero = (x.valor || 0) + (x.aplic || 0) < 0.005;   // o SIGITEC mantém os excluídos com valor zero
+  alt.propostos.forEach(x => { const ex = acharItemPlano(pid, x.rubrica, x.descricao, x.origem, usados, true), zero = (x.valor || 0) + (x.aplic || 0) < 0.005;   // o SIGITEC mantém os excluídos com valor zero
     if (ex) { if (!zero) { usados.add(ex.id); upd.push({ x, ex }); } } else if (!zero) ins.push(x); });
   D.plano_itens.filter(i => i.projeto_id === pid && rubs.has(i.rubrica) && !usados.has(i.id) && i.status !== 'cancelado').forEach(i => (i.status === 'previsto' ? canc : travados).push(i));
-  return { upd, ins, canc, travados, mudam: upd.filter(({ x, ex }) => Math.abs(num(ex.valor_previsto) - x.valor) >= 0.01 || ex.status === 'cancelado') };
+  return { upd, ins, canc, travados, mudam: upd.filter(({ x, ex }) => Math.abs(num(ex.valor_previsto) - x.valor - (x.aplic || 0)) >= 0.01 || ex.status === 'cancelado' || ex.rubrica !== x.rubrica), movem: upd.filter(({ x, ex }) => ex.rubrica !== x.rubrica) };
 }
 
 /* ── tela: Financeiro do projeto → Reformulações ──────────────────────────── */
@@ -242,9 +245,9 @@ function previaReformulacao(R, pid) {
   <div class="tw mb"><table class="t small"><tr><th>Natureza no documento</th><th class="num">Vigente</th><th class="num">Proposto</th><th class="num">Diferença</th><th>Rubrica GPMOT</th></tr>${R.naturezas.map((nt, k) => `<tr${Math.abs(nt.diferenca) >= 0.01 ? ' style="font-weight:600"' : ''}><td>${esc(nt.nome)}</td><td class="num">${fmtBRL2(nt.vigente)}</td><td class="num">${fmtBRL2(nt.proposto)}</td>
     <td class="num" style="color:${nt.diferenca < -0.005 ? 'var(--red)' : nt.diferenca > 0.005 ? 'var(--green)' : 'inherit'}">${Math.abs(nt.diferenca) >= 0.01 ? (nt.diferenca > 0 ? '+' : '−') + fmtBRL2(Math.abs(nt.diferenca)) : '—'}</td>
     <td><select class="rf-nat" data-i="${k}"><option value="">— não mapear —</option>${folhas.map(r => `<option value="${esc(r.codigo)}"${r.codigo === nt.rubrica ? ' selected' : ''}>${esc(r.codigo)} ${esc(r.nome)}</option>`).join('')}</select></td></tr>`).join('')}</table></div>
-  <div class="tw mb"><table class="t small"><tr><th>Rubrica</th><th class="num">No sistema (aprovado)</th><th class="num">Vigente no documento</th><th class="num">Proposto</th>${R.rendimentos ? '<th class="num">+ Rendimentos</th>' : ''}<th class="num">Fica no sistema</th></tr>
+  <div class="tw mb"><table class="t small"><tr><th>Rubrica</th><th class="num">No sistema (aprovado)</th><th class="num">Vigente no documento</th><th class="num">Proposto</th><th class="num">Fica aprovado</th>${R.rendimentos ? '<th class="num">Rendimentos (à parte)</th>' : ''}</tr>
     ${alt.rubricas.map(r => `<tr><td><b>${esc(r.rubrica)}</b> <span class="muted">${esc(nomeR(r.rubrica))}</span></td><td class="num">${fmtBRL2(r.sistema)}${Math.abs(r.sistema - r.vigente) >= 0.01 ? ' <span style="color:var(--yellow-txt)" title="O aprovado no sistema difere do vigente informado pelo financiador (reformulações anteriores não registradas?)">⚠</span>' : ''}</td>
-      <td class="num">${fmtBRL2(r.vigente)}</td><td class="num">${fmtBRL2(r.proposto)}</td>${R.rendimentos ? `<td class="num">${r.rendimentos ? fmtBRL2(r.rendimentos) : '—'}</td>` : ''}<td class="num rf-fica" data-r="${esc(r.rubrica)}"><b>${fmtBRL2(r.proposto)}</b></td></tr>`).join('')}</table></div>
+      <td class="num">${fmtBRL2(r.vigente)}</td><td class="num">${fmtBRL2(r.proposto)}</td><td class="num"><b>${fmtBRL2(r.proposto)}</b></td>${R.rendimentos ? `<td class="num">${r.rendimentos ? fmtBRL2(r.rendimentos) : '—'}</td>` : ''}</tr>`).join('')}</table></div>
   ${divRub.length ? `<div class="alert warn small mb">O aprovado de ${divRub.length} rubrica(s) no sistema não bate com o vigente do documento — provavelmente há reformulações anteriores que não foram registradas aqui. Ao aplicar, o aprovado passa a ser o <b>proposto</b> do documento (valor absoluto), o que corrige também essas diferenças.</div>` : ''}
   <div class="sec">2 · Itens do plano de aplicação (${alt.itens.length})</div>
   <div class="tw mb" style="max-height:300px;overflow:auto"><table class="t small"><tr><th>Operação</th><th>Rubrica</th><th>Item</th><th class="num">Vigente</th><th class="num">Proposto</th><th>No sistema</th></tr>
@@ -254,8 +257,8 @@ function previaReformulacao(R, pid) {
   ${(R.semValor || []).filter(j => j.texto).length ? `<div class="small muted mb">Justificativas sem item com valor alterado: ${R.semValor.filter(j => j.texto).map(j => esc(j.descricao)).join('; ')}.</div>` : ''}
   <div class="small mb"><b>Como aplicar no plano de aplicação:</b>
     <label class="row" style="margin-top:4px"><input type="radio" name="rf_modo" value="alteracoes"${sugereSinc ? '' : ' checked'}> só as operações desta solicitação (${cmp.filter(c => c.i.op === 'E').length} exclusão(ões), ${cmp.filter(c => c.i.op === 'A').length} alteração(ões), ${cmp.filter(c => c.i.op === 'I').length} inclusão(ões))${divIt.length ? ` — <span style="color:var(--yellow-txt)">${divIt.length} item(ns) com divergência</span>` : ''}</label>
-    ${temProposto ? `<label class="row"><input type="radio" name="rf_modo" value="sincronizar"${sugereSinc ? ' checked' : ''}> sincronizar com o orçamento completo proposto (${alt.propostos.length} itens): ${sinc.mudam.length} atualizado(s), ${sinc.ins.length} incluído(s), ${sinc.canc.length} cancelado(s)${sinc.travados.length ? `; ${sinc.travados.length} em aquisição/adquirido(s) fora da relação ficam como estão` : ''}${sugereSinc ? ' <b>(recomendado: o sistema está diferente do vigente)</b>' : ''}</label>` : ''}</div>
-  ${R.rendimentos ? `<label class="row small mb"><input type="checkbox" id="rf_rend" checked> somar os ${fmtBRL2(R.rendimentos)} de rendimentos de aplicação ao aprovado das rubricas e ao valor dos itens que os usam</label>` : ''}
+    ${temProposto ? `<label class="row"><input type="radio" name="rf_modo" value="sincronizar"${sugereSinc ? ' checked' : ''}> sincronizar com o orçamento completo proposto (${alt.propostos.length} itens): ${sinc.mudam.length} atualizado(s), ${sinc.ins.length} incluído(s), ${sinc.canc.length} cancelado(s)${sinc.movem.length ? `, ${sinc.movem.length} mudam de rubrica` : ''}${sinc.travados.length ? `; ${sinc.travados.length} em aquisição/adquirido(s) fora da relação ficam como estão` : ''}${sugereSinc ? ' <b>(recomendado: o sistema está diferente do vigente)</b>' : ''}</label>` : ''}</div>
+  ${R.rendimentos ? `<label class="row small mb"><input type="checkbox" id="rf_rend" checked> incluir os ${fmtBRL2(R.rendimentos)} de rendimentos de aplicação no valor dos itens que os usam — ficam numa linha à parte no orçamento, fora do aprovado e do valor do projeto</label>` : ''}
   <div class="sec">3 · Desembolso</div>
   ${alt.desembolso.length ? `<label class="row small mb"><input type="checkbox" id="rf_des" checked> atualizar a distribuição por rubrica das parcelas ainda <b>previstas</b> (as recebidas não mudam)</label>
     <div class="row small" style="gap:16px;flex-wrap:wrap">${alt.desembolso.map(x => { const ex = D.desembolsos.find(d => d.projeto_id === pid && d.numero === x.numero); return `<span>${esc(x.numero)}ª parcela${x.mes ? ' (mês ' + esc(x.mes) + ')' : ''}: <b>${fmtBRL2(x.valor)}</b> <span class="muted">${ex ? (ex.status === 'prevista' ? '· prevista no sistema' : '· ' + esc(ex.status) + ' — não muda') : '· não cadastrada no sistema'}</span></span>`; }).join('')}</div>`
@@ -266,13 +269,14 @@ function previaReformulacao(R, pid) {
     <div><label class="fl">Data da submissão</label><input id="rf_data" type="date" value="${R.data || hoje()}"></div>
     <div><label class="fl">Situação</label><select id="rf_sit"><option value="submetida">Submetida — só registra (aplica depois, quando aprovada)</option><option value="aprovada">Aprovada — registra e aplica agora</option></select></div>
     <div><label class="fl">Documento</label><input id="rf_doc" value="${esc(R.arquivo || '')}"></div></div>
+  ${jaReg ? `<label class="row small mb"><input type="checkbox" id="rf_subst" checked> substituir o registro da ${esc(jaReg.numero)}ª reformulação já existente${jaReg.aplicada_em ? ' e <b>refazer a aplicação</b> (corrige o mapa de rubricas, os rendimentos e os itens; os valores passam a ser os desta prévia)' : ''}</label>` : ''}
   ${pend.length ? `<div class="alert warn mt small"><label class="row"><input type="checkbox" id="rf_conf"> Revisei as ${pend.length} divergência(s) das conferências</label></div>` : ''}
   <div class="merr" id="rf_err" style="display:none"></div>
   <div class="mactions"><button id="rf_pad" title="Baixa o que foi lido no formato padrão do GPMOT (.json): serve para conferir, corrigir à mão e carregar de novo">Baixar reformulação padrão (.json)</button><button id="rf_c">Cancelar</button><button class="btn-p" id="rf_ok">Registrar</button></div>`;
   openModal(html, { wide: true, sticky: true, noFocus: true });
   const root = document.getElementById('modal-root'), q = s => root.querySelector(s), qa = s => [...root.querySelectorAll(s)];
-  const fica = () => { const rend = q('#rf_rend') && q('#rf_rend').checked; qa('.rf-fica').forEach(td => { const r = alt.rubricas.find(x => x.rubrica === td.dataset.r); td.innerHTML = `<b>${fmtBRL2(r.proposto + (rend ? r.rendimentos : 0))}</b>`; }); };
-  if (q('#rf_rend')) q('#rf_rend').onchange = fica; fica();
+  
+  if (jaReg && jaReg.aplicada_em) { q('#rf_sit').value = 'aprovada'; q('#rf_ok').textContent = 'Registrar e aplicar'; }
   q('#rf_sit').onchange = () => { q('#rf_ok').textContent = q('#rf_sit').value === 'aprovada' ? 'Registrar e aplicar' : 'Registrar'; };
   q('#rf_x').onclick = q('#rf_c').onclick = closeModal;
   qa('.rf-nat').forEach(sel => sel.onchange = () => { R.naturezas[+sel.dataset.i].rubrica = sel.value || null; previaReformulacao(R, pid); });
@@ -284,8 +288,13 @@ function previaReformulacao(R, pid) {
     const btn = q('#rf_ok'); btn.disabled = true;
     try {
       alt.opcoes = { modo: (qa('input[name="rf_modo"]').find(x => x.checked) || {}).value || 'alteracoes', rendimentos: !!(q('#rf_rend') && q('#rf_rend').checked), desembolso: !!(q('#rf_des') && q('#rf_des').checked) };
-      const ref = await Data.insert('reformulacoes', { projeto_id: pid, numero: parseInt(q('#rf_num').value, 10) || null, tipo: 'financeira', data: isDate(q('#rf_data').value) ? q('#rf_data').value : hoje(), situacao: 'submetida',
-        documento: q('#rf_doc').value.trim() || null, justificativa: R.justificativa || null, alteracoes: alt, remanejado: R.remanejado || 0, rendimentos: R.rendimentos || 0, autor: ME.pessoa_id ? nomePessoa(ME.pessoa_id) : (ME.email || null) });
+      const campos = { numero: parseInt(q('#rf_num').value, 10) || null, tipo: 'financeira', data: isDate(q('#rf_data').value) ? q('#rf_data').value : hoje(), situacao: 'submetida',
+        documento: q('#rf_doc').value.trim() || null, justificativa: R.justificativa || null, alteracoes: alt, remanejado: R.remanejado || 0, rendimentos: R.rendimentos || 0 };
+      const subst = jaReg && q('#rf_subst') && q('#rf_subst').checked;
+      if (subst && jaReg.aplicada_em) { const ant = jaReg.alteracoes || {}, dep = ((ant.resultado || {}).rubricas || []);   // rubricas que a aplicação anterior definiu e o novo mapa não usa
+        alt.substitui = (ant.rubricas || []).filter(r => !alt.rubricas.some(x => x.rubrica === r.rubrica)).map(r => ({ rubrica: r.rubrica, valor: (dep.find(d => d.rubrica === r.rubrica) || {}).depois ?? r.proposto })); }
+      const ref = subst ? await Data.update('reformulacoes', jaReg.id, { ...campos, aplicada_em: null })
+        : await Data.insert('reformulacoes', { projeto_id: pid, ...campos, autor: ME.pessoa_id ? nomePessoa(ME.pessoa_id) : (ME.email || null) });
       let msg = `✓ ${ref.numero ? ref.numero + 'ª r' : 'R'}eformulação registrada como submetida`;
       if (q('#rf_sit').value === 'aprovada') { const res = await aplicarReformulacao(ref.id); msg = '✓ Reformulação aprovada e aplicada: ' + res.resumo; }
       closeModal(); UI.tab = 'projetos'; UI.projeto = pid; UI.projAba = 'financeiro'; UI.sub.projFin = 'reformulacoes'; render(); flash(msg);
@@ -305,11 +314,16 @@ async function aplicarReformulacao(id) {
   /* 1. aprovado por rubrica = proposto do documento (+ rendimentos, se escolhido) */
   for (const r of alt.rubricas || []) {
     if (!rubricaFolha(r.rubrica)) { res.notas.push(`Rubrica ${r.rubrica} não existe no plano de contas: ignorada.`); continue; }
-    const novo = r2(r.proposto + (rend ? r.rendimentos || 0 : 0)), ex = D.orcamento_rubricas.find(x => x.projeto_id === pid && x.rubrica === r.rubrica);
+    const novo = r2(r.proposto), ex = D.orcamento_rubricas.find(x => x.projeto_id === pid && x.rubrica === r.rubrica);
     const antes = ex ? num(ex.aprovado) : 0; if (Math.abs(antes - novo) < 0.005) continue;
     if (ex) await Data.update('orcamento_rubricas', ex.id, { aprovado: novo, ...(num(ex.previsto) ? { previsto: r2(Math.max(0, num(ex.previsto) + novo - antes)) } : {}), obs: nota(ex.obs, `${nRef} (${quando}): aprovado ${fmtBRL2(antes)} → ${fmtBRL2(novo)}.`) });
     else await Data.insert('orcamento_rubricas', { projeto_id: pid, rubrica: r.rubrica, aprovado: novo, previsto: novo, obs: `Criada pela ${nRef} (${quando}).` });
     res.rubricas.push({ rubrica: r.rubrica, antes, depois: novo });
+  }
+  for (const r of alt.substitui || []) {   // refazer: rubrica usada só pelo mapa anterior volta a zero (se ninguém a mudou depois)
+    const ex = D.orcamento_rubricas.find(x => x.projeto_id === pid && x.rubrica === r.rubrica); if (!ex || Math.abs(num(ex.aprovado) - num(r.valor)) >= 0.005) continue;
+    await Data.update('orcamento_rubricas', ex.id, { aprovado: 0, ...(num(ex.previsto) ? { previsto: r2(Math.max(0, num(ex.previsto) - num(ex.aprovado))) } : {}), obs: nota(ex.obs, `${nRef} refeita (${quando}): aprovado ${fmtBRL2(ex.aprovado)} → ${fmtBRL2(0)}.`) });
+    res.rubricas.push({ rubrica: r.rubrica, antes: num(ex.aprovado), depois: 0 });
   }
   /* 2. plano de aplicação */
   const gastos = it => D.despesas.filter(d => d.item_id === it.id).reduce((t, d) => t + num(d.valor), 0);
@@ -321,8 +335,9 @@ async function aplicarReformulacao(id) {
   if (op.modo === 'sincronizar' && (alt.propostos || []).length) {
     const s = planoSincronizacao(alt, pid);
     for (const { x, ex } of s.upd) { const v = valorProp(x), o = justOp.get(x.rubrica + '|' + chaveItem(x.descricao));
-      if (Math.abs(num(ex.valor_previsto) - v) < 0.005 && ex.status !== 'cancelado' && !o) continue;
-      await Data.update('plano_itens', ex.id, { valor_previsto: v, quantidade: x.quantidade, valor_unitario: x.valor_unitario, ...(ex.status === 'cancelado' && v > 0 ? { status: 'previsto' } : {}), ...(!ex.justificativa && x.justificativa ? { justificativa: x.justificativa } : {}),
+      const move = ex.rubrica !== x.rubrica && !(gastos(ex) > 0.005); if (ex.rubrica !== x.rubrica && !move) res.notas.push(`"${ex.descricao}" tem gastos lançados em ${ex.rubrica}: não foi movido para ${x.rubrica}.`);
+      if (Math.abs(num(ex.valor_previsto) - v) < 0.005 && ex.status !== 'cancelado' && !o && !move) continue;
+      await Data.update('plano_itens', ex.id, { valor_previsto: v, ...(move ? { rubrica: x.rubrica, numero: prox(x.rubrica) } : {}), quantidade: x.quantidade, valor_unitario: x.valor_unitario, ...(ex.status === 'cancelado' && v > 0 ? { status: 'previsto' } : {}), ...(!ex.justificativa && x.justificativa ? { justificativa: x.justificativa } : {}),
         ...(Math.abs(num(ex.valor_previsto) - v) >= 0.005 || o ? { obs: nota(ex.obs, `${nRef} (${quando}): ${fmtBRL2(ex.valor_previsto)} → ${fmtBRL2(v)}${o && o.justificativa ? ' — ' + o.justificativa : ''}`) } : {}) });
       res.itens.alterados++; }
     for (const x of s.ins) { const o = justOp.get(x.rubrica + '|' + chaveItem(x.descricao));
@@ -333,7 +348,7 @@ async function aplicarReformulacao(id) {
   } else {
     const usados = new Set();
     for (const i of alt.itens || []) {
-      const ex = acharItemPlano(pid, i.rubrica, i.descricao, i.origem, usados); if (ex) usados.add(ex.id);
+      const ex = acharItemPlano(pid, i.rubrica, i.descricao, i.origem, usados, true); if (ex) usados.add(ex.id);
       const motivo = `${i.op === 'E' ? 'Excluído' : i.op === 'I' ? 'Incluído' : 'Alterado'} pela ${nRef} (${quando})${i.justificativa ? ' — ' + i.justificativa : ''}.`;
       if (i.op === 'E') { if (ex) { if (ex.status !== 'cancelado') await cancelar(ex, motivo); } else res.itens.naoEncontrados.push(i.descricao); }
       else if (i.op === 'I' && !(ex && ex.status !== 'cancelado')) {
@@ -358,7 +373,7 @@ async function aplicarReformulacao(id) {
   }
   if ((alt.equipe || []).length) res.notas.push('Há alterações de bolsas da equipe executora: confira as bolsas previstas em Equipe.');
   const totAp = D.orcamento_rubricas.filter(x => x.projeto_id === pid).reduce((t, x) => t + num(x.aprovado), 0);
-  if (p && num(p.valor_total) && Math.abs(totAp - num(p.valor_total)) >= 0.01 && !(rend && Math.abs(totAp - num(p.valor_total) - (alt.rubricas || []).reduce((t, r) => t + (r.rendimentos || 0), 0)) < 0.01))
+  if (p && num(p.valor_total) && Math.abs(totAp - num(p.valor_total)) >= 0.01)
     res.notas.push(`A soma do aprovado por rubrica (${fmtBRL2(totAp)}) difere do valor do contrato (${fmtBRL2(p.valor_total)}).`);
   res.resumo = [res.rubricas.length ? `${res.rubricas.length} rubrica(s)` : '', res.itens.incluidos ? `${res.itens.incluidos} item(ns) incluído(s)` : '', res.itens.alterados ? `${res.itens.alterados} alterado(s)` : '', res.itens.cancelados ? `${res.itens.cancelados} cancelado(s)` : '', res.parcelas ? `${res.parcelas} parcela(s) redistribuída(s)` : ''].filter(Boolean).join(', ') || 'nada mudou';
   await Data.update('reformulacoes', ref.id, { situacao: 'aprovada', aplicada_em: new Date().toISOString(), alteracoes: { ...alt, resultado: { em: new Date().toISOString(), por: ME.pessoa_id ? nomePessoa(ME.pessoa_id) : (ME.email || null), ...res } } });

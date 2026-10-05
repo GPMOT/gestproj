@@ -2,7 +2,7 @@
 
 Programa de gestão de projetos, equipe, financeiro e infraestrutura do laboratório.
 O produto final é **um único arquivo HTML** (funciona offline, sem instalar nada), montado a partir das partes em `app/`.
-Versão do programa: **2.28** · versão do esquema do banco: **1.7**. Implantação no Supabase: veja `../Guia de implantação online (Supabase).docx`.
+Versão do programa: **2.29** · versão do esquema do banco: **1.8**. Implantação no Supabase: veja `../Guia de implantação online (Supabase).docx`.
 
 ```
 Software de Gestão/
@@ -12,7 +12,7 @@ Software de Gestão/
 ├─ gpmot-portfolio-26-09-23.json                 ← dados do programa antigo (usados nos testes)
 ├─ H - Fundep_…_revisao_final.xlsx               ← planilha do edital (tem CPFs — nunca copiar para o código-fonte)
 ├─ Plano_de_Trabalho_Final_-_SIGITEC.pdf · visualizaSolicitaçãoDeAditiv.pdf ← documentos da Petrobras (usados nos testes t21 e t23)
-└─ codigo-fonte/                                 (38 arquivos)
+└─ codigo-fonte/                                 (39 arquivos)
    ├─ README.md · build.cjs · .gitignore
    ├─ app/          10 partes do programa (editar aqui) + marca/ (logotipo e ícones) + vendor/ (biblioteca supabase-js)
    ├─ banco/        gpmot_schema.sql (banco completo) + atualização da versão anterior
@@ -71,8 +71,9 @@ Remanejamentos entre rubricas, inclusão, exclusão ou alteração de itens e no
   - **conferências do documento** (29 na solicitação da Petrobras): vigente + diferença = proposto em cada natureza; total geral; os itens alterados somam a diferença da natureza; o orçamento completo proposto bate com o resumo, item a item e no desembolso;
   - **natureza → rubrica** (editável) e, por rubrica, *no sistema × vigente × proposto × rendimentos*;
   - **cada item** (inclusão, exclusão, alteração) com a sua justificativa e a situação no plano de aplicação do sistema (confere / valor diferente / não encontrado / será incluído).
-- **Como aplicar**: só as operações da solicitação, ou **sincronizar com o orçamento completo proposto** (recomendado quando o sistema não reflete reformulações anteriores: o plano de aplicação passa a ser exatamente a relação proposta; itens fora dela ou zerados são cancelados — nunca apagados —; itens em aquisição ou adquiridos não são tocados). Rendimentos de aplicação financeira podem ser somados ao aprovado e aos itens que os usam. A distribuição por rubrica das parcelas ainda **previstas** é atualizada.
+- **Como aplicar**: só as operações da solicitação, ou **sincronizar com o orçamento completo proposto** (recomendado quando o sistema não reflete reformulações anteriores: o plano de aplicação passa a ser exatamente a relação proposta; itens fora dela ou zerados são cancelados — nunca apagados —; itens em aquisição ou adquiridos não são tocados). Rendimentos de aplicação financeira **não** entram no aprovado nem no valor do projeto: ficam numa linha à parte, abaixo do total do Orçamento por rubrica (“Total com rendimentos”), e podem ser incluídos no valor dos itens que os usam (o aviso de itens acima do aprovado os considera). A distribuição por rubrica das parcelas ainda **previstas** é atualizada.
 - **Situação**: *submetida* só registra (o orçamento não muda); quando o financiador aprovar, abra o registro e use **Aprovada pelo financiador — aplicar**; *rejeitada* fica no histórico. O aprovado de cada rubrica passa a ser o **proposto** do documento (valor absoluto), com observação “antes → depois” na rubrica e em cada item.
+- **Refazer**: carregar de novo a mesma solicitação oferece *substituir o registro e refazer a aplicação* — serve para corrigir o mapa natureza → rubrica ou as opções. Itens já lançados em outra rubrica mudam de rubrica (exceto os que têm gastos), nada é duplicado, e rubricas que só o mapa anterior usava voltam a zero.
 - **Registro** (`reformulacoes`): nº, data de submissão, documento, justificativa técnica, autor (gravado pelo banco) e o retrato completo da solicitação em `alteracoes` (rubricas, itens, relação proposta, desembolso, opções e o resultado da aplicação). A Direção pode excluir o registro (o que já foi aplicado não é desfeito).
 - **Outros financiadores**: o mesmo caminho do plano de trabalho — um leitor em `LEITORES_REFORMULACAO`, ou a **reformulação padrão (.json)** (`gpmot-reformulacao-1`, exportável pela prévia): `numero`, `data`, `documento`, `justificativa`, `naturezas: [{nome, rubrica?, vigente, proposto}]`, `itens: [{operacao: "I"|"E"|"A", natureza, descricao, origem, vigente: {quantidade, valor_unitario, valor}, proposto: {quantidade, valor_unitario, valor, aplicacao}, justificativa}]` e, opcional, `orcamento_proposto` (um plano padrão `gpmot-plano-1` com o orçamento completo depois da reformulação, que habilita a sincronização e o desembolso).
 

@@ -1,6 +1,7 @@
 -- ════════════════════════════════════════════════════════════════════
 --  GPMOT/UFSM — Gestão de Portfólio
---  Esquema do banco de dados (PostgreSQL / Supabase) — versão 1.7
+--  Esquema do banco de dados (PostgreSQL / Supabase) — versão 1.8
+--  02/10/2026 — v1.8: rubrica 1.6 Outros bens e direitos (natureza própria nos planos do SIGITEC)
 --  01/10/2026 — v1.7: reformulações financeiras (remanejamento entre rubricas e itens, desembolso),
 --               registradas por Direção, coordenação e gerências (financeiro_reformular)
 --  01/10/2026 — v1.6: reprogramação de cronograma (Direção, coordenação e gerências com cronograma_gerir),
@@ -786,9 +787,10 @@ insert into public.rubricas (codigo, nome, pai, ordem) values
   ('1.3',   'Material de consumo',     '1',   8),
   ('1.4',   'Serviços de Terceiros',   '1',   9),
   ('1.5',   'Custos Administrativos',  '1',  10),
-  ('2',     'Capital',                 null, 11),
-  ('2.1',   'Material permanente',     '2',  12),
-  ('2.2',   'Obras',                   '2',  13);
+  ('1.6',   'Outros bens e direitos',  '1',  11),
+  ('2',     'Capital',                 null, 12),
+  ('2.1',   'Material permanente',     '2',  13),
+  ('2.2',   'Obras',                   '2',  14);
 
 -- Só rubricas-folha (sem sub-rubricas) recebem valores
 create or replace function public.e_rubrica_folha(p text)

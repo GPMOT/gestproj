@@ -194,7 +194,7 @@ const MAPA_NATUREZA = [
   [/equipe executora|bolsa|pessoal|recursos humanos/, '1.1.1'], [/clt|encargos/, '1.1.2'],
   [/passage/, '1.2.1'], [/di[aá]ria|ajuda de custo/, '1.2.2'],
   [/material de consumo|consumo/, '1.3'], [/servi[cç]os de terceiros|servi[cç]o/, '1.4'],
-  [/outros bens e direitos|licen[cç]a|software/, '1.4'],
+  [/outros bens e direitos|licen[cç]a|software/, '1.6'],
   [/outras despesas|despesas operacionais|administrativ|indiretos|doa\b/, '1.5'], [/custos diretos/, '1.5']];
 const rubricaDaNatureza = nome => { const n = nrmPT(nome); const m = MAPA_NATUREZA.find(([re]) => re.test(n)); return m ? m[1] : null; };
 

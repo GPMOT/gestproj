@@ -1162,7 +1162,7 @@ const TESTES = {
       nat: [...document.querySelectorAll('.im-nat')].map(s => s.value), eq: document.querySelectorAll('.im-eq').length, at: document.querySelectorAll('.im-at').length, atck: document.querySelectorAll('.im-at:checked').length, entR: !!document.querySelector('#im_entR'), campos: [...document.querySelectorAll('.im-campo')].map(x => x.dataset.k) }));
     ok(/SIGITEC/.test(pv.titulo), 'formato reconhecido', pv.titulo);
     ok(/22 de 22 conferem/.test(pv.conf), 'todas as conferências do documento batem', pv.conf);
-    ok(pv.nat.join(',') === '2.1,1.1.1,1.2.1,1.2.2,1.3,1.4,1.4,1.5', 'naturezas → rubricas', pv.nat);
+    ok(pv.nat.join(',') === '2.1,1.1.1,1.2.1,1.2.2,1.3,1.4,1.6,1.5', 'naturezas → rubricas', pv.nat);
     ok(pv.eq === 20 && pv.at === 28 && pv.atck === 28 && pv.entR, 'equipe (20), 28 atividades marcadas e relatórios previstos', pv);
     ok(pv.campos.includes('fundacao_apoio') && pv.campos.includes('nome'), 'mostra os campos do projeto que diferem do documento', pv.campos);
     await pg.$$eval('.im-campo', els => els.forEach(e => e.checked = true));
@@ -1313,7 +1313,7 @@ const TESTES = {
         rend: !!root.querySelector('#rf_rend'), des: !!root.querySelector('#rf_des'), num: root.querySelector('#rf_num').value, data: root.querySelector('#rf_data').value,
         sits: [...root.querySelectorAll('table')[2].querySelectorAll('tr')].slice(1).map(tr => tr.lastElementChild.innerText.replace(/\s+/g, ' ')), aviso: !!root.querySelector('.alert.warn') }; });
     ok(/todas as 29 conferem/.test(pv.conf), 'todas as conferências da solicitação batem', pv.conf);
-    ok(pv.nat.join(',') === '2.1,1.1.1,1.2.1,1.2.2,1.3,1.4,1.4,1.5' && pv.num === '5' && pv.data === '2026-09-29', 'naturezas → rubricas, nº 5 e data da submissão', [pv.nat, pv.num, pv.data]);
+    ok(pv.nat.join(',') === '2.1,1.1.1,1.2.1,1.2.2,1.3,1.4,1.6,1.5' && pv.num === '5' && pv.data === '2026-09-29', 'naturezas → rubricas, nº 5 e data da submissão', [pv.nat, pv.num, pv.data]);
     ok(pv.sits.length === 13 && pv.sits.filter(x => /será incluído/.test(x)).length === 5 && /⚠ no sistema R\$ 15\.116,91/.test(pv.sits[0]), 'prévia compara cada item com o plano do sistema (vigente ≠ sistema sinalizado)', pv.sits);
     ok(pv.modo === 'sincronizar' && pv.rend && pv.des, 'sugere sincronizar com o orçamento proposto completo; rendimentos e desembolso marcados', pv);
     await pg.click('#rf_ok'); await pg.waitForTimeout(800);
@@ -1327,17 +1327,32 @@ const TESTES = {
         cab: its.filter(x => /Cabeçote/.test(x.descricao)).map(x => [x.valor_previsto, x.status]), novos: its.filter(x => /Recertifica|Inertiza|Limpeza de reserv|Análises químicas de acomp/.test(x.descricao)).map(x => [x.descricao.slice(0, 40), x.valor_previsto]),
         sit: r.situacao, aplicada: !!r.aplicada_em, res: r.alteracoes.resultado, parc: D.desembolsos.filter(d => d.projeto_id === id).map(d => [d.numero, d.status, Object.fromEntries(D.desembolso_rubricas.filter(z => z.desembolso_id === d.id).map(z => [z.rubrica, z.valor]))]) }; }, ids.p);
     const soma = await pg.evaluate(id => D.plano_itens.filter(x => x.projeto_id === id && x.status !== 'cancelado').reduce((t, x) => t + num(x.valor_previsto), 0), ids.p);
-    ok(dep.sit === 'aprovada' && dep.aplicada && Math.abs(dep.rub['1.3'] - 2815072.39) < 0.01 && Math.abs(dep.rub['1.4'] - (351785.37 + 49833.69 + 94181.67)) < 0.01 && dep.rub['1.5'] === 682190.21, 'aprovada e aplicada: material −178.385,37; serviços +178.385,37 + rendimentos', dep.rub);
+    ok(dep.sit === 'aprovada' && dep.aplicada && Math.abs(dep.rub['1.3'] - 2815072.39) < 0.01 && dep.rub['1.4'] === 351785.37 && dep.rub['1.6'] === 49833.69 && dep.rub['1.5'] === 682190.21 && Math.abs(Object.values(dep.rub).reduce((t, v) => t + v, 0) - 6077620) < 0.01, 'aprovada e aplicada: material −178.385,37; serviços +178.385,37 = 351.785,37; total do projeto mantido', dep.rub);
+    const rd = await pg.evaluate(id => { const r = Calc.rendimentos(id); A.projAbrir({ id, aba: 'financeiro' }); UI.sub.projFin = 'orcamento'; render();
+      return { r, linha: !!document.querySelector('#app tr.rend'), aviso: /difere do valor total/.test(document.querySelector('#app').innerText) }; }, ids.p);
+    ok(rd.r.total === 94181.67 && rd.r.porRubrica['1.4'] === 94181.67 && rd.linha && !rd.aviso, 'rendimentos de aplicação em linha à parte no orçamento, sem aviso de diferença', rd);
+    await pg.screenshot({ path: CFG.saida('f4_orcamento_rendimentos.png'), fullPage: false });
+    await pg.evaluate(id => { UI.sub.projFin = 'reformulacoes'; render(); }, ids.p);
     ok(dep.canc.includes('Bielas') && dep.canc.includes('Bicos injetores') && dep.canc.length === 15 && dep.ativos === 100, 'itens excluídos (e os de reformulações anteriores) cancelados; 100 itens ativos', [dep.ativos, dep.canc.length]);
     ok(dep.cab.length === 1 && dep.cab[0][0] === 76112.25 && dep.novos.length === 5 && dep.novos.some(x => x[1] === 63619.44) && dep.novos.some(x => x[1] === 33762), 'cabeçote alterado; 5 serviços incluídos (com rendimentos)', [dep.cab, dep.novos]);
     ok(Math.abs(soma - (6077620 - 1616103.6 + 94181.67)) < 0.01, 'plano de aplicação = orçamento proposto sem bolsas + rendimentos', soma);
-    ok(dep.parc[1][2]['1.3'] === 921614.63 && dep.parc[1][2]['1.4'] === 241785.37 && dep.res.parcelas === 1, '2ª parcela redistribuída', dep.parc[1]);
+    ok(dep.parc[1][2]['1.3'] === 921614.63 && dep.parc[1][2]['1.4'] === 221785.37 && dep.parc[1][2]['1.6'] === 20000 && dep.res.parcelas === 1, '2ª parcela redistribuída', dep.parc[1]);
     await pg.click('tr[data-a="refVer"]'); await pg.waitForSelector('#rv_x'); await pg.screenshot({ path: CFG.saida('f2_reformulacao_aplicada.png'), fullPage: false });
     const det = await pg.evaluate(() => { const r = document.querySelector('#modal-root'); return { aberto: !!r.querySelector('#rv_x'), ap: !!r.querySelector('#rv_ap') }; });
     ok(det.aberto && !det.ap, 'reformulação aplicada não oferece aplicar de novo', det);
     await pg.evaluate(() => closeModal());
     const de2 = await pg.evaluate(id => aplicarReformulacao(D.reformulacoes.find(r => r.projeto_id === id).id).then(() => 'aplicou', e => e.message), ids.p);
     ok(/já foi aplicada/.test(de2), 'não aplica duas vezes', de2);
+    // refazer: aplicação com "Outros Bens e Direitos" em 1.4 (como na v2.28) e depois corrigida para 1.6 — itens mudam de rubrica, nada duplica
+    for (const [rub, esp14, esp16] of [['1.4', 401619.06, 0], ['1.6', 351785.37, 49833.69]]) {
+      await abre();
+      await pg.selectOption('.rf-nat[data-i="6"]', rub); await pg.waitForSelector('#rf_subst');
+      ok(await pg.isChecked('#rf_subst') && (await pg.inputValue('#rf_sit')) === 'aprovada', 'reimportar a mesma solicitação oferece substituir e refazer a aplicação');
+      await pg.click('#rf_ok'); await pg.waitForTimeout(1500);
+      const rf = await pg.evaluate(id => { const its = D.plano_itens.filter(x => x.projeto_id === id && x.status !== 'cancelado'), rub = c => num((D.orcamento_rubricas.find(x => x.projeto_id === id && x.rubrica === c) || {}).aprovado);
+        return { n: D.reformulacoes.filter(r => r.projeto_id === id).length, a14: rub('1.4'), a16: rub('1.6'), ativos: its.length, i16: its.filter(x => x.rubrica === '1.6').length, soma: its.reduce((t, x) => t + num(x.valor_previsto), 0) }; }, ids.p);
+      ok(rf.n === 1 && rf.a14 === esp14 && rf.a16 === esp16 && rf.ativos === 100 && (rub === '1.6' ? rf.i16 > 0 : rf.i16 === 0) && Math.abs(rf.soma - (6077620 - 1616103.6 + 94181.67)) < 0.01, `refeita com Outros Bens e Direitos → ${rub}: itens movidos, sem duplicar`, rf);
+    }
     // a mesma solicitação de novo: avisa que já está registrada; exporta a reformulação padrão (.json) e ela é lida e conferida
     await abre();
     ok(/já está registrada/.test(await pg.textContent('#modal-root .note')), 'avisa que a 5ª reformulação já está registrada');

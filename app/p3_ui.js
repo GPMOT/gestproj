@@ -1689,7 +1689,7 @@ function pessoaDetalhe(p) {
       ${p.resumo ? `<div class="note mt">${esc(p.resumo)}</div>` : ''}
       ${(p.habilidades || []).length ? `<div class="mt">${p.habilidades.map(h => `<span class="tag">${esc(h)}</span>`).join('')}</div>` : ''}</div>
     <div class="card"><div class="bold mb">Funções de gestão</div>
-      ${gers.length ? gers.map(gm => { const g = byId('gerencias', gm.gerencia_id); const ativo = (!gm.desde || gm.desde <= hoje()) && (!gm.ate || gm.ate >= hoje()); return `<div class="small mb">${badge(g ? g.nome : '?', ativo ? 'b-blue' : 'b-gray')} ${gm.funcao} · ${fmtD(gm.desde)}${gm.ate ? ' → ' + fmtD(gm.ate) : ''}</div>`; }).join('') : '<div class="small faint mb">Nenhuma gerência.</div>'}
+      ${gers.length ? gers.map(gm => { const g = byId('gerencias', gm.gerencia_id); const ativo = (!gm.desde || gm.desde <= hoje()) && (!gm.ate || gm.ate >= hoje()); return `<div class="small mb">${badge(g ? g.nome : '?', ativo ? 'b-blue' : 'b-gray')} ${esc(gm.funcao)} · ${fmtD(gm.desde)}${gm.ate ? ' → ' + fmtD(gm.ate) : ''}</div>`; }).join('') : '<div class="small faint mb">Nenhuma gerência.</div>'}
       ${alocs.filter(a => a.coordena || a.vice_coordena).map(a => `<div class="small mb">${badge((a.coordena ? 'Coordenação · ' : 'Vice-coordenação · ') + siglaProjeto(a.projeto_id), 'b-green')}</div>`).join('')}
       ${habs.length ? `<div class="bold mb mt">Habilitações em infraestrutura</div>${habs.map(h => `<div class="small mb">${esc((byId('infra_itens', h.item_id) || {}).nome || '')} · ${esc(lbl(NIVEL_HAB, h.nivel))}${h.validade ? ' · até ' + fmtD(h.validade) : ''}${h.validade && h.validade < hoje() ? ' ' + badge('vencida', 'b-red') : ''}</div>`).join('')}` : ''}</div>
   </div>

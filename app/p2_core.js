@@ -10,7 +10,7 @@ if (window.top !== window.self) { document.documentElement.hidden = true; try { 
    - Modo online: preencha SUPABASE_CONFIG abaixo (ou em Configurações)
      e o programa passa a ler e gravar no banco Supabase, com login.
    ════════════════════════════════════════════════════════════════════ */
-const VERSAO = '2.28';
+const VERSAO = '2.29';
 const VERSAO_DATA = '01/10/2026';
 const SUPABASE_CONFIG = { url: '', anonKey: '' };   // ← preencher na implantação
 
@@ -82,10 +82,11 @@ const lbl = (list, v) => (list.find(x => x[0] === v) || [v, v || '—'])[1];
 const badge = (text, cls) => `<span class="b ${cls || 'b-gray'}">${esc(text)}</span>`;
 const badgeOf = (map, v) => { const x = map[v] || [v || '—', 'b-gray']; return badge(x[0], x[1]); };
 
+const r2c = v => Math.round(Number(v) * 100) / 100;
 const RUBRICAS_PADRAO = [   // [código, nome, rubrica-pai]
   ['1', 'Custeio', null], ['1.1', 'Pessoal', '1'], ['1.1.1', 'Bolsas', '1.1'], ['1.1.2', 'CLT', '1.1'],
   ['1.2', 'Viagens', '1'], ['1.2.1', 'Passagens', '1.2'], ['1.2.2', 'Diárias', '1.2'],
-  ['1.3', 'Material de consumo', '1'], ['1.4', 'Serviços de Terceiros', '1'], ['1.5', 'Custos Administrativos', '1'],
+  ['1.3', 'Material de consumo', '1'], ['1.4', 'Serviços de Terceiros', '1'], ['1.5', 'Custos Administrativos', '1'], ['1.6', 'Outros bens e direitos', '1'],
   ['2', 'Capital', null], ['2.1', 'Material permanente', '2'], ['2.2', 'Obras', '2']];
 const rubricasPadrao = () => RUBRICAS_PADRAO.map(([codigo, nome, pai], i) => ({ codigo, nome, pai, ordem: i + 1, planos: ['edital', 'servico'] }));
 const TIPOS_PROJ = [['edital', 'Edital'], ['servico', 'Prestação de serviço']];
@@ -668,6 +669,8 @@ function migrarFinanceiroLocal() {
   let antigas = null; try { antigas = JSON.parse(localStorage.getItem(LS_PREFIX + 'orcamento_linhas') || 'null'); } catch { }
   let mudou = false;
   if (!D.rubricas.some(r => r.codigo === '1.1.1')) { D.rubricas = rubricasPadrao(); mudou = true; }
+  { const pad = rubricasPadrao(), falta = pad.filter(r => !D.rubricas.some(x => x.codigo === r.codigo));   // rubricas novas do plano padrão (ex.: 1.6 na v2.29)
+    if (falta.length) { D.rubricas.push(...falta); pad.forEach(r => { const x = D.rubricas.find(y => y.codigo === r.codigo); x.ordem = r.ordem; }); mudou = true; } }
   D.projetos.forEach(p => { if (!p.tipo) { p.tipo = 'edital'; mudou = true; } });
   D.vinculos_financeiros.forEach(v => { if (!v.rubrica) { v.rubrica = v.tipo === 'tecnico' ? '1.1.2' : '1.1.1'; delete v.linha_aprovada_id; mudou = true; } });
   if (Array.isArray(antigas) && antigas.length) {
@@ -1171,6 +1174,14 @@ const Calc = {
   /* valor do item em R$: quantidade × unitário × câmbio */
   valorItem(i) { const q = i.quantidade == null ? 1 : num(i.quantidade), c = i.moeda && i.moeda !== 'BRL' ? num(i.cambio) || 0 : 1; return Math.round(q * num(i.valor_unitario) * c * 100) / 100; },
   /* plano de aplicação: por rubrica final, itens previstos × aprovado × execução */
+  /* rendimentos de aplicação financeira autorizados por reformulações aplicadas: fora do aprovado (não somam ao valor do projeto) */
+  rendimentos(pid) {
+    const porRubrica = {}, refs = [];
+    D.reformulacoes.filter(r => r.projeto_id === pid && r.aplicada_em && ((r.alteracoes || {}).opcoes || {}).rendimentos).forEach(r => {
+      let t = 0; ((r.alteracoes || {}).rubricas || []).forEach(x => { const v = num(x.rendimentos); if (v) { porRubrica[x.rubrica] = r2c((porRubrica[x.rubrica] || 0) + v); t += v; } });
+      if (t) refs.push({ numero: r.numero, valor: r2c(t) }); });
+    return { porRubrica, refs, total: r2c(Object.values(porRubrica).reduce((s, v) => s + v, 0)) };
+  },
   planoAplicacao(p) {
     const itens = D.plano_itens.filter(i => i.projeto_id === p.id);
     const desp = D.despesas.filter(d => d.projeto_id === p.id);
@@ -1181,7 +1192,8 @@ const Calc = {
       const ativos = its.filter(x => x.i.status !== 'cancelado');
       const previstoItens = ativos.reduce((s, x) => s + num(x.i.valor_previsto), 0);
       const semItem = desp.filter(d => d.rubrica === r.codigo && !d.item_id).reduce((s, d) => s + num(d.valor), 0);
-      return { r, ...v, itens: its, previstoItens, semItem, dif: v.aprovado && its.length ? previstoItens - v.aprovado : 0 };
+      const rend = Calc.rendimentos(p.id).porRubrica[r.codigo] || 0;
+      return { r, ...v, rendimentos: rend, itens: its, previstoItens, semItem, dif: (v.aprovado || rend) && its.length ? previstoItens - v.aprovado - rend : 0 };
     });
     const tot = { itens: itens.filter(i => i.status !== 'cancelado').length, adquiridos: itens.filter(i => i.status === 'adquirido').length, emAquisicao: itens.filter(i => i.status === 'em_aquisicao').length,
       previsto: grupos.reduce((s, g) => s + g.previstoItens, 0), executadoItens: Object.values(exItem).reduce((s, v) => s + v, 0) };
