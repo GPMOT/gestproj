@@ -444,7 +444,8 @@ async function executarImportacao(R, o) {
     const dt = toDate(isDate(o.des.ini) ? o.des.ini : o.inicio); if (x.mes) { const i0 = toDate(o.inicio); dt.setTime(new Date(i0.getFullYear(), i0.getMonth() + x.mes - 1, i0.getDate()).getTime()); } else dt.setMonth(dt.getMonth() + i * Math.max(1, o.des.intervalo || 12));
     const ex = D.desembolsos.find(d => d.projeto_id === p.id && d.numero === x.numero);
     if (ex && ex.status !== 'prevista') continue;
-    const row = { descricao: x.descricao, fundacao: R.desembolso.fundacao || null, valor_previsto: x.valor, data_prevista: ex && ex.data_prevista ? ex.data_prevista : isoOf(dt) };
+    const row = { descricao: x.descricao, fundacao: p.fundacao_apoio || R.desembolso.fundacao || null,   // a fundação do projeto prevalece (pode ter mudado depois do plano)
+      valor_previsto: x.valor, data_prevista: ex && ex.data_prevista ? ex.data_prevista : isoOf(dt) };
     const d = ex ? await Data.update('desembolsos', ex.id, row) : await Data.insert('desembolsos', { ...row, projeto_id: p.id, numero: x.numero, status: 'prevista' });
     await Data.removeWhere('desembolso_rubricas', { desembolso_id: d.id });
     for (const [rubrica, valor] of Object.entries(x.dist)) await Data.insert('desembolso_rubricas', { desembolso_id: d.id, projeto_id: p.id, rubrica, valor });

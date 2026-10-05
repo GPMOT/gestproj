@@ -2,7 +2,7 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-yIZVRrKSk4bS+rMBbp5pLSXujBk7t11VWd6fF0hkMLk=' 'sha256-2BZ+yO9/dAw5Nf8z54AGuVGQWDXlGnWVz/WY9LjF500='; style-src 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; connect-src https: wss: http://localhost:* ws://localhost:*; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-yIZVRrKSk4bS+rMBbp5pLSXujBk7t11VWd6fF0hkMLk=' 'sha256-mkXHoWkVBWVotWHHYl4cCwc76xH8pfxSDHMuFjYIvJw='; style-src 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; connect-src https: wss: http://localhost:* ws://localhost:*; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GPMOT/UFSM — Gestão de Portfólio</title>
@@ -290,7 +290,7 @@ if (window.top !== window.self) { document.documentElement.hidden = true; try { 
    - Modo online: preencha SUPABASE_CONFIG abaixo (ou em Configurações)
      e o programa passa a ler e gravar no banco Supabase, com login.
    ════════════════════════════════════════════════════════════════════ */
-const VERSAO = '2.29';
+const VERSAO = '2.30';
 const VERSAO_DATA = '01/10/2026';
 const SUPABASE_CONFIG = { url: '', anonKey: '' };   // ← preencher na implantação
 
@@ -4933,7 +4933,8 @@ async function executarImportacao(R, o) {
     const dt = toDate(isDate(o.des.ini) ? o.des.ini : o.inicio); if (x.mes) { const i0 = toDate(o.inicio); dt.setTime(new Date(i0.getFullYear(), i0.getMonth() + x.mes - 1, i0.getDate()).getTime()); } else dt.setMonth(dt.getMonth() + i * Math.max(1, o.des.intervalo || 12));
     const ex = D.desembolsos.find(d => d.projeto_id === p.id && d.numero === x.numero);
     if (ex && ex.status !== 'prevista') continue;
-    const row = { descricao: x.descricao, fundacao: R.desembolso.fundacao || null, valor_previsto: x.valor, data_prevista: ex && ex.data_prevista ? ex.data_prevista : isoOf(dt) };
+    const row = { descricao: x.descricao, fundacao: p.fundacao_apoio || R.desembolso.fundacao || null,   // a fundação do projeto prevalece (pode ter mudado depois do plano)
+      valor_previsto: x.valor, data_prevista: ex && ex.data_prevista ? ex.data_prevista : isoOf(dt) };
     const d = ex ? await Data.update('desembolsos', ex.id, row) : await Data.insert('desembolsos', { ...row, projeto_id: p.id, numero: x.numero, status: 'prevista' });
     await Data.removeWhere('desembolso_rubricas', { desembolso_id: d.id });
     for (const [rubrica, valor] of Object.entries(x.dist)) await Data.insert('desembolso_rubricas', { desembolso_id: d.id, projeto_id: p.id, rubrica, valor });
