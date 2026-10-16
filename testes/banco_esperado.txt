@@ -17,9 +17,9 @@ psql:02_gerencias_permissoes.sql:33: ERROR:  new row for relation "gerencias" vi
 --------+-------------------
  Hausen | {}
 
- quem  |                                  minhas_permissoes                                   
--------+--------------------------------------------------------------------------------------
- Mario | {alocacoes_gerir,cronograma_gerir,financeiro_reformular,pessoas_gerir,tarefas_gerir}
+ quem  |                                             minhas_permissoes                                              
+-------+------------------------------------------------------------------------------------------------------------
+ Mario | {alocacoes_gerir,atividades_acompanhar,cronograma_gerir,financeiro_reformular,pessoas_gerir,tarefas_gerir}
 
 === THOMPSON (Gerência Financeira, não coordena nada)
  vinculos_visiveis_esperado_2 
@@ -797,4 +797,135 @@ psql:17_reformulacao_financeira.sql:47: ERROR:  new row for relation "reformulac
 ---------+----------
  1.3     |   500.00
  1.4     |   500.00
+
+-- @@ 18_atividades_alunos
+== membro atribui uma atividade (sem projeto) à aluna Ana, com prazo na sexta da semana
+          titulo           | situacao | concluida 
+---------------------------+----------+-----------
+ Revisar curvas de pressão | a_fazer  | f
+
+== a aluna vê a atividade e o nome do solicitante; Davi não vê
+          titulo           | situacao | solicitante 
+---------------------------+----------+-------------
+ Revisar curvas de pressão | a_fazer  | Mario
+
+ nome  
+-------
+ Lucas
+ Mario
+
+== a aluna não muda o prazo, não marca como concluída e não entrega sem relato de entrega
+psql:18_atividades_alunos.sql:27: ERROR:  O responsável não altera solicitante, descrição, prazo nem projeto da atividade: peça ao solicitante.
+CONTEXT:  PL/pgSQL function tg_tarefa_fluxo() line 57 at RAISE
+psql:18_atividades_alunos.sql:28: ERROR:  Atividade com solicitante: use Entregar (responsável) e Aprovar (solicitante).
+CONTEXT:  PL/pgSQL function tg_tarefa_fluxo() line 29 at RAISE
+psql:18_atividades_alunos.sql:29: ERROR:  Para entregar, informe as horas e a descrição do que foi realizado.
+CONTEXT:  PL/pgSQL function tg_tarefa_fluxo() line 41 at RAISE
+== reporta (fica em andamento; o autor é gravado pelo banco) e entrega
+  tipo  | horas 
+--------+-------
+ relato |  3.00
+
+   situacao   
+--------------
+ em_andamento
+
+ situacao | entregue 
+----------+----------
+ entregue | t
+
+== depois de entregue: sem novos relatos; a própria aluna não aprova
+psql:18_atividades_alunos.sql:36: ERROR:  A atividade já foi entregue: não recebe novos relatos (o solicitante pode devolvê-la).
+CONTEXT:  PL/pgSQL function tg_relato() line 17 at RAISE
+psql:18_atividades_alunos.sql:37: ERROR:  Só o solicitante (ou a Direção) aprova ou devolve a atividade.
+CONTEXT:  PL/pgSQL function tg_tarefa_fluxo() line 34 at RAISE
+== outro aluno não vê nem relata
+ tarefas_visiveis | relatos 
+------------------+---------
+                0 |       0
+
+psql:18_atividades_alunos.sql:41: ERROR:  A atividade já foi entregue: não recebe novos relatos (o solicitante pode devolvê-la).
+CONTEXT:  PL/pgSQL function tg_relato() line 17 at RAISE
+== o solicitante devolve (parecer obrigatório); a aluna volta a reportar e entrega de novo; ele aprova
+psql:18_atividades_alunos.sql:44: ERROR:  Ao devolver, explique o que falta no parecer.
+CONTEXT:  PL/pgSQL function tg_tarefa_fluxo() line 35 at RAISE
+ situacao  
+-----------
+ devolvida
+
+   situacao   
+--------------
+ em_andamento
+
+ situacao 
+----------
+ entregue
+
+ situacao | concluida | data_conclusao | avaliada 
+----------+-----------+----------------+----------
+ aprovada | t         | t              | t
+
+== aluno registra a própria atividade: precisa de solicitante, que não pode ser ele mesmo nem outro aluno
+psql:18_atividades_alunos.sql:54: ERROR:  Informe o solicitante da atividade.
+CONTEXT:  PL/pgSQL function tg_tarefa_fluxo() line 6 at RAISE
+psql:18_atividades_alunos.sql:55: ERROR:  O solicitante deve ser outra pessoa (quem vai conferir a entrega).
+CONTEXT:  PL/pgSQL function tg_tarefa_fluxo() line 7 at RAISE
+psql:18_atividades_alunos.sql:56: ERROR:  O solicitante deve ser um membro do laboratório com acesso ao programa.
+CONTEXT:  PL/pgSQL function tg_tarefa_fluxo() line 9 at RAISE
+ situacao | concluida 
+----------+-----------
+ a_fazer  | f
+
+psql:18_atividades_alunos.sql:59: ERROR:  new row violates row-level security policy for table "tarefa_responsaveis"
+   prazo    
+------------
+ 2026-10-30
+
+== o solicitante vê a atividade registrada pelo aluno e os relatos; aluno não cria demanda de gerência
+      titulo      |   situacao   | horas | nome 
+------------------+--------------+-------+------
+ Estudo de normas | em_andamento |  4.00 | Davi
+
+psql:18_atividades_alunos.sql:67: ERROR:  Atividades registradas por alunos não pertencem a gerências.
+CONTEXT:  PL/pgSQL function tg_tarefa_fluxo() line 10 at RAISE
+== tarefa simples (sem solicitante) continua marcando concluída; horas fora do limite são recusadas
+ situacao 
+----------
+ a_fazer
+
+ situacao | data 
+----------+------
+ aprovada | t
+
+== Direção restaurando backup: o relato mantém autor e data originais e não muda a situação da atividade
+ autor |   criado   | situacao 
+-------+------------+----------
+ Ana   | 2026-09-01 | a_fazer
+
+psql:18_atividades_alunos.sql:78: ERROR:  new row for relation "tarefa_relatos" violates check constraint "tarefa_relatos_horas_check"
+ horas_totais | relatos 
+--------------+---------
+        12.50 |       5
+
+-- @@ 19_meta_semanal
+== gerência técnica (pessoas_gerir) define a meta da aluna; valores fora de 0–60 são recusados
+ nome | meta_horas_semana 
+------+-------------------
+ Ana  |              20.0
+
+psql:19_meta_semanal.sql:20: ERROR:  new row for relation "pessoas" violates check constraint "pessoas_meta_horas_semana_check"
+== membro sem cargo não muda a própria meta nem a dos outros
+psql:19_meta_semanal.sql:23: ERROR:  Este campo só pode ser alterado pela Direção, Gerência Técnica ou Coordenação
+CONTEXT:  PL/pgSQL function tg_protege_pessoa() line 15 at RAISE
+== a aluna vê a própria meta e não a altera
+ nome | meta_horas_semana 
+------+-------------------
+ Ana  |              20.0
+
+ nome  | meta_horas_semana 
+-------+-------------------
+ Ana   |              20.0
+ Gil   |                  
+ Lucas |                  
+ Mario |                  
 

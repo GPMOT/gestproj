@@ -10,8 +10,8 @@ if (window.top !== window.self) { document.documentElement.hidden = true; try { 
    - Modo online: preencha SUPABASE_CONFIG abaixo (ou em Configurações)
      e o programa passa a ler e gravar no banco Supabase, com login.
    ════════════════════════════════════════════════════════════════════ */
-const VERSAO = '2.30';
-const VERSAO_DATA = '05/10/2026';
+const VERSAO = '2.32';
+const VERSAO_DATA = '15/10/2026';
 const SUPABASE_CONFIG = { url: '', anonKey: '' };   // ← preencher na implantação
 
 /* ── utilidades ─────────────────────────────────────────────────── */
@@ -66,6 +66,7 @@ const PERMISSOES = [
   ['infraestrutura_gerir', 'Gerir infraestrutura (itens, agenda, manutenção, habilitações)'],
   ['cronograma_gerir', 'Reprogramar prazos do cronograma de qualquer projeto'],
   ['financeiro_reformular', 'Registrar reformulações financeiras (remanejamento de rubricas e itens) de qualquer projeto'],
+  ['atividades_acompanhar', 'Acompanhar as atividades dos alunos e o relatório semanal'],
 ];
 const PAPEIS = [['suporte', 'Suporte técnico'], ['direcao', 'Direção'], ['membro', 'Membro'], ['leitura', 'Leitura']];
 const TIPOS_VINC = [['bolsa', 'Bolsa'], ['tecnico', 'Pagamento técnico'], ['servico', 'Serviço'], ['externo', 'Apoio externo'], ['outro', 'Outro']];
@@ -83,6 +84,30 @@ const badge = (text, cls) => `<span class="b ${cls || 'b-gray'}">${esc(text)}</s
 const badgeOf = (map, v) => { const x = map[v] || [v || '—', 'b-gray']; return badge(x[0], x[1]); };
 
 const r2c = v => Math.round(Number(v) * 100) / 100;
+/* semana do ano (ISO 8601: começa na segunda; a semana 1 contém a primeira quinta-feira do ano) */
+function semanaISO(iso) {
+  const d = toDate(iso), x = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate())), dia = x.getUTCDay() || 7;
+  x.setUTCDate(x.getUTCDate() + 4 - dia); const ano = x.getUTCFullYear();
+  return { ano, sem: Math.ceil(((x - Date.UTC(ano, 0, 1)) / 864e5 + 1) / 7) };
+}
+function semanaInicio(ano, sem) {   // segunda-feira da semana
+  const j4 = new Date(Date.UTC(ano, 0, 4)), dia = j4.getUTCDay() || 7, seg = new Date(j4); seg.setUTCDate(j4.getUTCDate() - dia + 1 + (sem - 1) * 7);
+  return seg.toISOString().slice(0, 10);
+}
+const semanaSexta = (ano, sem) => addDays(semanaInicio(ano, sem), 4);
+const semanaChave = iso => { const w = semanaISO(iso); return `${w.ano}-S${String(w.sem).padStart(2, '0')}`; };
+function rotuloSemana(iso, curto = false) {
+  if (!iso) return '';
+  const w = semanaISO(iso), ini = semanaInicio(w.ano, w.sem), sex = addDays(ini, 4), dm = d => d.slice(8, 10) + '/' + d.slice(5, 7);
+  return curto ? `Sem. ${w.sem}` : `Sem. ${w.sem}/${w.ano} (${dm(ini)}–${dm(sex)})`;
+}
+/* opções de semana para o prazo: 2 semanas antes até 16 depois da atual (e a do prazo atual, se estiver fora) */
+function opcoesSemana(atual) {
+  const h = semanaISO(hoje()), out = [], vistos = new Set();
+  for (let k = -2; k <= 16; k++) { const d = addDays(semanaInicio(h.ano, h.sem), 7 * k), w = semanaISO(d), sx = semanaSexta(w.ano, w.sem); vistos.add(sx); out.push([sx, rotuloSemana(sx) + (k === 0 ? ' — esta semana' : k === 1 ? ' — próxima' : '')]); }
+  if (atual && !vistos.has(atual)) out.unshift([atual, rotuloSemana(atual) + (semanaSexta(semanaISO(atual).ano, semanaISO(atual).sem) !== atual ? ' · ' + fmtD(atual) : '')]);
+  return out;
+}
 const RUBRICAS_PADRAO = [   // [código, nome, rubrica-pai]
   ['1', 'Custeio', null], ['1.1', 'Pessoal', '1'], ['1.1.1', 'Bolsas', '1.1'], ['1.1.2', 'CLT', '1.1'],
   ['1.2', 'Viagens', '1'], ['1.2.1', 'Passagens', '1.2'], ['1.2.2', 'Diárias', '1.2'],
@@ -117,14 +142,14 @@ const ST_CRONO = { planejada: ['Planejada', 'b-gray'], em_andamento: ['Em andame
 const ST_ENTREGA = { pendente: ['Pendente', 'b-gray'], em_elaboracao: ['Em elaboração', 'b-yellow'], entregue: ['Entregue', 'b-blue'], aprovado: ['Aprovado', 'b-green'], dispensado: ['Dispensado', 'b-gray'] };
 const GERENCIAS_PADRAO = [
   ['Gerência de Projetos', 'Acompanha cronogramas, status e entregas de todo o portfólio; organiza alocações; conduz a prospecção de novos projetos.', ['projetos_criar', 'projetos_editar', 'alocacoes_gerir', 'tarefas_gerir', 'prospeccao_gerir', 'cronograma_gerir', 'financeiro_reformular']],
-  ['Gerência Técnica', 'Distribui e acompanha o trabalho técnico da equipe e dos bolsistas; mantém cadastro de pessoas, habilidades e disponibilidade.', ['alocacoes_gerir', 'tarefas_gerir', 'pessoas_gerir', 'cronograma_gerir', 'financeiro_reformular']],
+  ['Gerência Técnica', 'Distribui e acompanha o trabalho técnico da equipe e dos bolsistas; mantém cadastro de pessoas, habilidades e disponibilidade.', ['alocacoes_gerir', 'tarefas_gerir', 'pessoas_gerir', 'cronograma_gerir', 'financeiro_reformular', 'atividades_acompanhar']],
   ['Gerência de Infraestrutura', 'Cuida de bancos de ensaio, células de teste, instrumentação, manutenção, segurança (PPCI) e compras de infraestrutura.', ['infraestrutura_gerir', 'cronograma_gerir', 'financeiro_reformular']],
   ['Gerência Financeira', 'Controla orçamento aprovado, execução e saldo por rubrica; bolsas e pagamentos; prestação de contas com as fundações.', ['financeiro_ver', 'financeiro_editar', 'historico_ver', 'cronograma_gerir', 'financeiro_reformular']]];
 
 /* ── tabelas (espelho do banco) ─────────────────────────────────── */
 const TABLES = {
   pessoas: {}, perfis: {}, projetos: {}, aditivos: {}, entregas: {}, cronograma: {}, documentos: {}, pendencias: {}, equipe_plano: {}, candidatos: {}, checklist_itens: { noStamp: true }, pessoa_checklist: { key: null, noStamp: true }, equipe_plano_bolsas: {}, alocacoes: {}, gerencias: {}, gerencia_membros: {},
-  tarefas: {}, tarefa_responsaveis: { key: null, noStamp: true }, rubricas: { key: 'codigo', noStamp: true },
+  tarefas: {}, tarefa_responsaveis: { key: null, noStamp: true }, tarefa_relatos: { noStamp: true }, rubricas: { key: 'codigo', noStamp: true },
   vinculos_financeiros: {}, orcamento_rubricas: {}, plano_itens: {}, desembolsos: {}, desembolso_rubricas: { key: null, noStamp: true }, despesas: {}, prospeccoes: {}, avaliacoes: { noStamp: true },
   historico: { noStamp: true, noHist: true, key: 'id' },
   reprogramacoes: { noStamp: true }, reformulacoes: {},
@@ -160,18 +185,19 @@ const COLUNAS = Object.fromEntries(Object.entries({
   pendencias: 'id projeto_id titulo descricao categoria origem responsavel_id prazo prioridade status resolucao resolvida_em documento_id criado_em criado_por atualizado_em atualizado_por',
   perfis: 'id email pessoa_id papel ativo criado_em atualizado_em atualizado_por',
   pessoa_checklist: 'pessoa_id item_id feito data obs atualizado_por',
-  pessoas: 'id nome email tipo funcao curso semestre foco formacao lattes ingresso saida habilidades resumo disponibilidade_pct perfil_disponibilidade obs_disponibilidade risco_sobrecarga ordem ativo criado_em atualizado_em atualizado_por',
+  pessoas: 'id nome email tipo funcao curso semestre foco formacao lattes ingresso saida habilidades resumo disponibilidade_pct perfil_disponibilidade obs_disponibilidade risco_sobrecarga ordem ativo criado_em atualizado_em atualizado_por meta_horas_semana',
   plano_itens: 'id projeto_id rubrica numero descricao justificativa origem quantidade valor_unitario moeda cambio detalhe valor_previsto status infra_item_id obs criado_em atualizado_em atualizado_por',
   projetos: 'id sigla nome financiador fundacao_apoio tipo programa chamada linha_tematica numero_contrato data_assinatura resumo valor_total contrapartida inicio fim status fase notas placeholder situacao ordem criado_em atualizado_em atualizado_por',
   prospeccoes: 'id nome financiador edital valor_estimado prazo_submissao inicio_previsto fim_previsto responsavel_id objetivo observacoes texto_origem arquivo_origem situacao projeto_id criado_em criado_por atualizado_em atualizado_por',
   rubricas: 'codigo nome pai ordem planos',
   tarefa_responsaveis: 'tarefa_id pessoa_id',
-  tarefas: 'id projeto_id gerencia_id atividade_id prioridade titulo descricao inicio prazo concluida concluida_em criado_em criado_por atualizado_em atualizado_por',
+  tarefas: 'id projeto_id gerencia_id atividade_id prioridade titulo descricao inicio prazo concluida concluida_em criado_em criado_por atualizado_em atualizado_por solicitante_id situacao entregue_em avaliada_em avaliada_por parecer',
+  tarefa_relatos: 'id tarefa_id pessoa_id tipo data horas descricao criado_em criado_por',
   vinculos_financeiros: 'id pessoa_id projeto_id tipo modalidade rubrica valor_mensal inicio fim status vaga_id obs criado_em atualizado_em atualizado_por',
 }).map(([t, c]) => [t, new Set(c.split(' '))]));
 /* Campos obrigatórios que têm valor padrão no banco. Dados antigos (de antes de o campo existir)
    chegam sem eles ou vazios; ao enviar ao banco, recebem o mesmo padrão que o banco usaria. */
-const PADRAO_BANCO = {"aditivos":{"tipo":"prazo"},"alocacoes":{"carga_pct":25,"coordena":false,"nivel":1,"status":"ativo","vice_coordena":false},"avaliacoes":{"avaliado_em":"@agora","bloqueada":false,"esforcos":{},"filtros":{},"notas":{}},"candidatos":{"status":"inscrito"},"checklist_itens":{"ativo":true,"obrigatorio":true,"ordem":0,"tipos":[]},"cronograma":{"ordem":0,"percentual":0,"status":"planejada"},"desembolso_rubricas":{"valor":0},"desembolsos":{"status":"prevista","valor_previsto":0},"documentos":{"restrito":false,"tipo":"outro"},"entregas":{"status":"pendente","tipo":"relatorio_parcial"},"equipe_plano":{"categoria":"outro","etapas":[],"ordem":0,"status":"vaga"},"equipe_plano_bolsas":{"meses":1,"rubrica":"1.1.1","valor_mensal":0},"gerencia_membros":{"desde":"@hoje","funcao":"titular"},"gerencias":{"ativa":true,"ordem":0,"permissoes":[]},"infra_habilitacoes":{"desde":"@hoje","nivel":"operador"},"infra_itens":{"categoria":"equipamento","especificacoes":{},"requer_habilitacao":false,"reservavel":true,"status":"operacional"},"infra_manutencoes":{"status":"planejada"},"infra_reservas":{"status":"solicitada"},"orcamento_rubricas":{"aprovado":0,"previsto":0},"pendencias":{"categoria":"administrativa","prioridade":"normal","status":"aberta"},"pessoa_checklist":{"data":"@hoje","feito":true},"pessoas":{"ativo":true,"disponibilidade_pct":100,"habilidades":[],"ordem":0,"perfil_disponibilidade":"interno","risco_sobrecarga":false,"tipo":"outro"},"plano_itens":{"moeda":"BRL","numero":0,"origem":"nacional","status":"previsto","valor_previsto":0},"projetos":{"contrapartida":0,"ordem":0,"placeholder":false,"situacao":"vigente","status":"pendente","tipo":"edital","valor_total":0},"prospeccoes":{"situacao":"avaliacao"},"reformulacoes":{"alteracoes":{},"remanejado":0,"rendimentos":0,"situacao":"submetida","tipo":"financeira"},"rubricas":{"ordem":0,"planos":["edital","servico"]},"tarefas":{"concluida":false,"prioridade":"normal","titulo":""},"vinculos_financeiros":{"rubrica":"1.1.1","status":"previsto","tipo":"bolsa","valor_mensal":0}};
+const PADRAO_BANCO = {"aditivos":{"tipo":"prazo"},"alocacoes":{"carga_pct":25,"coordena":false,"nivel":1,"status":"ativo","vice_coordena":false},"avaliacoes":{"avaliado_em":"@agora","bloqueada":false,"esforcos":{},"filtros":{},"notas":{}},"candidatos":{"status":"inscrito"},"checklist_itens":{"ativo":true,"obrigatorio":true,"ordem":0,"tipos":[]},"cronograma":{"ordem":0,"percentual":0,"status":"planejada"},"desembolso_rubricas":{"valor":0},"desembolsos":{"status":"prevista","valor_previsto":0},"documentos":{"restrito":false,"tipo":"outro"},"entregas":{"status":"pendente","tipo":"relatorio_parcial"},"equipe_plano":{"categoria":"outro","etapas":[],"ordem":0,"status":"vaga"},"equipe_plano_bolsas":{"meses":1,"rubrica":"1.1.1","valor_mensal":0},"gerencia_membros":{"desde":"@hoje","funcao":"titular"},"gerencias":{"ativa":true,"ordem":0,"permissoes":[]},"infra_habilitacoes":{"desde":"@hoje","nivel":"operador"},"infra_itens":{"categoria":"equipamento","especificacoes":{},"requer_habilitacao":false,"reservavel":true,"status":"operacional"},"infra_manutencoes":{"status":"planejada"},"infra_reservas":{"status":"solicitada"},"orcamento_rubricas":{"aprovado":0,"previsto":0},"pendencias":{"categoria":"administrativa","prioridade":"normal","status":"aberta"},"pessoa_checklist":{"data":"@hoje","feito":true},"pessoas":{"ativo":true,"disponibilidade_pct":100,"habilidades":[],"ordem":0,"perfil_disponibilidade":"interno","risco_sobrecarga":false,"tipo":"outro"},"plano_itens":{"moeda":"BRL","numero":0,"origem":"nacional","status":"previsto","valor_previsto":0},"projetos":{"contrapartida":0,"ordem":0,"placeholder":false,"situacao":"vigente","status":"pendente","tipo":"edital","valor_total":0},"prospeccoes":{"situacao":"avaliacao"},"reformulacoes":{"alteracoes":{},"remanejado":0,"rendimentos":0,"situacao":"submetida","tipo":"financeira"},"rubricas":{"ordem":0,"planos":["edital","servico"]},"tarefa_relatos":{"data":"@hoje","tipo":"relato"},"tarefas":{"concluida":false,"prioridade":"normal","situacao":"a_fazer","titulo":""},"vinculos_financeiros":{"rubrica":"1.1.1","status":"previsto","tipo":"bolsa","valor_mensal":0}};
 function completarObrigatorios(t, row) {
   const P = PADRAO_BANCO[t]; if (!P) return row;
   for (const [c, v] of Object.entries(P)) if (row[c] === undefined || row[c] === null || row[c] === '') {
@@ -207,7 +233,7 @@ const DEFAULTS = {
   equipe_plano_bolsas: { rubrica: '1.1.1', valor_mensal: 0, meses: 1 },
   gerencias: { permissoes: [], ativa: true, ordem: 0 },
   gerencia_membros: { funcao: 'titular' },
-  tarefas: { prioridade: 'normal', titulo: '', concluida: false },
+  tarefas: { prioridade: 'normal', titulo: '', concluida: false, situacao: 'a_fazer' },
   vinculos_financeiros: { tipo: 'bolsa', rubrica: '1.1.1', valor_mensal: 0, status: 'previsto' },
   orcamento_rubricas: { aprovado: 0, previsto: 0 },
   desembolsos: { status: 'prevista', valor_previsto: 0 },
@@ -237,6 +263,7 @@ const FK = [
   ['gerencia_membros', 'gerencia_id', 'gerencias', 'cascade'], ['gerencia_membros', 'pessoa_id', 'pessoas', 'cascade'],
   ['tarefas', 'projeto_id', 'projetos', 'cascade'], ['tarefas', 'gerencia_id', 'gerencias', 'cascade'],
   ['tarefa_responsaveis', 'tarefa_id', 'tarefas', 'cascade'], ['tarefa_responsaveis', 'pessoa_id', 'pessoas', 'cascade'],
+  ['tarefas', 'solicitante_id', 'pessoas', 'null'], ['tarefa_relatos', 'tarefa_id', 'tarefas', 'cascade'], ['tarefa_relatos', 'pessoa_id', 'pessoas', 'null'],
   ['vinculos_financeiros', 'pessoa_id', 'pessoas', 'restrict'], ['vinculos_financeiros', 'projeto_id', 'projetos', 'cascade'],
   ['orcamento_rubricas', 'projeto_id', 'projetos', 'cascade'],
   ['desembolsos', 'projeto_id', 'projetos', 'cascade'], ['desembolso_rubricas', 'desembolso_id', 'desembolsos', 'cascade'], ['desembolso_rubricas', 'projeto_id', 'projetos', 'cascade'],
@@ -313,12 +340,21 @@ const Perm = {
   gereInfra: itemId => Perm.gereInfraGeral() || (Perm.podeEditar() && !!ME.pessoa_id && (byId('infra_itens', itemId) || {}).responsavel_id === ME.pessoa_id),
   responsavelTarefa: tid => !!ME.pessoa_id && D.tarefa_responsaveis.some(r => r.tarefa_id === tid && r.pessoa_id === ME.pessoa_id),
   gereTarefa(t) {
-    return Perm.gereTarefas(t.projeto_id) || (!!t.gerencia_id && Perm.gerencia(t.gerencia_id)) || (Perm.podeEditar() && t.criado_por === ME.uid);
+    return Perm.dir() || Perm.gereTarefas(t.projeto_id) || (!!t.gerencia_id && Perm.gerencia(t.gerencia_id)) || (Perm.podeEditar() && t.criado_por === ME.uid);
   },
-  editaTarefa(t) { return Perm.gereTarefa(t) || (Perm.podeEditar() && Perm.responsavelTarefa(t.id)); },
+  editaTarefa(t) { return Perm.gereTarefa(t) || (Perm.podeEditar() && Perm.responsavelTarefa(t.id)) || Perm.solicitante(t) || (Perm.leitor() && (t.criado_por === ME.uid || Perm.responsavelTarefa(t.id))); },
+  /* atividades com acompanhamento (v2.31): solicitante aprova; responsável relata e entrega */
+  leitor: () => ME.papel === 'leitura' && !!ME.pessoa_id,
+  solicitante: t => !!ME.pessoa_id && !!t.solicitante_id && t.solicitante_id === ME.pessoa_id,
+  relataTarefa: t => !!t.solicitante_id && Perm.responsavelTarefa(t.id) && !['entregue', 'aprovada'].includes(t.situacao),
+  avaliaTarefa: t => t.situacao === 'entregue' && (Perm.solicitante(t) || Perm.dir()),
+  acompanhaAtividades: () => Perm.dir() || Perm.tem('atividades_acompanhar'),
+  /* o responsável que não gere nem solicita só mexe no conteúdo da atividade que ele mesmo registrou, antes de entregar */
+  editaConteudoTarefa: t => !t || Perm.gereTarefa(t) || Perm.dir() || Perm.solicitante(t) || (t.criado_por === ME.uid && ['a_fazer', 'em_andamento', 'devolvida'].includes(t.situacao || 'a_fazer')),
   podeCriarTarefa(pid, gid) {
+    if (Perm.leitor()) return !gid && (!pid || Perm.participa(pid));
     if (gid && !Perm.gerencia(gid)) return false;
-    if (!pid) return !!gid;
+    if (!pid) return !!gid || Perm.podeEditar();   // sem projeto nem gerência: tarefa avulsa de qualquer membro (v2.31)
     return Perm.gereTarefas(pid) || (!!gid && Perm.gerencia(gid)) || (Perm.podeEditar() && Perm.alocado(pid));
   },
 };
@@ -344,10 +380,12 @@ const POLICY = {
   entregas: { ins: n => Perm.gereProjeto(n.projeto_id), upd: (n, o) => Perm.editaEntrega(o), del: (n, o) => Perm.gereProjeto(o.projeto_id) },
   gerencias: { all: () => Perm.dir() }, gerencia_membros: { all: () => Perm.dir() }, rubricas: { all: () => Perm.dir() },
   tarefas: {
-    ins: n => Perm.podeCriarTarefa(n.projeto_id, n.gerencia_id),
-    upd: (n, o) => Perm.editaTarefa(o), del: (n, o) => Perm.gereTarefa(o)
+    ins: n => Perm.podeCriarTarefa(n.projeto_id, n.gerencia_id) && (!Perm.leitor() || !!n.solicitante_id),
+    upd: (n, o) => Perm.editaTarefa(o),
+    del: (n, o) => Perm.gereTarefa(o) || (Perm.leitor() && o.criado_por === ME.uid && (o.situacao || 'a_fazer') === 'a_fazer' && !D.tarefa_relatos.some(r => r.tarefa_id === o.id))
   },
-  tarefa_responsaveis: { all: r => { const t = byId('tarefas', r.tarefa_id); return !!t && Perm.gereTarefa(t); } },
+  tarefa_responsaveis: { all: r => { const t = byId('tarefas', r.tarefa_id); return !!t && (Perm.gereTarefa(t) || (r.pessoa_id === ME.pessoa_id && t.criado_por === ME.uid)); } },
+  tarefa_relatos: { ins: n => Perm.responsavelTarefa(n.tarefa_id) || Perm.dir(), upd: (n, o) => o.criado_por === ME.uid || Perm.dir(), del: (n, o) => o.criado_por === ME.uid || Perm.dir() },
   vinculos_financeiros: { all: r => Perm.editaFin(r.projeto_id) },
   orcamento_rubricas: { all: r => Perm.reformulaFin(r.projeto_id) },
   plano_itens: { all: r => Perm.reformulaFin(r.projeto_id) },
@@ -456,10 +494,17 @@ function validar(t, r, old) {
       exigePeriodo(r.desde, r.ate);
       break;
     case 'tarefas':
-      if (!r.projeto_id && !r.gerencia_id) falha('A tarefa precisa pertencer a um projeto ou a uma gerência.');
       if (!String(r.titulo || '').trim()) falha('Informe o título da tarefa.');
       exigeData(r.inicio, 'a data de início'); exigeData(r.prazo, 'o prazo');
       exigePeriodo(r.inicio, r.prazo, 'O prazo não pode ser anterior ao início.');
+      break;
+    case 'pessoas':
+      if (r.meta_horas_semana != null && r.meta_horas_semana !== '' && !(num(r.meta_horas_semana) >= 0 && num(r.meta_horas_semana) <= 60)) falha('A meta semanal deve ficar entre 0 e 60 horas.');
+      break;
+    case 'tarefa_relatos':
+      if (!(num(r.horas) > 0 && num(r.horas) <= 80)) falha('Informe as horas dedicadas (mais que zero, até 80).');
+      if (!String(r.descricao || '').trim()) falha('Descreva o que foi realizado.');
+      exigeData(r.data, 'a data', true);
       break;
     case 'vinculos_financeiros':
       if (!r.pessoa_id || !r.projeto_id) falha('Escolha a pessoa e o projeto.');
@@ -582,6 +627,7 @@ function validarReserva(r, old) {
 
 /* travas equivalentes aos gatilhos do banco */
 function travas(t, n, o) {
+  if (t === 'pessoas' && o && (n.meta_horas_semana ?? null) !== (o.meta_horas_semana ?? null) && !Perm.gerePessoa(o.id)) falha('A meta semanal só pode ser alterada pela Direção, Gerência Técnica ou Coordenação.');
   if (t === 'alocacoes' && !Perm.dir()) {
     const troca = o && (n.pessoa_id !== o.pessoa_id || n.projeto_id !== o.projeto_id);   // trocar a pessoa/projeto de uma coordenação também é definir
     if ((!o && n.coordena) || (o && (!!n.coordena !== !!o.coordena || (o.coordena && troca)))) falha('Somente a Direção pode definir coordenadores de projeto.');
@@ -613,6 +659,7 @@ function travas(t, n, o) {
 
 /* exclusões protegidas (equivalente ao gatilho do banco) */
 function travasExclusao(t, o) {
+  if (t === 'tarefa_relatos' && !Perm.dir() && ['entregue', 'aprovada'].includes((byId('tarefas', o.tarefa_id) || {}).situacao)) falha('Relatos de atividade entregue não podem ser apagados.');
   if (t === 'alocacoes' && !Perm.dir()) {
     if (o.coordena) falha('Somente a Direção pode retirar o coordenador do projeto.');
     if (o.vice_coordena && !Perm.coordenaTitular(o.projeto_id)) falha('Somente a Direção ou o coordenador do projeto podem retirar a vice-coordenação.');
@@ -656,7 +703,7 @@ const Local = {
     if (!seeded) { seedPadrao(); this.persistAll(); try { localStorage.setItem(LS_PREFIX + '_seed', hoje()); } catch { } }
   },
   persist(t) {
-    if (D_TODOS) { console.warn('Visão restrita da Leitura: nada é gravado'); return; }
+    if (D_TODOS) { if (GRAVA_LEITURA.includes(t)) { try { gravarVisaoLeitura(t); } catch (e) { flash('Não foi possível gravar no navegador.', true); throw e; } } else console.warn('Visão restrita da Leitura: nada é gravado'); return; }
     try { localStorage.setItem(LS_PREFIX + t, JSON.stringify(D[t])); }
     catch (e) { flash('Não foi possível gravar no navegador (espaço cheio?). Exporte um backup.', true); throw e; }
   },
@@ -708,17 +755,38 @@ function aplicarVisaoLocal() {
   ['alocacoes', 'aditivos', 'documentos', 'pendencias', 'entregas', 'cronograma', 'equipe_plano', 'reprogramacoes'].forEach(t => D[t] = D[t].filter(r => part.has(r.projeto_id)));
   D.documentos = D.documentos.filter(d => !d.restrito);
   const minhas = new Set(D.tarefa_responsaveis.filter(r => eu && r.pessoa_id === eu).map(r => r.tarefa_id));
-  D.tarefas = D.tarefas.filter(t => (t.projeto_id && part.has(t.projeto_id)) || minhas.has(t.id));
+  D.tarefas = D.tarefas.filter(t => (t.projeto_id && part.has(t.projeto_id)) || minhas.has(t.id) || t.criado_por === ME.uid || (eu && t.solicitante_id === eu));
   const tids = new Set(D.tarefas.map(t => t.id));
   D.tarefa_responsaveis = D.tarefa_responsaveis.filter(r => (eu && r.pessoa_id === eu) || tids.has(r.tarefa_id));
+  D.tarefa_relatos = D.tarefa_relatos.filter(r => tids.has(r.tarefa_id));
   ['equipe_plano_bolsas', 'plano_itens', 'reformulacoes', 'desembolsos', 'desembolso_rubricas', 'vinculos_financeiros', 'orcamento_rubricas', 'despesas', 'prospeccoes', 'avaliacoes',
     'infra_itens', 'infra_habilitacoes', 'infra_reservas', 'infra_manutencoes', 'candidatos', 'historico'].forEach(t => D[t] = []);
   D.pessoa_checklist = D.pessoa_checklist.filter(r => r.pessoa_id === eu);
   D.perfis = D.perfis.filter(p => eu && p.pessoa_id === eu);
   const vis = new Set([eu, ...D.alocacoes.map(a => a.pessoa_id), ...D.equipe_plano.map(e => e.pessoa_id), ...D.cronograma.map(c => c.responsavel_id),
-    ...D.entregas.map(x => x.responsavel_id), ...D.pendencias.map(x => x.responsavel_id), ...D.tarefa_responsaveis.map(r => r.pessoa_id)].filter(Boolean));
+    ...D.entregas.map(x => x.responsavel_id), ...D.pendencias.map(x => x.responsavel_id), ...D.tarefa_responsaveis.map(r => r.pessoa_id), ...D.tarefas.map(t => t.solicitante_id)].filter(Boolean));
   const MASC = ['email', 'curso', 'semestre', 'lattes', 'ingresso', 'saida', 'resumo', 'obs_disponibilidade'];   // igual à visão v_pessoas do banco
   D.pessoas = D.pessoas.filter(p => vis.has(p.id)).map(p => p.id === eu ? p : { ...p, ...Object.fromEntries(MASC.map(k => [k, null])), risco_sobrecarga: false });
+  VISIVEIS = Object.fromEntries(GRAVA_LEITURA.map(t => [t, new Set(D[t])]));
+}
+/* a Leitura grava as próprias atividades e relatos também no modo local: o que muda na visão restrita é levado aos dados completos */
+const GRAVA_LEITURA = ['tarefas', 'tarefa_responsaveis', 'tarefa_relatos', 'historico'];
+let VISIVEIS = {};
+function gravarVisaoLeitura(t) {
+  const antes = VISIVEIS[t] || new Set(), agora = D[t], tudo = D_TODOS[t];
+  const sairam = [...antes].filter(r => !agora.includes(r));
+  D_TODOS[t] = tudo.filter(r => !sairam.includes(r)).concat(agora.filter(r => !tudo.includes(r)));
+  VISIVEIS[t] = new Set(agora);
+  localStorage.setItem(LS_PREFIX + t, JSON.stringify(D_TODOS[t]));
+}
+/* quem pode ser solicitante: pessoas com perfil ativo de Direção, Membro ou Suporte (no online, lista do banco) */
+let SOLICITANTES = null;
+async function carregarSolicitantes() {
+  if (ME.online) { const { data, error } = await SB.client.rpc('pessoas_solicitantes'); if (error) throw error; SOLICITANTES = data || []; return SOLICITANTES; }
+  const perfis = (D_TODOS || D).perfis, pes = (D_TODOS || D).pessoas;
+  SOLICITANTES = pes.filter(p => p.ativo !== false && perfis.some(f => f.pessoa_id === p.id && f.ativo && ['suporte', 'direcao', 'membro'].includes(f.papel)))
+    .map(p => ({ id: p.id, nome: p.nome })).sort((a, b) => a.nome.localeCompare(b.nome));
+  return SOLICITANTES;
 }
 
 /* ── armazenamento online (Supabase) ────────────────────────────── */
@@ -800,6 +868,55 @@ function diffOf(o, n) {
   }
   return d;
 }
+/* fluxo das atividades (modo local; no online, o gatilho tg_tarefa_fluxo do banco):
+   a fazer → em andamento (1º relato) → entregue (responsável) → aprovada | devolvida (solicitante) */
+const SIT_TAREFA = { a_fazer: ['A fazer', 'b-gray'], em_andamento: ['Em andamento', 'b-blue'], entregue: ['Entregue · aguardando aprovação', 'b-yellow'], aprovada: ['Aprovada', 'b-green'], devolvida: ['Devolvida', 'b-red'] };
+const sitTarefa = t => t.situacao || (t.concluida ? 'aprovada' : 'a_fazer');
+function solicitanteValido(pid) { if (ME.online) return !SOLICITANTES || SOLICITANTES.some(p => p.id === pid);   /* no online quem confere é o banco */ const perfis = (D_TODOS || D).perfis; return perfis.some(f => f.pessoa_id === pid && f.ativo && ['suporte', 'direcao', 'membro'].includes(f.papel)); }
+function fluxoTarefa(n, o) {
+  const eu = ME.pessoa_id;
+  if (!o) {
+    if (Perm.leitor()) {
+      if (!n.solicitante_id) falha('Informe o solicitante da atividade.');
+      if (n.solicitante_id === eu) falha('O solicitante deve ser outra pessoa (quem vai conferir a entrega).');
+      if (!solicitanteValido(n.solicitante_id)) falha('O solicitante deve ser um membro do laboratório com acesso ao programa.');
+      if (n.gerencia_id) falha('Atividades registradas por alunos não pertencem a gerências.');
+      n.situacao = 'a_fazer'; n.concluida = false;
+    }
+    if (!n.solicitante_id) n.situacao = n.concluida ? 'aprovada' : 'a_fazer'; else n.concluida = n.situacao === 'aprovada';
+  } else if (!n.solicitante_id) {
+    if (!!n.concluida !== !!o.concluida) n.situacao = n.concluida ? 'aprovada' : 'a_fazer';
+    else if (n.situacao !== sitTarefa(o)) n.concluida = n.situacao === 'aprovada';
+    else n.situacao = sitTarefa(o);
+  } else {
+    const so = sitTarefa(o), gestor = Perm.gereTarefa(o), resp = Perm.responsavelTarefa(o.id), solic = !!eu && eu === o.solicitante_id;
+    n.situacao = n.situacao || so;
+    if (!!n.concluida !== !!o.concluida && n.situacao === so) falha('Atividade com solicitante: use Entregar (responsável) e Aprovar (solicitante).');
+    if (n.situacao !== so) {
+      if (['aprovada', 'devolvida'].includes(n.situacao)) {
+        if (so !== 'entregue') falha('Só uma atividade entregue pode ser aprovada ou devolvida.');
+        if (!solic && !Perm.dir()) falha('Só o solicitante (ou a Direção) aprova ou devolve a atividade.');
+        if (n.situacao === 'devolvida' && !String(n.parecer || '').trim()) falha('Ao devolver, explique o que falta no parecer.');
+        n.avaliada_em = new Date().toISOString(); n.avaliada_por = ME.uid;
+      } else if (n.situacao === 'entregue') {
+        if (!(resp || gestor)) falha('Só o responsável entrega a atividade.');
+        if (['entregue', 'aprovada'].includes(so)) falha('Esta atividade já foi entregue.');
+        if (!D.tarefa_relatos.some(r => r.tarefa_id === o.id && r.tipo === 'entrega')) falha('Para entregar, informe as horas e a descrição do que foi realizado.');
+        n.entregue_em = new Date().toISOString();
+      } else {
+        if (so === 'aprovada' && !(Perm.dir() || solic)) falha('Só o solicitante (ou a Direção) reabre uma atividade aprovada.');
+        if (so === 'entregue' && !(gestor || resp || solic)) falha('Sem permissão para reabrir esta atividade.');
+      }
+    }
+    if (!gestor && !Perm.dir() && !solic && !(o.criado_por === ME.uid && ['a_fazer', 'em_andamento', 'devolvida'].includes(so))
+        && ['solicitante_id', 'titulo', 'descricao', 'prazo', 'inicio', 'projeto_id', 'gerencia_id', 'prioridade'].some(k => (n[k] ?? null) !== (o[k] ?? null)))
+      falha('O responsável não altera solicitante, descrição, prazo nem projeto da atividade: peça ao solicitante.');
+    if (n.solicitante_id !== o.solicitante_id && n.solicitante_id === eu && !Perm.podeEditar()) falha('O solicitante deve ser outra pessoa (quem vai conferir a entrega).');
+    n.concluida = n.situacao === 'aprovada';
+  }
+  if (n.concluida && (!o || !o.concluida)) n.concluida_em = new Date().toISOString();
+  if (!n.concluida) n.concluida_em = null;
+}
 function efeitosAntes(t, n, o) {
   if (t === 'aditivos' && !o) {
     const p = byId('projetos', n.projeto_id);
@@ -832,13 +949,18 @@ function efeitosAntes(t, n, o) {
   }
   if (t === 'equipe_plano_bolsas') { const v = byId('equipe_plano', n.vaga_id); if (v) n.projeto_id = v.projeto_id; n.meses = +n.meses; n.valor_mensal = num(n.valor_mensal); }
   if (t === 'equipe_plano') { if (!Array.isArray(n.etapas)) n.etapas = String(n.etapas || '').split(/[\s,;]+/).filter(Boolean); if (n.horas_semanais === '') n.horas_semanais = null; }
-  if (t === 'tarefas') {
-    if (n.concluida && (!o || !o.concluida)) n.concluida_em = new Date().toISOString();
-    if (!n.concluida) n.concluida_em = null;
+  if (t === 'tarefas') fluxoTarefa(n, o);
+  if (t === 'tarefa_relatos') {
+    if (!o) n.pessoa_id = (Perm.dir() && n.pessoa_id) || ME.pessoa_id || n.pessoa_id || null; else { n.pessoa_id = o.pessoa_id; n.tarefa_id = o.tarefa_id; n.criado_por = o.criado_por; }
+    if (['entregue', 'aprovada'].includes((byId('tarefas', n.tarefa_id) || {}).situacao) && !Perm.dir()) falha('A atividade já foi entregue: não recebe novos relatos (o solicitante pode devolvê-la).');
   }
 }
 function efeitosDepois(t, n, op) {   // modo local: equivalente aos gatilhos do banco
   const out = [];
+  if (t === 'tarefa_relatos' && op === 'INSERT') {   // o 1º relato (ou um relato depois de devolvida) põe a atividade em andamento
+    const tf = byId('tarefas', n.tarefa_id);
+    if (tf && tf.solicitante_id && ['a_fazer', 'devolvida'].includes(tf.situacao || 'a_fazer')) { const antes = tf.situacao || 'a_fazer'; tf.situacao = 'em_andamento'; tf.atualizado_em = new Date().toISOString(); histLocal('tarefas', tf.id, 'UPDATE', { situacao: [antes, 'em_andamento'] }); out.push('tarefas'); }
+  }
   if (t === 'aditivos' && op === 'INSERT') {
     const p = byId('projetos', n.projeto_id);
     if (p) { const o = { ...p }; if (n.novo_fim) p.fim = n.novo_fim; if (n.novo_valor != null && n.novo_valor !== '') p.valor_total = num(n.novo_valor);
@@ -871,6 +993,7 @@ const DEPENDENTES = {
   aditivos: ['aditivos', 'projetos'],
   infra_manutencoes: ['infra_itens', 'infra_manutencoes'],
   tarefas: ['tarefas'],
+  tarefa_relatos: ['tarefa_relatos', 'tarefas'],
 };
 
 const Data = {
@@ -879,7 +1002,7 @@ const Data = {
     let n = { ...clone(DEFAULTS[t] || {}), ...row };
     if (k === 'id' && !n.id) n.id = newId();
     if (!TABLES[t].noStamp) { n.criado_em = n.criado_em || new Date().toISOString(); n.atualizado_em = n.criado_em; }
-    if (['tarefas', 'prospeccoes', 'infra_reservas', 'infra_manutencoes', 'documentos', 'pendencias'].includes(t) && !n.criado_por) n.criado_por = ME.uid;
+    if (['tarefas', 'tarefa_relatos', 'prospeccoes', 'infra_reservas', 'infra_manutencoes', 'documentos', 'pendencias'].includes(t) && !n.criado_por) n.criado_por = ME.uid;
     if (t === 'avaliacoes') { n.avaliado_em = n.avaliado_em || new Date().toISOString(); n.avaliado_por = n.avaliado_por || ME.uid; }
     validar(t, n, null); travas(t, n, null); efeitosAntes(t, n, null);
     n = soColunas(t, n);
@@ -979,7 +1102,45 @@ const Calc = {
   coordenadores: pid => D.alocacoes.filter(a => a.projeto_id === pid && a.coordena).map(a => byId('pessoas', a.pessoa_id)).filter(Boolean),
   vices: pid => D.alocacoes.filter(a => a.projeto_id === pid && a.vice_coordena).map(a => byId('pessoas', a.pessoa_id)).filter(Boolean),
   responsaveis: tid => D.tarefa_responsaveis.filter(r => r.tarefa_id === tid).map(r => byId('pessoas', r.pessoa_id)).filter(Boolean),
-  atrasada: t => !t.concluida && t.prazo && t.prazo < hoje(),
+  relatos: tid => D.tarefa_relatos.filter(r => r.tarefa_id === tid).sort((a, b) => String(a.data).localeCompare(String(b.data)) || String(a.criado_em).localeCompare(String(b.criado_em))),
+  horasTarefa: tid => D.tarefa_relatos.filter(r => r.tarefa_id === tid).reduce((s, r) => s + num(r.horas), 0),
+  /* atividades entregues aguardando a minha aprovação (sou o solicitante) */
+  aguardandoMinhaAprovacao: () => !ME.pessoa_id ? [] : D.tarefas.filter(t => t.situacao === 'entregue' && t.solicitante_id === ME.pessoa_id),
+  minhasDevolvidas: () => !ME.pessoa_id ? [] : D.tarefas.filter(t => t.situacao === 'devolvida' && D.tarefa_responsaveis.some(r => r.tarefa_id === t.id && r.pessoa_id === ME.pessoa_id)),
+  /* meta semanal de horas: a do cadastro; sem ela, as horas semanais das posições ocupadas na equipe do plano de trabalho */
+  metaSemanal(pid) {
+    const p = byId('pessoas', pid);
+    if (p && p.meta_horas_semana != null && p.meta_horas_semana !== '') return { horas: num(p.meta_horas_semana), origem: 'cadastro' };
+    const h = D.equipe_plano.filter(e => e.pessoa_id === pid && e.status === 'ocupada').reduce((s, e) => s + num(e.horas_semanais), 0);
+    return h > 0 ? { horas: Math.min(60, h), origem: 'plano' } : { horas: null, origem: null };
+  },
+  /* fração da semana já transcorrida (dias úteis): semana passada = 1; semana futura = 0 */
+  fracaoSemana(ini) {
+    const t = hoje(); if (t > addDays(ini, 6)) return 1; if (t < ini) return 0;
+    const d = Math.round((toDate(t) - toDate(ini)) / 864e5) + 1; return Math.min(5, d) / 5;
+  },
+  /* relatório semanal: por pessoa, horas relatadas na semana e situação das atividades com prazo até a semana */
+  relatorioSemana(ano, sem, pessoas = null) {
+    const ini = semanaInicio(ano, sem), fim = addDays(ini, 6), sex = addDays(ini, 4), fr = Calc.fracaoSemana(ini);
+    const rel = D.tarefa_relatos.filter(r => r.data >= ini && r.data <= fim);
+    const comFluxo = D.tarefas.filter(t => t.solicitante_id);
+    const ids = pessoas || [...new Set([...rel.map(r => r.pessoa_id), ...comFluxo.flatMap(t => D.tarefa_responsaveis.filter(r => r.tarefa_id === t.id).map(r => r.pessoa_id))])].filter(Boolean);
+    const linhas = ids.map(pid => {
+      const meus = rel.filter(r => r.pessoa_id === pid), tids = new Set(D.tarefa_responsaveis.filter(r => r.pessoa_id === pid).map(r => r.tarefa_id));
+      const minhas = comFluxo.filter(t => tids.has(t.id));
+      const daSemana = minhas.filter(t => t.prazo && t.prazo >= ini && t.prazo <= fim);
+      const horas = meus.reduce((s, r) => s + num(r.horas), 0), meta = Calc.metaSemanal(pid), esperado = meta.horas != null ? meta.horas * fr : null;
+      return { pessoa: byId('pessoas', pid) || { id: pid, nome: '(pessoa removida)' }, horas, relatos: meus, meta: meta.horas, metaOrigem: meta.origem, esperado,
+        pctMeta: meta.horas ? horas / meta.horas : null, abaixo: esperado != null && esperado > 0 && horas < esperado - 0.01,
+        trabalhadas: [...new Set(meus.map(r => r.tarefa_id))].map(id => byId('tarefas', id)).filter(Boolean),
+        entregues: minhas.filter(t => t.entregue_em && t.entregue_em.slice(0, 10) >= ini && t.entregue_em.slice(0, 10) <= fim),
+        aprovadas: minhas.filter(t => t.situacao === 'aprovada' && t.avaliada_em && t.avaliada_em.slice(0, 10) >= ini && t.avaliada_em.slice(0, 10) <= fim),
+        daSemana, atrasadas: minhas.filter(t => !t.concluida && t.situacao !== 'entregue' && t.prazo && t.prazo <= sex && t.prazo < hoje()),
+        abertas: minhas.filter(t => !t.concluida) };
+    }).sort((a, b) => a.pessoa.nome.localeCompare(b.pessoa.nome));
+    return { ini, fim, fracao: fr, linhas, horas: linhas.reduce((s, l) => s + l.horas, 0), meta: linhas.reduce((s, l) => s + (l.meta || 0), 0), abaixo: linhas.filter(l => l.abaixo).length };
+  },
+  atrasada: t => !t.concluida && t.situacao !== 'entregue' && t.prazo && t.prazo < hoje(),
   gerentes(gid) {
     const t = hoje();
     return D.gerencia_membros.filter(gm => gm.gerencia_id === gid && (!gm.desde || gm.desde <= t) && (!gm.ate || gm.ate >= t));

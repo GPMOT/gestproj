@@ -104,8 +104,9 @@ function navItens() {
       { t: 'prospeccao', l: 'Prospecção', n: D.prospeccoes.filter(p => p.situacao === 'avaliacao').length, nc: 'info', nt: 'em avaliação' }] },
     { grupo: 'Pessoas e gestão', itens: [
       { t: 'equipe', l: 'Equipe', subs: SUBS_EQUIPE().map(([v, l]) => ({ l, g: 'equipe', v, on: UI.tab === 'equipe' && !UI.pessoa && (UI.sub.equipe || 'matriz') === v })) },
-      { t: 'tarefas', l: 'Tarefas', n: minhasAtr || atrasadas, nc: 'bad', nt: minhasAtr ? 'suas tarefas atrasadas' : 'tarefas atrasadas',
-        subs: [...(ME.pessoa_id ? [['minhas', 'Minhas tarefas']] : []), ['atrasadas', 'Atrasadas'], ['', 'Todas']].map(([v, l]) => ({ l, f: 'tfEscopo', fv: v, on: UI.tab === 'tarefas' && (UI.f.tfEscopo ?? (ME.pessoa_id ? 'minhas' : '')) === v })) },
+      (() => { const apr = Calc.aguardandoMinhaAprovacao().length, dev = Calc.minhasDevolvidas().length, n = apr + dev + (minhasAtr || (ME.pessoa_id ? 0 : atrasadas));
+        return { t: 'tarefas', l: 'Tarefas', n, nc: minhasAtr || dev ? 'bad' : apr ? 'info' : 'bad', nt: [apr ? `${apr} entrega(s) aguardando a sua aprovação` : '', dev ? `${dev} atividade(s) devolvida(s) a você` : '', minhasAtr ? `${minhasAtr} tarefa(s) sua(s) atrasada(s)` : (!ME.pessoa_id && atrasadas ? 'tarefas atrasadas' : '')].filter(Boolean).join(' · '),
+          subs: [...(ME.pessoa_id ? [['minhas', 'Minhas tarefas']] : []), ...(apr ? [['aprovar', 'Aguardando aprovação', apr]] : []), ['atrasadas', 'Atrasadas'], ['', 'Todas']].map(([v, l, k]) => ({ l, n: k, f: 'tfEscopo', fv: v, on: UI.tab === 'tarefas' && (UI.sub.tarefas || 'lista') !== 'semanal' && (UI.f.tfEscopo ?? (ME.pessoa_id ? 'minhas' : '')) === v })) }; })(),
       { t: 'gerencias', l: 'Gerências', subs: D.gerencias.filter(g => g.ativa).sort(by('ordem')).map(g => ({ l: g.nome.replace(/^Gerência (de |d[ao] )?/, ''), a: 'gerAbrir', id: g.id, on: UI.tab === 'gerencias' && UI.gerencia === g.id, n: D.tarefas.filter(t => t.gerencia_id === g.id && Calc.atrasada(t)).length })) }] },
     { grupo: 'Recursos', itens: [
       { t: 'financeiro', l: 'Financeiro', subs: SUBS_FIN.map(([v, l]) => ({ l, g: 'fin', v, on: UI.tab === 'financeiro' && (UI.sub.fin || 'resumo') === v })) },
@@ -142,7 +143,7 @@ function sidebar() {
 A.nav = d => {
   UI.tab = d.t; UI.projeto = null; UI.pessoa = null; UI.gerencia = null;
   if (d.g) UI.sub[d.g] = d.v;
-  if (d.f2 !== undefined) UI.f[d.f2] = d.fv;
+  if (d.f2 !== undefined) { UI.f[d.f2] = d.fv; if (d.f2 === 'tfEscopo') { UI.sub.tarefas = UI.sub.tarefas === 'gantt' ? 'gantt' : 'lista'; if (d.fv === 'aprovar') UI.f.tfStatus = 'entregues'; else if (UI.f.tfStatus === 'entregues') UI.f.tfStatus = 'abertas'; } }
   document.body.classList.remove('nav-open'); window.scrollTo(0, 0); render();
 };
 A.tab = A.nav;
@@ -285,58 +286,152 @@ const pillCarga = pct => { const [bg, c, b] = corCarga(pct); return `<span class
 function tarefaLinha(t, o = {}) {
   const resp = Calc.responsaveis(t.id).map(p => p.nome).join(', ');
   const late = Calc.atrasada(t);
-  const pode = Perm.editaTarefa(t);
+  const pode = Perm.editaTarefa(t), fluxo = !!t.solicitante_id;
   const at = t.atividade_id ? byId('cronograma', t.atividade_id) : null;
   const onde = [o.proj !== false && t.projeto_id ? `<span class="b b-blue">${esc(siglaProjeto(t.projeto_id))}</span>` : '', at ? `<span class="b b-gray" title="${esc(at.titulo)}">ativ. ${esc(at.codigo)}</span>` : '',
     o.ger !== false && t.gerencia_id ? `<span class="b b-gray">${esc((byId('gerencias', t.gerencia_id) || {}).nome || '')}</span>` : ''].join(' ');
   const pri = t.prioridade && t.prioridade !== 'normal' ? badge(lbl(PRIORIDADES, t.prioridade), t.prioridade === 'urgente' ? 'b-red' : t.prioridade === 'alta' ? 'b-yellow' : 'b-gray') : '';
-  return `<div class="task${t.concluida ? ' done' : ''}">
+  if (!fluxo) return `<div class="task${t.concluida ? ' done' : ''}">
     <input type="checkbox" ${t.concluida ? 'checked' : ''} ${pode ? '' : 'disabled'} data-a="tarefaToggle" data-id="${t.id}" title="Concluída">
     <div><span class="tt ${pode ? 'link' : ''}" ${pode ? `data-a="tarefaEditar" data-id="${t.id}"` : ''} style="font-weight:600">${esc(t.titulo || '(sem título)')}</span> ${pri}
       <div class="meta">${onde} ${resp ? '· ' + esc(resp) : '<span class="faint">· sem responsável</span>'}${t.descricao ? ' · ' + esc(t.descricao.slice(0, 120)) : ''}</div></div>
     <div class="small" style="text-align:right;${late ? 'color:var(--red);font-weight:600' : ''}">${t.inicio ? fmtD(t.inicio) + ' → ' : ''}${t.prazo ? fmtD(t.prazo) : '<span class="faint">sem prazo</span>'}${late ? '<br>atrasada' : ''}</div>
   </div>`;
+  const st = SIT_TAREFA[sitTarefa(t)], h = Calc.horasTarefa(t.id);
+  const bts = [Perm.relataTarefa(t) ? `<button class="btn-s" data-a="tarefaReportar" data-id="${t.id}">Reportar</button><button class="btn-s btn-p" data-a="tarefaEntregar" data-id="${t.id}">Entregar</button>` : '',
+    Perm.avaliaTarefa(t) ? `<button class="btn-s btn-p" data-a="tarefaAprovar" data-id="${t.id}">Aprovar</button><button class="btn-s" data-a="tarefaDevolver" data-id="${t.id}">Devolver</button>` : ''].join('');
+  return `<div class="task${t.concluida ? ' done' : ''}">
+    <span class="tk-ico" title="${esc(st[0])}" style="width:16px;text-align:center;color:${t.concluida ? 'var(--green)' : t.situacao === 'entregue' ? 'var(--yellow-txt)' : t.situacao === 'devolvida' ? 'var(--red)' : 'var(--muted)'}">${t.concluida ? '✓' : t.situacao === 'entregue' ? '⧗' : t.situacao === 'devolvida' ? '↩' : t.situacao === 'em_andamento' ? '◐' : '○'}</span>
+    <div><span class="tt link" data-a="tarefaVer" data-id="${t.id}" style="font-weight:600">${esc(t.titulo || '(sem título)')}</span> ${badge(st[0], st[1])} ${pri}
+      <div class="meta">${onde} ${resp ? esc(resp) : '<span class="faint">sem responsável</span>'} · solicitante ${esc(nomePessoa(t.solicitante_id) || '?')}${h ? ` · <b>${fmtHoras(h)}</b> relatada(s)` : ''}${t.situacao === 'devolvida' && t.parecer ? ` · <span style="color:var(--red)">${esc(t.parecer.slice(0, 120))}</span>` : t.descricao ? ' · ' + esc(t.descricao.slice(0, 120)) : ''}</div>
+      ${bts ? `<div class="row mt" style="gap:6px">${bts}</div>` : ''}</div>
+    <div class="small" style="text-align:right;${late ? 'color:var(--red);font-weight:600' : ''}">${t.prazo ? esc(rotuloSemana(t.prazo, true)) + `<div class="muted" style="font-weight:400">até ${fmtD(t.prazo)}</div>` : '<span class="faint">sem prazo</span>'}${late ? 'atrasada' : ''}</div>
+  </div>`;
 }
+const fmtHoras = h => (Math.round(h * 10) / 10).toString().replace('.', ',') + ' h';
+/* barra de cumprimento da meta semanal: verde ≥ esperado, amarelo ≥ 70% do esperado, vermelho abaixo; traço = esperado até hoje */
+function barraMeta(h, meta, esperado) {
+  if (!meta) return '<span class="faint small">sem meta</span>';
+  const p = Math.min(1, h / meta), e = Math.min(1, (esperado ?? meta) / meta), ref = esperado ?? meta;
+  const cor = ref <= 0 || h >= ref - 0.01 ? 'var(--green)' : h >= 0.7 * ref ? '#d9a21b' : 'var(--red)';
+  return `<span title="${esc(`${fmtHoras(h)} de ${fmtHoras(meta)}${esperado != null && esperado < meta ? ` (esperado até hoje: ${fmtHoras(esperado)})` : ''}`)}" style="display:inline-flex;align-items:center;gap:6px"><span style="position:relative;display:inline-block;width:90px;height:8px;border-radius:4px;background:#e8e6e0;overflow:hidden;vertical-align:middle"><span style="position:absolute;left:0;top:0;bottom:0;width:${(p * 100).toFixed(1)}%;background:${cor}"></span>${e < 1 ? `<span style="position:absolute;top:0;bottom:0;left:${(e * 100).toFixed(1)}%;width:2px;background:#5f5e5a"></span>` : ''}</span><span class="small">${Math.round(h / meta * 100)}%</span></span>`;
+}
+A.metaEditar = d => { const p = byId('pessoas', d.id); if (!p) return;
+  form({ title: 'Meta semanal — ' + p.nome, values: { meta_horas_semana: p.meta_horas_semana },
+    intro: `<div class="note mb small">Horas por semana esperadas nas atividades. Vazio = horas da posição no plano de trabalho${(() => { const m = Calc.metaSemanal(p.id); return m.origem === 'plano' ? ` (hoje: ${fmtHoras(m.horas)})` : ''; })()}.</div>`,
+    fields: [{ k: 'meta_horas_semana', l: 'Meta semanal de horas', t: 'number', min: 0, max: 60, step: 0.5 }], okMsg: '✓ Meta semanal atualizada',
+    onSave: x => Data.update('pessoas', p.id, { meta_horas_semana: x.meta_horas_semana }) }); };
 function listaTarefas(list, o = {}) {
   if (!list.length) return `<div class="empty">${o.vazio || 'Nenhuma tarefa.'}</div>`;
   const ord = list.slice().sort((a, b) => (a.concluida - b.concluida) || String(a.prazo || '9999').localeCompare(String(b.prazo || '9999')));
   return ord.map(t => tarefaLinha(t, o)).join('');
 }
-A.tarefaToggle = async d => { const t = byId('tarefas', d.id); await Data.update('tarefas', t.id, { concluida: !t.concluida }); render(); };
-A.tarefaEditar = d => formTarefa(byId('tarefas', d.id));
-A.tarefaNova = d => formTarefa(null, { projeto_id: d.projeto || null, gerencia_id: d.gerencia || null, responsaveis: d.pessoa ? [d.pessoa] : (ME.pessoa_id && !d.projeto && !d.gerencia ? [ME.pessoa_id] : []) });
+A.tarefaToggle = async d => { const t = byId('tarefas', d.id); if (t.solicitante_id) return A.tarefaVer(d); await Data.update('tarefas', t.id, { concluida: !t.concluida }); render(); };
+A.tarefaEditar = d => run(async () => { await carregarSolicitantes(); formTarefa(byId('tarefas', d.id)); });
+A.tarefaNova = d => run(async () => { await carregarSolicitantes(); formTarefa(null, { projeto_id: d.projeto || null, gerencia_id: d.gerencia || null, solicitante_id: Perm.leitor() ? null : (d.pessoa && d.pessoa !== ME.pessoa_id ? ME.pessoa_id : null), responsaveis: d.pessoa ? [d.pessoa] : (ME.pessoa_id && !d.projeto && !d.gerencia ? [ME.pessoa_id] : []) }); });
 function formTarefa(t, pre = {}) {
-  const novo = !t;
+  const novo = !t, leitor = Perm.leitor();
   const v = t ? { ...t, responsaveis: D.tarefa_responsaveis.filter(r => r.tarefa_id === t.id).map(r => r.pessoa_id) } : { prioridade: 'normal', ...pre };
-  const gereResp = novo || Perm.gereTarefa(t);
+  const prox = semanaISO(addDays(hoje(), 7)); v._semana = v.prazo || semanaSexta(prox.ano, prox.sem);
+  const gereResp = !leitor && (novo || Perm.gereTarefa(t));
+  const conteudo = Perm.editaConteudoTarefa(t);   // responsável que não gere: não mexe no conteúdo da atividade atribuída
+  const sols = (SOLICITANTES || []).filter(p => p.id !== (leitor ? ME.pessoa_id : null)).map(p => [p.id, p.nome]);
+  if (v.solicitante_id && !sols.some(o => o[0] === v.solicitante_id)) sols.unshift([v.solicitante_id, nomePessoa(v.solicitante_id) || '(sem acesso)']);
+  const projs = leitor ? D.projetos.filter(p => Perm.participa(p.id)).sort(byName('sigla')).map(p => [p.id, p.sigla]) : optProjetos(true);
   form({
-    title: novo ? 'Nova tarefa / demanda' : 'Editar tarefa', values: v,
+    title: novo ? (leitor ? 'Registrar atividade' : 'Nova tarefa / atividade') : (t.solicitante_id ? 'Editar atividade' : 'Editar tarefa'), values: v,
+    intro: leitor && novo ? '<div class="note mb small">Registre a atividade com o prazo (semana) e quem vai conferir a entrega. Depois, use <b>Reportar</b> para registrar horas e o que foi feito e <b>Entregar</b> quando terminar.</div>' : '',
     fields: [
-      { k: 'titulo', l: 'Título', req: true, full: true },
-      { k: 'projeto_id', l: 'Projeto', t: 'select', opts: optProjetos(true), blank: '— nenhum (demanda de gerência) —' },
-      { k: 'gerencia_id', l: 'Gerência', t: 'select', opts: optGerencias(), blank: '— nenhuma —' },
-      { k: 'atividade_id', l: 'Atividade do cronograma físico', t: 'select', blank: '— nenhuma —', hide: !(v.projeto_id && Calc.folhasCronograma(v.projeto_id).length),
+      { k: 'titulo', l: 'Título', req: true, full: true, ro: !conteudo },
+      { k: 'descricao', l: 'Descrição — o que deve ser feito', t: 'textarea', req: leitor, ro: !conteudo },
+      { k: 'solicitante_id', l: 'Solicitante (confere e aprova a entrega)', t: 'select', opts: sols, blank: leitor ? '— escolha —' : '— nenhum (tarefa simples, sem entrega) —', req: leitor, ro: !conteudo,
+        help: leitor ? 'Membro do laboratório que pediu a atividade' : 'Com solicitante, o responsável reporta horas e entrega, e o solicitante aprova ou devolve' },
+      { k: '_semana', l: 'Prazo — semana (até a sexta-feira)', t: 'select', opts: opcoesSemana(v.prazo), blank: false, ro: !conteudo },
+      { k: 'prazo', l: 'Prazo', t: 'date', hide: leitor, ro: !conteudo },
+      { k: 'projeto_id', l: 'Projeto', t: 'select', opts: projs, blank: '— nenhum —', ro: !conteudo },
+      { k: 'gerencia_id', l: 'Gerência', t: 'select', opts: optGerencias(), blank: '— nenhuma —', hide: leitor, ro: !conteudo },
+      { k: 'atividade_id', l: 'Atividade do cronograma físico', t: 'select', blank: '— nenhuma —', hide: leitor || !(v.projeto_id && Calc.folhasCronograma(v.projeto_id).length), ro: !conteudo,
         opts: v.projeto_id ? Calc.folhasCronograma(v.projeto_id).map(c => [c.id, `${c.codigo} ${c.titulo.length > 70 ? c.titulo.slice(0, 68) + '…' : c.titulo}`]) : [], full: true, help: 'Opcional — liga a tarefa do dia a dia a uma atividade do plano de trabalho' },
-      { k: 'inicio', l: 'Início', t: 'date' }, { k: 'prazo', l: 'Prazo', t: 'date' },
-      { k: 'prioridade', l: 'Prioridade', t: 'select', opts: PRIORIDADES, blank: false },
-      { k: 'concluida', l: 'Concluída', t: 'check' },
-      { k: 'descricao', l: 'Descrição', t: 'textarea' },
-      { k: 'responsaveis', l: 'Responsáveis', t: 'multi', opts: optPessoas(), ro: !gereResp },
+      { k: 'inicio', l: 'Início', t: 'date', hide: leitor, ro: !conteudo },
+      { k: 'prioridade', l: 'Prioridade', t: 'select', opts: PRIORIDADES, blank: false, hide: leitor, ro: !conteudo },
+      { k: 'concluida', l: 'Concluída', t: 'check', hide: leitor || !!v.solicitante_id },
+      { k: 'responsaveis', l: 'Responsáveis', t: 'multi', opts: optPessoas(), ro: !gereResp, hide: leitor },
     ],
     onSave: async x => {
-      const resp = x.responsaveis; delete x.responsaveis;
+      let resp = x.responsaveis; delete x.responsaveis;
+      if (leitor && novo) resp = [ME.pessoa_id];
+      if (!leitor && x.solicitante_id && x.solicitante_id === ME.pessoa_id && (resp || []).length === 1 && resp[0] === ME.pessoa_id) x.solicitante_id = null;   // tarefa só minha: sem entrega
+      const sem = x._semana; delete x._semana;
+      if (leitor || x.solicitante_id) { if (sem !== undefined) x.prazo = sem; if (!x.prazo && !(t && t.prazo)) falha('Informe o prazo (semana) da atividade.'); }
+      if (t && t.solicitante_id) delete x.concluida;
       let row;
       if (novo) row = await Data.insert('tarefas', x); else row = await Data.update('tarefas', t.id, x);
-      if (resp && gereResp) {
+      if (resp && (gereResp || (leitor && novo))) {
         const atuais = D.tarefa_responsaveis.filter(r => r.tarefa_id === row.id).map(r => r.pessoa_id);
         for (const pid of atuais.filter(p => !resp.includes(p))) await Data.removeWhere('tarefa_responsaveis', { tarefa_id: row.id, pessoa_id: pid });
         for (const pid of resp.filter(p => !atuais.includes(p))) await Data.insert('tarefa_responsaveis', { tarefa_id: row.id, pessoa_id: pid });
       }
     },
-    onDelete: !novo && Perm.gereTarefa(t) ? () => Data.remove('tarefas', t.id) : null,
-    deleteConfirm: 'Excluir esta tarefa?',
+    onOpen: () => {   // atividade (com solicitante): prazo por semana; tarefa simples: data
+      const sel = document.getElementById('fld_solicitante_id'), sw = document.getElementById('fld__semana'), dt = document.getElementById('fld_prazo');
+      const alterna = () => { const fluxo = leitor || !!(sel && sel.value); if (sw) sw.parentElement.style.display = fluxo ? '' : 'none'; if (dt) dt.parentElement.style.display = fluxo ? 'none' : ''; };
+      if (sel) sel.addEventListener('change', alterna); alterna();
+    },
+    onDelete: !novo && permitido('tarefas', 'del', null, t) ? () => Data.remove('tarefas', t.id) : null,
+    deleteConfirm: t && t.solicitante_id ? 'Excluir esta atividade e os seus relatos?' : 'Excluir esta tarefa?',
   });
 }
+
+/* ── atividade: detalhes, relatos, reportar, entregar, aprovar, devolver ── */
+A.tarefaVer = d => {
+  const t = byId('tarefas', d.id); if (!t) return;
+  const st = SIT_TAREFA[sitTarefa(t)], rel = Calc.relatos(t.id), h = Calc.horasTarefa(t.id), resp = Calc.responsaveis(t.id).map(p => p.nome).join(', ');
+  const kv = (k, v) => v ? `<span class="k">${k}</span><span>${v}</span>` : '';
+  const html = `<div class="between mb"><h3 style="margin:0">${esc(t.titulo || '(sem título)')}</h3><button class="btn-s" id="tv_x">✕</button></div>
+  <div class="kv mb small">${kv('Situação', badge(st[0], st[1]) + (t.entregue_em && t.situacao === 'entregue' ? ` <span class="muted">entregue em ${fmtD(t.entregue_em.slice(0, 10))}</span>` : '') + (t.avaliada_em && ['aprovada', 'devolvida'].includes(t.situacao) ? ` <span class="muted">${t.situacao === 'aprovada' ? 'aprovada' : 'devolvida'} em ${fmtD(t.avaliada_em.slice(0, 10))}</span>` : ''))}
+    ${kv('Prazo', t.prazo ? `${esc(rotuloSemana(t.prazo))}${Calc.atrasada(t) ? ' <b style="color:var(--red)">atrasada</b>' : ''}` : '<span class="faint">sem prazo</span>')}
+    ${kv('Solicitante', esc(nomePessoa(t.solicitante_id) || '—'))}${kv('Responsável', esc(resp || '—'))}
+    ${kv('Projeto', t.projeto_id ? esc(siglaProjeto(t.projeto_id)) : '')}${kv('Gerência', t.gerencia_id ? esc((byId('gerencias', t.gerencia_id) || {}).nome || '') : '')}</div>
+  ${t.descricao ? `<div class="small mb" style="white-space:pre-line">${esc(t.descricao)}</div>` : ''}
+  ${t.parecer ? `<div class="alert ${t.situacao === 'devolvida' ? 'bad' : 'info'} small mb"><b>Parecer do solicitante:</b> ${esc(t.parecer)}</div>` : ''}
+  <div class="sec" style="margin-top:0">Relatório da atividade · ${fmtHoras(h)}</div>
+  ${rel.length ? `<div class="tw mb" style="max-height:300px;overflow:auto"><table class="t small"><tr><th>Data</th><th>Quem</th><th class="num">Horas</th><th>O que foi feito</th><th></th></tr>
+    ${rel.map(r => `<tr><td style="white-space:nowrap">${fmtD(r.data)}${r.tipo === 'entrega' ? ' ' + badge('entrega', 'b-green') : ''}</td><td>${esc(nomePessoa(r.pessoa_id) || '—')}</td><td class="num">${fmtHoras(num(r.horas))}</td><td style="white-space:pre-line">${esc(r.descricao)}</td>
+      <td>${permitido('tarefa_relatos', 'del', null, r) && (Perm.dir() || !['entregue', 'aprovada'].includes(t.situacao)) ? `<button class="btn-s" data-a="relatoExcluir" data-id="${r.id}" title="Apagar este relato">✕</button>` : ''}</td></tr>`).join('')}</table></div>`
+    : '<div class="empty small mb">Nenhum relato ainda.</div>'}
+  <div class="mactions">${Perm.editaTarefa(t) || permitido('tarefas', 'del', null, t) ? `<button class="left" data-a="tarefaEditar" data-id="${t.id}">Editar</button>` : ''}
+    ${Perm.relataTarefa(t) ? `<button data-a="tarefaReportar" data-id="${t.id}">Reportar</button><button class="btn-p" data-a="tarefaEntregar" data-id="${t.id}">Entregar</button>` : ''}
+    ${Perm.avaliaTarefa(t) ? `<button data-a="tarefaDevolver" data-id="${t.id}">Devolver</button><button class="btn-p" data-a="tarefaAprovar" data-id="${t.id}">Aprovar</button>` : ''}
+    ${t.situacao === 'aprovada' && (Perm.solicitante(t) || Perm.dir()) ? `<button data-a="tarefaReabrir" data-id="${t.id}">Reabrir</button>` : ''}
+    <button id="tv_c">Fechar</button></div>`;
+  openModal(html, { wide: true, noFocus: true });
+  const root = document.getElementById('modal-root'); root.querySelector('#tv_x').onclick = root.querySelector('#tv_c').onclick = closeModal;
+};
+function formRelato(t, entrega) {
+  const sol = nomePessoa(t.solicitante_id) || 'o solicitante';
+  form({ title: (entrega ? 'Entregar: ' : 'Reportar: ') + (t.titulo || ''), values: { data: hoje() },
+    intro: entrega ? `<div class="note mb small">Informe as horas e descreva o que foi realizado (entra no relatório da atividade). Ao entregar, a atividade fica <b>aguardando a aprovação de ${esc(sol)}</b>, que é avisado(a); não é mais possível reportar, a menos que seja devolvida.</div>`
+      : '<div class="note mb small">O relato entra no relatório da atividade e no relatório semanal, mas <b>não</b> dá a atividade por concluída. Quando terminar, use <b>Entregar</b>.</div>',
+    fields: [{ k: 'data', l: 'Data do trabalho', t: 'date', req: true }, { k: 'horas', l: 'Horas dedicadas', t: 'number', step: 0.5, min: 0.5, max: 80, req: true },
+      { k: 'descricao', l: entrega ? 'O que foi realizado (resumo da entrega)' : 'O que foi feito', t: 'textarea', rows: 4, req: true }],
+    okLabel: entrega ? 'Entregar' : 'Reportar', okMsg: entrega ? `✓ Atividade entregue — aguardando aprovação de ${sol}` : '✓ Relato registrado',
+    onSave: async x => {
+      await Data.insert('tarefa_relatos', { tarefa_id: t.id, tipo: entrega ? 'entrega' : 'relato', data: x.data, horas: x.horas, descricao: x.descricao });
+      if (entrega) await Data.update('tarefas', t.id, { situacao: 'entregue' });
+    } });
+}
+A.tarefaReportar = d => formRelato(byId('tarefas', d.id), false);
+A.tarefaEntregar = d => formRelato(byId('tarefas', d.id), true);
+A.tarefaAprovar = d => { const t = byId('tarefas', d.id);
+  form({ title: 'Aprovar: ' + t.titulo, values: {}, intro: `<div class="note mb small">${esc(Calc.responsaveis(t.id).map(p => p.nome).join(', ') || 'O responsável')} entregou com ${fmtHoras(Calc.horasTarefa(t.id))} relatada(s). Confira o relatório antes de aprovar.</div>`,
+    fields: [{ k: 'parecer', l: 'Comentário (opcional)', t: 'textarea' }], okLabel: 'Aprovar', okMsg: '✓ Atividade aprovada',
+    onSave: x => Data.update('tarefas', t.id, { situacao: 'aprovada', parecer: x.parecer || null }) }); };
+A.tarefaDevolver = d => { const t = byId('tarefas', d.id);
+  form({ title: 'Devolver: ' + t.titulo, values: {}, intro: '<div class="note mb small">A atividade volta para o responsável, que pode reportar de novo e entregar outra vez.</div>',
+    fields: [{ k: 'parecer', l: 'O que falta ou precisa ser corrigido', t: 'textarea', req: true }], okLabel: 'Devolver', okMsg: 'Atividade devolvida ao responsável',
+    onSave: x => Data.update('tarefas', t.id, { situacao: 'devolvida', parecer: x.parecer }) }); };
+A.tarefaReabrir = d => run(async () => { if (!await confirmar('Reabrir esta atividade aprovada? Ela volta para "em andamento".')) return; await Data.update('tarefas', d.id, { situacao: 'em_andamento' }); closeModal(); render(); flash('Atividade reaberta'); });
+A.relatoExcluir = d => run(async () => { if (!await confirmar('Apagar este relato?')) return; const r = byId('tarefa_relatos', d.id); await Data.remove('tarefa_relatos', d.id); if (r) A.tarefaVer({ id: r.tarefa_id }); render(); });
 
 function ganttTarefas(list, grupo = t => t.projeto_id ? siglaProjeto(t.projeto_id) : ((byId('gerencias', t.gerencia_id) || {}).nome || '')) {
   const rows = list.filter(t => t.inicio || t.prazo).map(t => {
@@ -406,6 +501,21 @@ VIEWS.painel = () => {
     + (v === 'semana' ? painelSemana() : painelPortfolio());
 };
 
+/* ── atividades: o que aguarda a minha aprovação e as minhas atividades com entrega ── */
+function painelAtividades() {
+  if (!ME.pessoa_id) return '';
+  const apr = Calc.aguardandoMinhaAprovacao(), minhas = D.tarefas.filter(t => t.solicitante_id && !t.concluida && D.tarefa_responsaveis.some(r => r.tarefa_id === t.id && r.pessoa_id === ME.pessoa_id))
+    .sort((a, b) => ({ devolvida: 0, a_fazer: 1, em_andamento: 1, entregue: 2 }[sitTarefa(a)] - { devolvida: 0, a_fazer: 1, em_andamento: 1, entregue: 2 }[sitTarefa(b)]) || String(a.prazo || '9999').localeCompare(String(b.prazo || '9999')));
+  if (!apr.length && !minhas.length) return '';
+  const { ano, sem } = semanaISO(hoje()), ini = semanaInicio(ano, sem), horasSem = D.tarefa_relatos.filter(r => r.pessoa_id === ME.pessoa_id && r.data >= ini && r.data <= addDays(ini, 6)).reduce((s, r) => s + num(r.horas), 0);
+  const meta = Calc.metaSemanal(ME.pessoa_id).horas;
+  return `<div class="grid mb" style="grid-template-columns:repeat(auto-fit,minmax(380px,1fr));align-items:start">
+    ${apr.length ? `<div class="card"><div class="between mb"><span class="bold">Aguardando a sua aprovação (${apr.length})</span><button class="btn-s" data-a="tarefasFiltro" data-v="aprovar">ver todas</button></div>${listaTarefas(apr.slice(0, 6), { vazio: '' })}</div>` : ''}
+    ${minhas.length ? `<div class="card"><div class="between mb"><span class="bold">Minhas atividades (${minhas.length})</span><span class="small muted" style="text-align:right">${fmtHoras(horasSem)}${meta ? ` de ${fmtHoras(meta)}` : ''} nesta semana${meta ? `<div>${barraMeta(horasSem, meta, meta * Calc.fracaoSemana(ini))}</div>` : ''}</span></div>${listaTarefas(minhas.slice(0, 8), { vazio: '' })}
+      ${minhas.length > 8 ? '<button class="btn-s mt" data-a="tarefasFiltro" data-v="minhas">ver todas</button>' : ''}</div>` : ''}</div>`;
+}
+A.tarefasFiltro = d => { UI.tab = 'tarefas'; UI.sub.tarefas = 'lista'; UI.f.tfEscopo = d.v; UI.f.tfStatus = d.v === 'aprovar' ? 'entregues' : 'abertas'; UI.projeto = null; window.scrollTo(0, 0); render(); };
+
 /* ── Minha semana ── */
 function painelSemana() {
   const t = hoje(), dow = toDate(t).getDay(), fimSem = addDays(t, dow === 0 ? 0 : 7 - dow), lim = addDays(t, 30);
@@ -421,7 +531,8 @@ function painelSemana() {
       <span class="b b-gray" style="min-width:74px;text-align:center">${esc(x.tipo)}</span>${x.pid ? `<span class="muted" style="min-width:90px">${esc(siglaProjeto(x.pid))}</span>` : '<span style="min-width:90px"></span>'}<span style="flex:1">${esc(x.txt)}</span></div>`; };
   const mets = [['Atrasados', cont[0], cont[0] ? 'color:var(--red)' : ''], ['Esta semana', cont[1]], ['Próximos 30 dias', cont[2]], ['Meus projetos vigentes', meusProj.length]];
   return `<div class="between mb"><div><div class="title" style="font-size:18px">Olá, ${esc((pe && pe.nome || '').split(' ')[0])}</div><div class="small muted">${['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'][dow]}, ${fmtD(t)} · o que está sob a sua responsabilidade</div></div>
-    ${Perm.podeEditar() ? `<button class="btn-s" data-a="tarefaNova">+ tarefa</button>` : ""}</div>
+    ${Perm.podeEditar() ? `<button class="btn-s" data-a="tarefaNova">+ tarefa</button>` : Perm.leitor() ? `<button class="btn-s btn-p" data-a="tarefaNova">+ Registrar atividade</button>` : ""}</div>
+  ${painelAtividades()}
   <div class="metrics">${mets.map(([k, v, s]) => `<div class="metric"><div class="k">${k}</div><div class="v" style="${s || ''}">${v}</div></div>`).join('')}</div>
   <div class="grid" style="grid-template-columns:minmax(420px,3fr) minmax(300px,2fr);align-items:start">
     <div class="card">${ag.length ? grupos.map(([nome, f, c], i) => { const l = ag.filter(f).sort((a, b) => String(a.data || '').localeCompare(String(b.data || ''))); return l.length ? `<div class="sec" style="${i === 0 ? 'margin-top:0;' : ''}${c ? 'color:var(--red)' : ''}">${nome} (${l.length})</div>${l.map(linha).join('')}` : ''; }).join('')
@@ -1299,7 +1410,7 @@ function historicoBloco(filtro, limite = 15) {
   return `<div class="sec">Histórico recente</div><div class="card small">${list.map(h => `<div class="mb"><span class="muted">${fmtDT(h.em)} · ${esc(quem(h.usuario))}</span> — ${esc(descHist(h))}</div>`).join('')}</div>`;
 }
 function quem(u) { if (!u) return 'sistema'; if (String(u).startsWith('local:')) { const pid = u.slice(6); return byId('pessoas', pid) ? nomePessoa(pid) : 'Direção (local)'; } const pf = D.perfis.find(p => p.id === u); return pf ? (pf.pessoa_id ? nomePessoa(pf.pessoa_id) : pf.email) : 'usuário'; }
-const NOME_TAB = { reformulacoes: 'reformulação financeira', plano_itens: 'item do plano de aplicação', reprogramacoes: 'reprogramação', pessoas: 'pessoa', projetos: 'projeto', alocacoes: 'alocação', tarefas: 'tarefa', tarefa_responsaveis: 'responsável de tarefa', aditivos: 'aditivo', entregas: 'entrega', cronograma: 'atividade do cronograma', vinculos_financeiros: 'bolsa/pagamento', orcamento_rubricas: 'orçamento da rubrica', despesas: 'despesa', prospeccoes: 'prospecção', avaliacoes: 'avaliação', gerencias: 'gerência', gerencia_membros: 'gerente', perfis: 'perfil', infra_itens: 'item de infraestrutura', infra_reservas: 'reserva', infra_manutencoes: 'manutenção', infra_habilitacoes: 'habilitação' };
+const NOME_TAB = { tarefa_relatos: 'relato de atividade', reformulacoes: 'reformulação financeira', plano_itens: 'item do plano de aplicação', reprogramacoes: 'reprogramação', pessoas: 'pessoa', projetos: 'projeto', alocacoes: 'alocação', tarefas: 'tarefa', tarefa_responsaveis: 'responsável de tarefa', aditivos: 'aditivo', entregas: 'entrega', cronograma: 'atividade do cronograma', vinculos_financeiros: 'bolsa/pagamento', orcamento_rubricas: 'orçamento da rubrica', despesas: 'despesa', prospeccoes: 'prospecção', avaliacoes: 'avaliação', gerencias: 'gerência', gerencia_membros: 'gerente', perfis: 'perfil', infra_itens: 'item de infraestrutura', infra_reservas: 'reserva', infra_manutencoes: 'manutenção', infra_habilitacoes: 'habilitação' };
 const REF_COL = { projeto_id: 'projetos', pessoa_id: 'pessoas', responsavel_id: 'pessoas', solicitante_id: 'pessoas', gerencia_id: 'gerencias', item_id: 'infra_itens', pai_id: 'infra_itens', tarefa_id: 'tarefas', prospeccao_id: 'prospeccoes', projeto_aquisicao_id: 'projetos', vinculo_id: 'vinculos_financeiros', atividade_id: 'cronograma' };
 function nomeRef(t, id) { const r = byId(t, id); if (!r) return id ? '(removido)' : '∅'; return r.sigla || r.nome || r.titulo || r.item || (r.pessoa_id ? nomePessoa(r.pessoa_id) : '?'); }
 function rotuloReg(t, r) {
@@ -1652,6 +1763,8 @@ function camposPessoa(p) {
     { k: 'foco', l: 'Foco (Experimental / Numérico / Gestão)' },
     { k: 'formacao', l: 'Formação (Graduado, Mestre, Doutor…)' }, { k: 'lattes', l: 'Currículo Lattes (link)' },
     { k: 'disponibilidade_pct', l: 'Disponibilidade alocável (%)', t: 'number', min: 0, max: 100, step: 5 },
+    { k: 'meta_horas_semana', l: 'Meta semanal de horas (atividades)', t: 'number', min: 0, max: 60, step: 0.5, ro: !!p && !Perm.gerePessoa(p.id),
+      help: 'Para o relatório semanal. Vazio = horas semanais da posição na equipe do plano de trabalho' },
     { k: 'perfil_disponibilidade', l: 'Perfil de participação', t: 'select', blank: false, opts: PERFIS_DISP },
     { k: 'obs_disponibilidade', l: 'Observação de disponibilidade' },
     { k: 'risco_sobrecarga', l: 'Marcar risco de sobrecarga ⚠', t: 'check', ro: !gestor }, { k: 'ativo', l: 'Ativo no laboratório', t: 'check', ro: !gestor },

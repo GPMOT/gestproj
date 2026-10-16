@@ -2,7 +2,7 @@
 
 Programa de gestão de projetos, equipe, financeiro e infraestrutura do laboratório.
 O produto final é **um único arquivo HTML** (funciona offline, sem instalar nada), montado a partir das partes em `app/`.
-Versão do programa: **2.30** · versão do esquema do banco: **1.8**. Implantação no Supabase: veja `../Guia de implantação online (Supabase).docx`.
+Versão do programa: **2.32** · versão do esquema do banco: **1.10**. Implantação no Supabase: veja `../Guia de implantação online (Supabase).docx`.
 
 ```
 Software de Gestão/
@@ -12,7 +12,7 @@ Software de Gestão/
 ├─ gpmot-portfolio-26-09-23.json                 ← dados do programa antigo (usados nos testes)
 ├─ H - Fundep_…_revisao_final.xlsx               ← planilha do edital (tem CPFs — nunca copiar para o código-fonte)
 ├─ Plano_de_Trabalho_Final_-_SIGITEC.pdf · visualizaSolicitaçãoDeAditiv.pdf ← documentos da Petrobras (usados nos testes t21 e t23)
-└─ codigo-fonte/                                 (39 arquivos)
+└─ codigo-fonte/                                 (41 arquivos)
    ├─ README.md · build.cjs · .gitignore
    ├─ app/          10 partes do programa (editar aqui) + marca/ (logotipo e ícones) + vendor/ (biblioteca supabase-js)
    ├─ banco/        gpmot_schema.sql (banco completo) + atualização da versão anterior
@@ -62,6 +62,18 @@ Projetos atrasam: os prazos das atividades podem ser ajustados por **Direção, 
 - **Reprogramar prazos…** (aba Cronograma físico): seleciona atividades ou etapas inteiras, desloca N meses (início e término, só término ou só início) ou digita os novos meses; motivo obrigatório e documento (ofício, aceite do financiador); avisa quando o término passa da vigência (aditivo de prazo).
 - **Linha de base**: na 1ª mudança de cada atividade o banco guarda os meses originais (`mes_inicio_base`, `mes_fim_base`); a tabela mostra “orig.” e o desvio, o Gantt mostra o plano original em cinza, e os indicadores mostram quantas atividades foram reprogramadas e o deslocamento do término. Só a Direção redefine a linha de base (ex.: após aditivo aprovado).
 - **Registro** (`reprogramacoes`): data, autor (gravado pelo banco), motivo, documento e cada atividade “de → para”; listado no fim da aba. A ficha de uma atividade também exige motivo quando os meses mudam.
+
+## Atividades com acompanhamento (alunos)
+
+Tarefas com **solicitante** viram atividades com entrega e aprovação — o controle do trabalho dos alunos do laboratório (perfil **Leitura**) e de qualquer pessoa da equipe. Tarefas sem solicitante continuam como antes (caixa “concluída”).
+
+- **Entrada:** um Membro atribui (Tarefas → + Nova tarefa, com solicitante e responsável) ou o próprio aluno registra (+ Registrar atividade), escolhendo o solicitante entre os membros com acesso ao programa (o solicitante nunca é o próprio aluno). Toda atividade tem descrição, solicitante e prazo por **semana do ano** (ISO; vence na sexta-feira).
+- **Reportar:** horas + o que foi feito; entra no relatório da atividade e no semanal, sem concluir. O 1º relato põe a atividade “em andamento”.
+- **Entregar:** horas + resumo do que foi realizado; a atividade fica “entregue · aguardando aprovação”, não recebe mais relatos e o solicitante é avisado (contador no menu Tarefas e cartão “Aguardando a sua aprovação” no Painel).
+- **Aprovar / Devolver:** só o solicitante (ou a Direção). Devolver exige parecer; o aluno vê a devolução, reporta de novo e entrega outra vez. Aprovada = concluída.
+- **Relatório semanal** (Tarefas → Relatório semanal): por pessoa, horas relatadas na semana, atividades trabalhadas, entregues, aprovadas, atrasadas e em aberto, com os relatos; exporta CSV e Word/PDF. Vê todos quem tem a permissão de gerência `atividades_acompanhar` (dada à Gerência Técnica) e a Direção; os demais veem só o próprio.
+- **Meta semanal de horas:** no cadastro da pessoa (ou pelo ✎ no relatório semanal), definida pela Direção, gerência com `pessoas_gerir` ou coordenação — a própria pessoa não altera. Sem meta no cadastro vale a soma das horas semanais das posições que ela ocupa na equipe do plano de trabalho (marcada com ᵖ). O relatório mostra horas × meta com barra de cumprimento e quantas pessoas ficaram abaixo; na semana em curso compara com o esperado até hoje (dias úteis). O Painel do aluno mostra “x h de y h nesta semana”. Banco v1.10: coluna `pessoas.meta_horas_semana` (0–60), teste `19_meta_semanal`.
+- **Banco (v1.9):** colunas `solicitante_id`, `situacao`, `entregue_em`, `avaliada_em`, `avaliada_por`, `parecer` em `tarefas`; tabela `tarefa_relatos` (autor gravado pelo banco); gatilho `tg_tarefa_fluxo` garante as transições e que o responsável não mude solicitante, descrição nem prazo de atividade atribuída; a Leitura só cria atividades com solicitante, nunca de gerência, e só nos projetos de que participa. Teste `18_atividades_alunos`.
 
 ## Reformulações financeiras
 
@@ -137,6 +149,7 @@ Abre `app/gpmot.html` no Chromium, carrega os dados do programa antigo e, quando
 | t21 | Plano de Trabalho SIGITEC (PDF) no projeto Petrobras: 22 conferências, orçamento, cronograma, equipe e bolsas, itens, desembolso, relatórios; reimportação sem duplicar; ida e volta pelo plano padrão (.json). Usa o PDF da pasta `Software de Gestão` (nome com “SIGITEC”); sem ele, o teste é pulado |
 | t22 | reprogramação do cronograma: Direção desloca uma etapa inteira (motivo obrigatório, documento, plano original guardado, indicadores, Gantt com linha de base); gerência com `cronograma_gerir` muda prazos mas não a estrutura; ficha da atividade exige motivo; membro sem cargo não reprograma; Direção adota nova linha de base |
 | t23 | reformulação financeira (5ª solicitação da Petrobras, PDF): 29 conferências, naturezas → rubricas, comparação item a item com o sistema, registro como submetida sem mudar o orçamento, aplicação por gerência (rubricas, 15 itens cancelados, cabeçote alterado, serviços incluídos com rendimentos, 2ª parcela redistribuída), não aplica duas vezes, reformulação padrão (.json) de ida e volta; membro sem cargo não registra. Usa o PDF da pasta (nome com “Solicitação” e “Aditivo”/“Reformulação”); sem ele, é pulado |
+| t24 | atividades com acompanhamento: membro atribui à aluna (Leitura) com prazo na sexta; aluna reporta (em andamento), não muda o prazo, entrega e não se aprova; registra a própria (solicitante obrigatório, só membros); solicitante avisado (menu e Painel), devolve com parecer, aluna entrega de novo, outro membro não aprova, solicitante aprova; relatório semanal da Gerência Técnica (Word); membro sem a permissão vê só o seu; outro aluno não vê |
 | t20 | perfis (Suporte técnico, Leitura, vice-coordenação) e valores de projeto: visíveis a quem tem cargo; Membro sem cargo e Leitura não veem |
 | `desempenho` | diagnóstico: tempo de cada tela com ≈ 11 mil registros (`node tela.cjs desempenho`) |
 | `celular` | diagnóstico: telas num celular de 390 px (`node tela.cjs celular`) |

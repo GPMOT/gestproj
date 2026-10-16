@@ -1374,6 +1374,133 @@ const TESTES = {
     await b.close(); process.exit(falhas || errs.length ? 1 : 0);
   })();
 },
+'t24': () => {
+  // Atividades com acompanhamento: membro atribui a aluno (Leitura); aluno reporta, entrega, registra a própria; solicitante devolve e aprova; relatório semanal
+  const { chromium } = require('playwright'); const fs = require('fs');
+  (async () => {
+    const b = await chromium.launch(); const pg = await b.newPage({ viewport: { width: 1400, height: 900 }, acceptDownloads: true });
+    const errs = []; pg.on('pageerror', e => errs.push('PAGEERR ' + e.message)); pg.on('console', m => { if (m.type() === 'error' && !/ErroRegra/.test(m.text())) errs.push('CONSOLE ' + m.text()); });
+    let falhas = 0; const ok = (c, m, x) => { console.log((c ? '✓ ' : '✗ ') + m + (x !== undefined ? ' — ' + JSON.stringify(x) : '')); if (!c) falhas++; };
+    await pg.goto(CFG.APP); await pg.waitForTimeout(200);
+    const old = JSON.parse(fs.readFileSync(CFG.DADOS_V1, 'utf8'));
+    const ids = await pg.evaluate(async d => { localStorage.clear(); Local.load(); const { T } = converterV1(d); Object.keys(TABLES).forEach(t => D[t] = T[t] || []); seedPadrao(); Local.persistAll();
+      aplicarSim({ papel: 'direcao', pessoa_id: null });
+      const mk = async (nome, tipo) => (await Data.insert('pessoas', { nome, tipo, email: nome.toLowerCase().replace(/\W+/g, '.') + '@ufsm.br' })).id;
+      const membro = await mk('Mario Solicitante', 'docente'), outro = await mk('Rui Outro Membro', 'docente'), gerente = await mk('Gil Gerente Tecnico', 'tecnico');
+      const ana = await mk('Ana Aluna IC', 'ic'), davi = await mk('Davi Aluno IC', 'ic');
+      for (const [pid, papel] of [[membro, 'membro'], [outro, 'membro'], [gerente, 'membro'], [ana, 'leitura'], [davi, 'leitura']])
+        await Data.insert('perfis', { id: crypto.randomUUID(), email: byId('pessoas', pid).email, pessoa_id: pid, papel, ativo: true });
+      await Data.insert('gerencia_membros', { gerencia_id: D.gerencias.find(g => /T[eé]cnica/.test(g.nome)).id, pessoa_id: gerente, funcao: 'titular', desde: '2020-01-01' });
+      return { membro, outro, gerente, ana, davi };
+    }, old);
+    const como = async (papel, pessoa) => { await pg.evaluate(([p, id]) => { closeModal(); aplicarSim({ papel: p, pessoa_id: id }); UI.tab = 'tarefas'; UI.sub.tarefas = 'lista'; UI.f.tfEscopo = undefined; UI.f.tfStatus = 'abertas'; render(); }, [papel, pessoa]); await pg.waitForTimeout(120); };
+    const tarefa = titulo => pg.evaluate(t => { const x = D.tarefas.find(y => y.titulo === t); return x && { id: x.id, situacao: x.situacao, concluida: x.concluida, solicitante: x.solicitante_id, resp: D.tarefa_responsaveis.filter(r => r.tarefa_id === x.id).map(r => r.pessoa_id), horas: Calc.horasTarefa(x.id), parecer: x.parecer, prazo: x.prazo, criado_por: x.criado_por }; }, titulo);
+    // 1. membro atribui à aluna
+    await como('membro', ids.membro);
+    await pg.evaluate(id => A.tarefaNova({ pessoa: id }), ids.ana); await pg.waitForSelector('#m_ok');
+    const pre = await pg.evaluate(() => ({ sol: document.querySelector('#fld_solicitante_id').value, prazo: document.querySelector('#fld__semana').value, data: getComputedStyle(document.querySelector('#fld_prazo').parentElement).display }));
+    await pg.fill('#fld_titulo', 'Revisar curvas de pressão'); await pg.fill('#fld_descricao', 'Curvas dos ensaios de 10/10');
+    await pg.click('#m_ok'); await pg.waitForTimeout(200);
+    let t1 = await tarefa('Revisar curvas de pressão');
+    ok(t1 && t1.solicitante === ids.membro && t1.situacao === 'a_fazer' && JSON.stringify(t1.resp) === JSON.stringify([ids.ana]) && pre.sol === ids.membro && /-\d\d$/.test(pre.prazo) && new Date(pre.prazo + 'T12:00').getDay() === 5 && pre.data === 'none',
+      'membro atribui atividade: solicitante = ele, prazo na sexta da semana, responsável a aluna', { t1, pre });
+    // 2. aluna: painel, reportar, não muda prazo, entregar
+    await como('leitura', ids.ana);
+    await pg.evaluate(() => { UI.tab = 'painel'; UI.sub.painel = 'semana'; render(); }); await pg.waitForTimeout(100);
+    ok(/Minhas atividades \(1\)/.test(await pg.textContent('#app')) && !!(await pg.$('#app [data-a="tarefaNova"]')), 'painel da aluna: minhas atividades e botão Registrar atividade');
+    await pg.screenshot({ path: CFG.saida('a1_painel_aluna.png') });
+    await pg.evaluate(() => { UI.tab = 'tarefas'; render(); }); await pg.waitForTimeout(100);
+    ok(await pg.isVisible('[data-a="tarefaReportar"]') && await pg.isVisible('[data-a="tarefaEntregar"]') && !(await pg.$('input[data-a="tarefaToggle"]')), 'aluna vê Reportar e Entregar (sem caixa de concluída)');
+    await pg.click('[data-a="tarefaReportar"]'); await pg.waitForSelector('#fld_horas');
+    await pg.fill('#fld_horas', '3'); await pg.fill('#fld_descricao', 'Curvas 1 a 4 revisadas'); await pg.click('#m_ok'); await pg.waitForTimeout(200);
+    t1 = await tarefa('Revisar curvas de pressão');
+    ok(t1.situacao === 'em_andamento' && t1.horas === 3, 'reportar: relato de 3 h, atividade em andamento', t1);
+    const muda = await pg.evaluate(id => Data.update('tarefas', id, { prazo: '2030-01-04' }).then(() => 'gravou', e => e.message), t1.id);
+    ok(/não altera/.test(muda), 'aluna não muda o prazo da atividade atribuída', muda);
+    await pg.click('[data-a="tarefaEntregar"]'); await pg.waitForSelector('#fld_horas');
+    await pg.fill('#fld_horas', '2.5'); await pg.fill('#fld_descricao', 'Curvas 5 a 8 e relatório'); await pg.click('#m_ok'); await pg.waitForTimeout(200);
+    t1 = await tarefa('Revisar curvas de pressão');
+    ok(t1.situacao === 'entregue' && t1.horas === 5.5 && !(await pg.$('[data-a="tarefaReportar"]')), 'entregar: 5,5 h, aguardando aprovação, sem novos relatos', t1);
+    const autoaprova = await pg.evaluate(id => Data.update('tarefas', id, { situacao: 'aprovada' }).then(() => 'gravou', e => e.message), t1.id);
+    ok(/solicitante/.test(autoaprova), 'aluna não aprova a própria entrega', autoaprova);
+    // 3. aluna registra a própria atividade (solicitante obrigatório; ela fica responsável)
+    await pg.click('#app [data-a="tarefaNova"]'); await pg.waitForSelector('#fld_solicitante_id');
+    const opts = await pg.$$eval('#fld_solicitante_id option', o => o.map(x => x.textContent));
+    await pg.fill('#fld_titulo', 'Estudo da NBR 6601'); await pg.fill('#fld_descricao', 'Leitura e resumo da norma');
+    await pg.click('#m_ok'); await pg.waitForTimeout(150);
+    const semSol = await pg.evaluate(() => (document.querySelector('#m_err') || {}).textContent || '');
+    await pg.selectOption('#fld_solicitante_id', ids.membro); await pg.click('#m_ok'); await pg.waitForTimeout(200);
+    let t2 = await tarefa('Estudo da NBR 6601');
+    ok(/Solicitante/.test(semSol) && opts.some(o => /Mario Solicitante/.test(o)) && !opts.some(o => /Ana Aluna|Davi Aluno/.test(o)) && t2 && JSON.stringify(t2.resp) === JSON.stringify([ids.ana]) && t2.solicitante === ids.membro,
+      'aluna registra atividade: solicitante obrigatório (só membros), ela fica responsável', { semSol, opts: opts.length, t2 });
+    await pg.screenshot({ path: CFG.saida('a2_tarefas_aluna.png') });
+    // 4. membro: aviso, devolve (parecer obrigatório); aluna reporta de novo e entrega; membro aprova
+    await como('membro', ids.membro);
+    const aviso = await pg.evaluate(() => ({ nav: navItens().flatMap(g => g.itens).find(i => i.t === 'tarefas'), apr: Calc.aguardandoMinhaAprovacao().length }));
+    await pg.evaluate(() => { UI.tab = 'painel'; UI.sub.painel = 'semana'; render(); }); await pg.waitForTimeout(100);
+    ok(aviso.apr === 1 && aviso.nav.n >= 1 && /aguardando a sua aprovação/.test(aviso.nav.nt) && /Aguardando a sua aprovação \(1\)/.test(await pg.textContent('#app')), 'solicitante é avisado: contador no menu e cartão no Painel', { n: aviso.nav.n, nt: aviso.nav.nt });
+    await pg.screenshot({ path: CFG.saida('a3_painel_solicitante.png') });
+    await pg.click('[data-a="tarefaDevolver"]'); await pg.waitForSelector('#fld_parecer'); await pg.click('#m_ok'); await pg.waitForTimeout(100);
+    const semPar = await pg.evaluate(() => (document.querySelector('#m_err') || {}).textContent || '');
+    await pg.fill('#fld_parecer', 'Faltou a curva 9'); await pg.click('#m_ok'); await pg.waitForTimeout(200);
+    t1 = await tarefa('Revisar curvas de pressão');
+    ok(/Preencha/.test(semPar) && t1.situacao === 'devolvida' && t1.parecer === 'Faltou a curva 9', 'devolver exige parecer; atividade devolvida', { semPar, t1 });
+    await como('leitura', ids.ana);
+    const dev = await pg.evaluate(() => Calc.minhasDevolvidas().length);
+    await pg.evaluate(id => { closeModal(); A.tarefaEntregar({ id }); }, t1.id); await pg.waitForSelector('#fld_horas');
+    await pg.fill('#fld_horas', '1'); await pg.fill('#fld_descricao', 'Curva 9 incluída'); await pg.click('#m_ok'); await pg.waitForTimeout(200);
+    t1 = await tarefa('Revisar curvas de pressão');
+    ok(dev === 1 && t1.situacao === 'entregue' && t1.horas === 6.5, 'aluna vê a devolução e entrega de novo', { dev, t1 });
+    await como('membro', ids.outro);
+    const outroAprova = await pg.evaluate(id => ({ botao: Perm.avaliaTarefa(byId('tarefas', id)), r: Data.update('tarefas', id, { situacao: 'aprovada' }).then(() => 'gravou', e => e.message) }), t1.id);
+    ok(!outroAprova.botao, 'outro membro (não solicitante) não tem o botão Aprovar');
+    ok(/solicitante/.test(await pg.evaluate(id => Data.update('tarefas', id, { situacao: 'aprovada' }).then(() => 'gravou', e => e.message), t1.id)), 'outro membro não aprova');
+    await como('membro', ids.membro);
+    await pg.evaluate(id => A.tarefaVer({ id }), t1.id); await pg.waitForSelector('#tv_x');
+    await pg.screenshot({ path: CFG.saida('a4_detalhe_atividade.png') });
+    const det = await pg.evaluate(() => ({ rel: document.querySelectorAll('#modal-root table tr').length - 1, txt: document.querySelector('#modal-root').innerText }));
+    await pg.click('#modal-root [data-a="tarefaAprovar"]'); await pg.waitForSelector('#fld_parecer'); await pg.click('#m_ok'); await pg.waitForTimeout(200);
+    t1 = await tarefa('Revisar curvas de pressão');
+    ok(det.rel === 3 && /6,5 h/i.test(det.txt) && /Faltou a curva 9/.test(det.txt) && t1.situacao === 'aprovada' && t1.concluida, 'detalhe com 3 relatos e 6,5 h; solicitante aprova (concluída)', { rel: det.rel, t1 });
+    // 5. relatório semanal: gerência técnica vê todos; membro sem a permissão vê só o seu
+    await como('membro', ids.gerente);
+    const rs = await pg.evaluate(() => { UI.sub.tarefas = 'semanal'; UI.f.rsSem = null; render(); const { ano, sem } = semanaSel(), R = Calc.relatorioSemana(ano, sem, pessoasRelSemanal());
+      return { acomp: Perm.acompanhaAtividades(), pessoas: R.linhas.map(l => [l.pessoa.nome, l.horas, l.entregues.length, l.aprovadas.length]), tela: /Relatório semanal|Horas relatadas/.test(document.querySelector('#app').innerText) }; });
+    await pg.screenshot({ path: CFG.saida('a5_relatorio_semanal.png') });
+    const ana = rs.pessoas.find(p => /Ana Aluna/.test(p[0]));
+    ok(rs.acomp && rs.tela && ana && ana[1] === 6.5 && ana[3] === 1, 'gerência técnica: relatório semanal com as horas e a aprovação da aluna', rs);
+    // meta semanal: gerência técnica define no relatório; falta → horas da posição no plano; aluna não altera
+    await pg.click(`[data-a="metaEditar"][data-id="${ids.ana}"]`); await pg.waitForSelector('#fld_meta_horas_semana'); await pg.fill('#fld_meta_horas_semana', '20'); await pg.click('#m_ok'); await pg.waitForTimeout(200);
+    const mt = await pg.evaluate(x => { const p = D.projetos[0]; D.equipe_plano.push({ id: crypto.randomUUID(), projeto_id: p.id, nome_plano: 'IC', pessoa_id: x.davi, status: 'ocupada', horas_semanais: 12, etapas: [] });
+      const { ano, sem } = semanaSel(), R = Calc.relatorioSemana(ano, sem, pessoasRelSemanal()), a = R.linhas.find(l => l.pessoa.id === x.ana);
+      return { meta: a.meta, pct: Math.round(a.pctMeta * 100), abaixo: a.abaixo, fr: R.fracao, davi: Calc.metaSemanal(x.davi), tela: /Abaixo da meta/.test(document.querySelector('#app').innerText) && !!document.querySelector('#app [data-a="metaEditar"]') }; }, ids);
+    await pg.screenshot({ path: CFG.saida('a6_relatorio_meta.png') });
+    ok(mt.meta === 20 && mt.pct === 33 && mt.abaixo === (mt.fr * 20 > 6.5) && mt.davi.horas === 12 && mt.davi.origem === 'plano' && mt.tela, 'meta semanal: 20 h definida pela gerência (33%); sem meta usa as horas da posição no plano', mt);
+    await pg.click('[data-a="rsRelatorio"]'); await pg.waitForSelector('#report');
+    const [dl] = await Promise.all([pg.waitForEvent('download'), pg.click('#rp_docx')]); const docx = path.join(require('os').tmpdir(), `gpmot_semanal_${process.pid}.docx`); await dl.saveAs(docx);
+    const tam = fs.statSync(docx).size; fs.unlinkSync(docx);
+    ok(tam > 3000 && /\.docx$/.test(dl.suggestedFilename()), 'relatório da semana em Word', [dl.suggestedFilename(), tam]);
+    await pg.evaluate(() => document.getElementById('report').remove());
+    await como('membro', ids.outro);
+    const rs2 = await pg.evaluate(() => { const { ano, sem } = semanaSel(); return { acomp: Perm.acompanhaAtividades(), n: Calc.relatorioSemana(ano, sem, pessoasRelSemanal()).linhas.map(l => l.pessoa.nome) }; });
+    ok(!rs2.acomp && rs2.n.length <= 1 && !rs2.n.some(n => /Ana/.test(n)), 'membro sem a permissão vê só as próprias atividades no relatório', rs2);
+    // 6. outro aluno não vê; tarefa simples continua com a caixa de concluída; o que a aluna gravou ficou nos dados completos
+    await como('leitura', ids.ana);
+    const metaAl = await pg.evaluate(id => ({ painel: (UI.tab = 'painel', UI.sub.painel = 'semana', render(), /de 20 h nesta semana/.test(document.querySelector('#app').innerText)), muda: Data.update('pessoas', id, { meta_horas_semana: 2 }).then(() => 'gravou', e => e.message) }), ids.ana);
+    ok(metaAl.painel, 'painel da aluna mostra horas da semana × meta');
+    ok(/meta semanal|permissão/i.test(await pg.evaluate(id => Data.update('pessoas', id, { meta_horas_semana: 2 }).then(() => 'gravou', e => e.message), ids.ana)), 'aluna não altera a própria meta');
+    await como('leitura', ids.davi);
+    ok(await pg.evaluate(() => D.tarefas.filter(t => t.solicitante_id).length) === 0, 'outro aluno não vê as atividades da colega');
+    await como('membro', ids.membro);
+    await pg.evaluate(() => Data.insert('tarefas', { titulo: 'Lembrete simples' })); await pg.waitForTimeout(50);
+    const simples = await pg.evaluate(async () => { const t = D.tarefas.find(x => x.titulo === 'Lembrete simples'); await Data.update('tarefas', t.id, { concluida: true }); return [t.situacao, t.concluida]; });
+    await como('direcao', null);
+    const final = await pg.evaluate(() => { Local.load(); const t = D.tarefas.find(x => x.titulo === 'Estudo da NBR 6601'); return { t: !!t, rel: D.tarefa_relatos.length, criador: t && t.criado_por }; });
+    ok(simples[0] === 'aprovada' && simples[1] && final.t && final.rel === 3 && /^local:/.test(final.criador), 'tarefa simples marca concluída; atividades e relatos da aluna gravados', { simples, final });
+    console.log(errs.join('\n') || 'sem erros na página');
+    await b.close(); process.exit(falhas || errs.length ? 1 : 0);
+  })();
+},
 };
 
 // ── execução ──────────────────────────────────────────────────────────

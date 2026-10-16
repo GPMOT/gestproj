@@ -144,8 +144,8 @@ insert into infra_itens(id,nome,codigo,categoria,requer_habilitacao) values
  ('40000000-0000-0000-0000-000000000001','Célula de testes 3','CT-03','celula_teste',true);
 insert into infra_itens(nome,codigo,categoria,pai_id) values
  ('Dinamômetro AVL 400 kW','DIN-01','equipamento','40000000-0000-0000-0000-000000000001');
-insert into infra_habilitacoes(item_id,pessoa_id,validade) values
- ('40000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000011','2027-06-30');
+insert into infra_habilitacoes(item_id,pessoa_id,desde,validade) values
+ ('40000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-000000000011','2026-01-01','2027-06-30');
 
 \echo '=== JEAN (Gerência de Projetos) — sem permissão de infraestrutura'
 set request.jwt.claim.sub='10000000-0000-0000-0000-00000000000e';
@@ -857,3 +857,116 @@ select numero, situacao, autor, remanejado from reformulacoes;
 insert into reformulacoes(projeto_id,situacao) values ('20000000-0000-0000-0000-000000000001','aceita');
 reset role;
 select rubrica, aprovado from orcamento_rubricas order by rubrica;
+
+-- @@ 18_atividades_alunos
+\set ON_ERROR_STOP 0
+\pset footer off
+-- v1.9: atividades com solicitante — membro atribui, aluno (Leitura) registra a sua, reporta horas e entrega;
+-- só o solicitante (ou a Direção) aprova ou devolve; tarefas simples (sem solicitante) seguem como antes.
+insert into pessoas(id,nome,email,tipo) values
+ ('00000000-0000-0000-0000-00000000000a','Lucas','lucas@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000b','Mario','mario@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000c','Ana','ana@ufsm.br','ic'),
+ ('00000000-0000-0000-0000-00000000000d','Davi','davi@ufsm.br','ic');
+insert into auth.users values
+ ('10000000-0000-0000-0000-00000000000a','lucas@ufsm.br'),('10000000-0000-0000-0000-00000000000b','mario@ufsm.br'),
+ ('10000000-0000-0000-0000-00000000000c','ana@ufsm.br'),('10000000-0000-0000-0000-00000000000d','davi@ufsm.br');
+update perfis set ativo = true, papel = 'leitura';
+update perfis set papel = 'direcao' where email = 'lucas@ufsm.br';
+update perfis set papel = 'membro' where email = 'mario@ufsm.br';
+\echo == membro atribui uma atividade (sem projeto) à aluna Ana, com prazo na sexta da semana
+set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+insert into tarefas(id,titulo,descricao,prazo,solicitante_id) values
+ ('60000000-0000-0000-0000-000000000001','Revisar curvas de pressão','Ensaios de 10/10','2026-10-23','00000000-0000-0000-0000-00000000000b')
+ returning titulo, situacao, concluida;
+insert into tarefa_responsaveis values ('60000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-00000000000c');
+\echo == a aluna vê a atividade e o nome do solicitante; Davi não vê
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000c';
+select t.titulo, t.situacao, p.nome as solicitante from tarefas t left join v_pessoas p on p.id = t.solicitante_id;
+select nome from pessoas_solicitantes();
+\echo == a aluna não muda o prazo, não marca como concluída e não entrega sem relato de entrega
+update tarefas set prazo = '2026-10-30' where id = '60000000-0000-0000-0000-000000000001';
+update tarefas set concluida = true where id = '60000000-0000-0000-0000-000000000001';
+update tarefas set situacao = 'entregue' where id = '60000000-0000-0000-0000-000000000001';
+\echo == reporta (fica em andamento; o autor é gravado pelo banco) e entrega
+insert into tarefa_relatos(tarefa_id,horas,descricao,data,pessoa_id) values ('60000000-0000-0000-0000-000000000001',3,'Curvas 1 a 4 revisadas','2026-10-20','00000000-0000-0000-0000-00000000000d') returning tipo, horas;
+select situacao from tarefas;
+insert into tarefa_relatos(tarefa_id,tipo,horas,descricao,data) values ('60000000-0000-0000-0000-000000000001','entrega',2.5,'Curvas 5 a 8 e relatório','2026-10-22');
+update tarefas set situacao = 'entregue' where id = '60000000-0000-0000-0000-000000000001' returning situacao, entregue_em is not null as entregue;
+\echo == depois de entregue: sem novos relatos; a própria aluna não aprova
+insert into tarefa_relatos(tarefa_id,horas,descricao) values ('60000000-0000-0000-0000-000000000001',1,'mais');
+update tarefas set situacao = 'aprovada' where id = '60000000-0000-0000-0000-000000000001';
+\echo == outro aluno não vê nem relata
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000d';
+select count(*) as tarefas_visiveis, (select count(*) from tarefa_relatos) as relatos from tarefas;
+insert into tarefa_relatos(tarefa_id,horas,descricao) values ('60000000-0000-0000-0000-000000000001',1,'x');
+\echo == o solicitante devolve (parecer obrigatório); a aluna volta a reportar e entrega de novo; ele aprova
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+update tarefas set situacao = 'devolvida' where id = '60000000-0000-0000-0000-000000000001';
+update tarefas set situacao = 'devolvida', parecer = 'Faltou a curva 9' where id = '60000000-0000-0000-0000-000000000001' returning situacao;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000c';
+insert into tarefa_relatos(tarefa_id,tipo,horas,descricao,data) values ('60000000-0000-0000-0000-000000000001','entrega',1,'Curva 9','2026-10-23');
+select situacao from tarefas;
+update tarefas set situacao = 'entregue' where id = '60000000-0000-0000-0000-000000000001' returning situacao;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+update tarefas set situacao = 'aprovada', parecer = 'ok' where id = '60000000-0000-0000-0000-000000000001' returning situacao, concluida, concluida_em is not null as data_conclusao, avaliada_em is not null as avaliada;
+\echo == aluno registra a própria atividade: precisa de solicitante, que não pode ser ele mesmo nem outro aluno
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000d';
+insert into tarefas(titulo,descricao,prazo) values ('Estudo de normas','ABNT','2026-10-23');
+insert into tarefas(titulo,descricao,prazo,solicitante_id) values ('Estudo de normas','ABNT','2026-10-23','00000000-0000-0000-0000-00000000000d');
+insert into tarefas(titulo,descricao,prazo,solicitante_id) values ('Estudo de normas','ABNT','2026-10-23','00000000-0000-0000-0000-00000000000c');
+insert into tarefas(id,titulo,descricao,prazo,solicitante_id,situacao) values ('60000000-0000-0000-0000-000000000002','Estudo de normas','ABNT','2026-10-23','00000000-0000-0000-0000-00000000000b','aprovada') returning situacao, concluida;
+insert into tarefa_responsaveis values ('60000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-00000000000d');
+insert into tarefa_responsaveis values ('60000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-00000000000c');
+update tarefas set prazo = '2026-10-30' where id = '60000000-0000-0000-0000-000000000002' returning prazo;
+insert into tarefa_relatos(tarefa_id,horas,descricao,data) values ('60000000-0000-0000-0000-000000000002',4,'Leitura da NBR','2026-10-21');
+delete from tarefas where id = '60000000-0000-0000-0000-000000000002';
+\echo == o solicitante vê a atividade registrada pelo aluno e os relatos; aluno não cria demanda de gerência
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+select t.titulo, t.situacao, r.horas, p.nome from tarefas t join tarefa_relatos r on r.tarefa_id = t.id join pessoas p on p.id = r.pessoa_id where t.id = '60000000-0000-0000-0000-000000000002';
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000d';
+insert into tarefas(titulo,solicitante_id,gerencia_id) select 'x','00000000-0000-0000-0000-00000000000b', id from gerencias limit 1;
+\echo == tarefa simples (sem solicitante) continua marcando concluída; horas fora do limite são recusadas
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+insert into tarefas(id,titulo) values ('60000000-0000-0000-0000-000000000003','Lembrete') returning situacao;
+update tarefas set concluida = true where id = '60000000-0000-0000-0000-000000000003' returning situacao, concluida_em is not null as data;
+\echo == Direção restaurando backup: o relato mantém autor e data originais e não muda a situação da atividade
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000a';
+insert into tarefas(id,titulo,solicitante_id,situacao) values ('60000000-0000-0000-0000-000000000004','Antiga','00000000-0000-0000-0000-00000000000b','a_fazer');
+insert into tarefa_relatos(tarefa_id,pessoa_id,horas,descricao,data,criado_em) values ('60000000-0000-0000-0000-000000000004','00000000-0000-0000-0000-00000000000c',2,'Relato antigo','2026-09-01','2026-09-01 10:00-03');
+select p.nome as autor, r.criado_em::date as criado, t.situacao from tarefa_relatos r join pessoas p on p.id = r.pessoa_id join tarefas t on t.id = r.tarefa_id where r.descricao = 'Relato antigo';
+reset role;
+insert into tarefa_relatos(tarefa_id,horas,descricao) values ('60000000-0000-0000-0000-000000000002',0,'x');
+select sum(horas) as horas_totais, count(*) as relatos from tarefa_relatos;
+
+-- @@ 19_meta_semanal
+\set ON_ERROR_STOP 0
+\pset footer off
+-- v1.10: meta semanal de horas no cadastro — Direção, gerência com pessoas_gerir e coordenação definem;
+-- a pessoa não muda a própria meta; a Leitura vê a sua pela visão v_pessoas.
+insert into pessoas(id,nome,email,tipo) values
+ ('00000000-0000-0000-0000-00000000000a','Lucas','lucas@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000b','Mario','mario@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000e','Gil','gil@ufsm.br','tecnico'),
+ ('00000000-0000-0000-0000-00000000000c','Ana','ana@ufsm.br','ic');
+insert into auth.users values
+ ('10000000-0000-0000-0000-00000000000a','lucas@ufsm.br'),('10000000-0000-0000-0000-00000000000b','mario@ufsm.br'),
+ ('10000000-0000-0000-0000-00000000000e','gil@ufsm.br'),('10000000-0000-0000-0000-00000000000c','ana@ufsm.br');
+update perfis set ativo = true, papel = 'membro';
+update perfis set papel = 'direcao' where email = 'lucas@ufsm.br';
+update perfis set papel = 'leitura' where email = 'ana@ufsm.br';
+insert into gerencia_membros(gerencia_id,pessoa_id) select id, '00000000-0000-0000-0000-00000000000e' from gerencias where nome = 'Gerência Técnica';
+\echo == gerência técnica (pessoas_gerir) define a meta da aluna; valores fora de 0–60 são recusados
+set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000e';
+update pessoas set meta_horas_semana = 20 where id = '00000000-0000-0000-0000-00000000000c' returning nome, meta_horas_semana;
+update pessoas set meta_horas_semana = 61 where id = '00000000-0000-0000-0000-00000000000c';
+\echo == membro sem cargo não muda a própria meta nem a dos outros
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+update pessoas set meta_horas_semana = 5 where id = '00000000-0000-0000-0000-00000000000b';
+update pessoas set meta_horas_semana = 5 where id = '00000000-0000-0000-0000-00000000000c';
+\echo == a aluna vê a própria meta e não a altera
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000c';
+select nome, meta_horas_semana from v_pessoas where id = '00000000-0000-0000-0000-00000000000c';
+update pessoas set meta_horas_semana = 2 where id = '00000000-0000-0000-0000-00000000000c';
+reset role;
+select nome, meta_horas_semana from pessoas order by nome;

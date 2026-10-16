@@ -243,6 +243,7 @@ async function enviarAoBanco(T0) {
   await up('alocacoes', g('alocacoes'), 'pessoa_id,projeto_id');
   await up('equipe_plano', g('equipe_plano')); await up('equipe_plano_bolsas', g('equipe_plano_bolsas'), 'vaga_id'); await up('candidatos', g('candidatos'));
   await up('tarefas', g('tarefas')); await up('tarefa_responsaveis', g('tarefa_responsaveis'), 'tarefa_id,pessoa_id');
+  await up('tarefa_relatos', g('tarefa_relatos'));
   await up('orcamento_rubricas', g('orcamento_rubricas'), 'projeto_id,rubrica');
   await up('vinculos_financeiros', g('vinculos_financeiros'));
   await up('desembolsos', g('desembolsos')); await up('desembolso_rubricas', g('desembolso_rubricas'), 'desembolso_id,rubrica');

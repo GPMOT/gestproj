@@ -253,6 +253,25 @@ const ignorar = t => /WebSocket|realtime|ERR_CONNECTION_REFUSED|status of 40[0-9
   const vc = await pg.evaluate(async () => { const p = D.projetos.find(pr => D.alocacoes.some(a => a.projeto_id === pr.id && !a.coordena)); const a = D.alocacoes.find(x => x.projeto_id === p.id && !x.coordena);
     await Data.update('alocacoes', a.id, { vice_coordena: true }); return { aid: a.id, pid: p.id }; });
   ok(sql(`select vice_coordena from public.alocacoes where id = '${vc.aid}'`) === 't', 'Direção nomeia vice-coordenador (gravado no banco)');
+  // FASE 6 — atividades com acompanhamento: a Leitura registra, reporta e entrega; a Direção aprova
+  console.log('FASE 6 — Atividades (Leitura)');
+  const at = await u4.pg.evaluate(async () => {
+    const sols = await carregarSolicitantes(), sol = sols[0];
+    const t = await Data.insert('tarefas', { titulo: 'Atividade online da Leitura', descricao: 'Teste', prazo: semanaSexta(semanaISO(hoje()).ano, semanaISO(hoje()).sem), solicitante_id: sol && sol.id });
+    await Data.insert('tarefa_responsaveis', { tarefa_id: t.id, pessoa_id: ME.pessoa_id });
+    await Data.insert('tarefa_relatos', { tarefa_id: t.id, tipo: 'relato', data: hoje(), horas: 2, descricao: 'Primeira parte' });
+    await SB.reload(['tarefas']); const meio = byId('tarefas', t.id).situacao;
+    await Data.insert('tarefa_relatos', { tarefa_id: t.id, tipo: 'entrega', data: hoje(), horas: 1.5, descricao: 'Concluída' });
+    await Data.update('tarefas', t.id, { situacao: 'entregue' });
+    const auto = await Data.update('tarefas', t.id, { situacao: 'aprovada' }).then(() => 'gravou', e => traduzErro(e));
+    const semSol = await Data.insert('tarefas', { titulo: 'sem solicitante', prazo: hoje() }).then(() => 'gravou', e => traduzErro(e));
+    return { id: t.id, nsols: sols.length, meio, auto, semSol, eu: ME.pessoa_id };
+  });
+  ok(at.nsols > 0 && at.meio === 'em_andamento', 'Leitura registra a atividade (solicitante da lista do banco) e reporta: em andamento', at);
+  ok(sql(`select situacao || '|' || (select count(*) from public.tarefa_relatos r where r.tarefa_id = t.id and r.pessoa_id = '${at.eu}') from public.tarefas t where id = '${at.id}'`) === 'entregue|2', 'banco: entregue, com os 2 relatos gravados em nome da Leitura');
+  ok(/solicitante/i.test(at.auto) && at.semSol !== 'gravou', 'banco: a Leitura não aprova a própria entrega nem cria atividade sem solicitante', [at.auto, at.semSol]);
+  const apr = await pg.evaluate(async id => { await SB.loadAll(); await Data.update('tarefas', id, { situacao: 'aprovada', parecer: 'ok' }); return byId('tarefas', id).concluida; }, at.id);
+  ok(apr === true && sql(`select situacao || '|' || concluida from public.tarefas where id = '${at.id}'`) === 'aprovada|true', 'Direção aprova a entrega (concluída no banco)');
   console.log(errs.length ? 'ERROS NA PÁGINA:\n' + errs.join('\n') : '  sem erros na página');
   console.log(falhas || errs.length ? `\n${falhas} verificação(ões) falharam, ${errs.length} erro(s) na página` : '\nTudo certo'); await b.close(); try { fs.unlinkSync(BK); } catch { }
   process.exit(falhas || errs.length ? 1 : 0);

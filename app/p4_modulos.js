@@ -90,29 +90,96 @@ function gerenciaDetalhe(g) {
    ════════════════════════════════════════════════════════════════════ */
 VIEWS.tarefas = () => {
   const f = UI.f;
+  const vis = UI.sub.tarefas || 'lista';
+  if (vis === 'semanal') return cabTarefas(vis, '') + relSemanalTela();
   if (f.tfEscopo === undefined) f.tfEscopo = ME.pessoa_id ? 'minhas' : '';
   const esc_ = f.tfEscopo, st = f.tfStatus || 'abertas', q = norm(f.tfBusca);
   let list = D.tarefas.slice();
   if (esc_ === 'minhas') list = list.filter(t => D.tarefa_responsaveis.some(r => r.tarefa_id === t.id && r.pessoa_id === ME.pessoa_id));
+  if (esc_ === 'aprovar') list = Calc.aguardandoMinhaAprovacao();
+  if (esc_ === 'solicitadas') list = list.filter(t => ME.pessoa_id && t.solicitante_id === ME.pessoa_id);
   if (esc_ === 'atrasadas') list = list.filter(Calc.atrasada);
   if (esc_ === 'semresp') list = list.filter(t => !D.tarefa_responsaveis.some(r => r.tarefa_id === t.id));
-  if (st !== 'todas') list = list.filter(t => st === 'abertas' ? !t.concluida : t.concluida);
+  if (esc_ !== 'aprovar') {
+    if (st === 'abertas') list = list.filter(t => !t.concluida);
+    else if (st === 'concluidas') list = list.filter(t => t.concluida);
+    else if (st === 'entregues') list = list.filter(t => t.situacao === 'entregue');
+    else if (st === 'devolvidas') list = list.filter(t => t.situacao === 'devolvida');
+  }
   if (f.tfProjeto) list = list.filter(t => t.projeto_id === f.tfProjeto);
   if (f.tfGerencia) list = list.filter(t => t.gerencia_id === f.tfGerencia);
   if (f.tfPessoa) list = list.filter(t => D.tarefa_responsaveis.some(r => r.tarefa_id === t.id && r.pessoa_id === f.tfPessoa));
   if (q) list = list.filter(t => norm(t.titulo + ' ' + (t.descricao || '')).includes(q));
   const sel = (k, opts, ph) => `<select data-f="${k}" style="width:auto">${[['', ph], ...opts].map(([v, l]) => `<option value="${esc(v)}"${(f[k] || '') === v ? ' selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
-  const vis = UI.sub.tarefas || 'lista';
-  return `<div class="toolbar"><div class="row">
-    ${sel('tfEscopo', [['minhas', 'Minhas'], ['atrasadas', 'Atrasadas'], ['semresp', 'Sem responsável']], 'Todas')}
-    <select data-f="tfStatus" style="width:auto">${[['abertas', 'Abertas'], ['concluidas', 'Concluídas'], ['todas', 'Abertas + concluídas']].map(([v, l]) => `<option value="${v}"${st === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
-    ${sel('tfProjeto', optProjetos(), 'Todos os projetos')} ${sel('tfGerencia', optGerencias(), 'Todas as gerências')} ${sel('tfPessoa', optPessoas(), 'Qualquer responsável')}
-    <input id="tfBusca" data-f="tfBusca" placeholder="Buscar…" value="${esc(f.tfBusca || '')}" style="min-width:140px"></div>
-    <div class="row"><button class="chip${vis === 'lista' ? ' on' : ''}" data-a="sub" data-g="tarefas" data-v="lista">Lista</button><button class="chip${vis === 'gantt' ? ' on' : ''}" data-a="sub" data-g="tarefas" data-v="gantt">Gantt</button>
-    ${Perm.podeEditar() ? `<button class="btn-p" data-a="tarefaNova">+ Nova tarefa</button>` : ''}</div></div>
-  <div class="small muted mb">${list.length} tarefa(s)</div>
+  const nAprovar = Calc.aguardandoMinhaAprovacao().length, leitor = Perm.leitor();
+  return cabTarefas(vis, `<div class="row">
+    ${sel('tfEscopo', [['minhas', 'Minhas'], ...(ME.pessoa_id && !leitor ? [['aprovar', `Aguardando minha aprovação${nAprovar ? ` (${nAprovar})` : ''}`], ['solicitadas', 'Solicitadas por mim']] : []), ['atrasadas', 'Atrasadas'], ...(leitor ? [] : [['semresp', 'Sem responsável']])], 'Todas')}
+    <select data-f="tfStatus" style="width:auto">${[['abertas', 'Abertas'], ['entregues', 'Entregues (aguardando aprovação)'], ['devolvidas', 'Devolvidas'], ['concluidas', 'Concluídas / aprovadas'], ['todas', 'Todas as situações']].map(([v, l]) => `<option value="${v}"${st === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+    ${leitor ? '' : `${sel('tfProjeto', optProjetos(), 'Todos os projetos')} ${sel('tfGerencia', optGerencias(), 'Todas as gerências')} ${sel('tfPessoa', optPessoas(), 'Qualquer responsável')}`}
+    <input id="tfBusca" data-f="tfBusca" placeholder="Buscar…" value="${esc(f.tfBusca || '')}" style="min-width:140px"></div>`)
+  + `<div class="small muted mb">${list.length} tarefa(s)${esc_ === 'aprovar' ? ' entregue(s) aguardando a sua aprovação' : ''}</div>
   ${vis === 'lista' ? `<div class="card">${listaTarefas(list)}</div>` : ganttTarefas(list)}`;
 };
+function cabTarefas(vis, filtros) {
+  const pode = Perm.podeEditar() || Perm.leitor();
+  return `<div class="toolbar">${filtros || '<div></div>'}
+    <div class="row"><button class="chip${vis === 'lista' ? ' on' : ''}" data-a="sub" data-g="tarefas" data-v="lista">Lista</button><button class="chip${vis === 'gantt' ? ' on' : ''}" data-a="sub" data-g="tarefas" data-v="gantt">Gantt</button>
+    ${ME.pessoa_id || Perm.acompanhaAtividades() ? `<button class="chip${vis === 'semanal' ? ' on' : ''}" data-a="sub" data-g="tarefas" data-v="semanal">Relatório semanal</button>` : ''}
+    ${pode ? `<button class="btn-p" data-a="tarefaNova">${Perm.leitor() ? '+ Registrar atividade' : '+ Nova tarefa'}</button>` : ''}</div></div>`;
+}
+
+/* ── Relatório semanal das atividades (gerência com atividades_acompanhar e Direção: todos; demais: só as próprias) ── */
+function semanaSel() { const h = semanaISO(hoje()); if (!UI.f.rsSem) UI.f.rsSem = `${h.ano}-${h.sem}`; const [a, w] = UI.f.rsSem.split('-').map(Number); return { ano: a, sem: w }; }
+A.rsSemana = d => { const { ano, sem } = semanaSel(), seg = addDays(semanaInicio(ano, sem), 7 * (+d.v)), w = semanaISO(seg); UI.f.rsSem = `${w.ano}-${w.sem}`; render(); };
+A.rsHoje = () => { UI.f.rsSem = null; render(); };
+function pessoasRelSemanal() {
+  if (Perm.acompanhaAtividades()) {
+    if (UI.f.rsQuem === 'alunos') return D.pessoas.filter(p => p.ativo !== false && ['ic', 'mestrando', 'doutorando'].includes(p.tipo)).map(p => p.id);
+    return null;   // todos com atividade ou relato
+  }
+  return ME.pessoa_id ? [ME.pessoa_id] : [];
+}
+function relSemanalTela() {
+  const { ano, sem } = semanaSel(), R = Calc.relatorioSemana(ano, sem, pessoasRelSemanal()), acomp = Perm.acompanhaAtividades();
+  const atual = semanaISO(hoje()), eAtual = atual.ano === ano && atual.sem === sem;
+  const tot = R.linhas.reduce((a, l) => { a.ent += l.entregues.length; a.apr += l.aprovadas.length; a.atr += l.atrasadas.length; a.ab += l.abertas.length; return a; }, { ent: 0, apr: 0, atr: 0, ab: 0 });
+  const lista = arr => arr.length ? arr.map(t => `<span class="link" data-a="tarefaVer" data-id="${t.id}">${esc(t.titulo)}</span>`).join('; ') : '<span class="faint">—</span>';
+  const linhas = R.linhas.map(l => `<tr><td><b>${esc(l.pessoa.nome)}</b></td><td class="num"><b>${fmtHoras(l.horas)}</b></td>
+      <td class="num" style="white-space:nowrap">${l.meta != null ? fmtHoras(l.meta) + (l.metaOrigem === 'plano' ? ' <span class="faint" title="Horas da posição no plano de trabalho (sem meta no cadastro)">ᵖ</span>' : '') : '<span class="faint">—</span>'}${Perm.gerePessoa(l.pessoa.id) ? ` <button class="link small" data-a="metaEditar" data-id="${l.pessoa.id}" title="Definir a meta semanal">✎</button>` : ''}</td>
+      <td style="white-space:nowrap">${barraMeta(l.horas, l.meta, R.fracao < 1 ? l.esperado : null)}${l.abaixo ? ' <span class="small" style="color:var(--red)">abaixo</span>' : ''}</td>
+      <td class="num">${l.trabalhadas.length}</td><td class="num">${l.entregues.length}</td><td class="num">${l.aprovadas.length}</td>
+      <td class="num" style="${l.atrasadas.length ? 'color:var(--red);font-weight:600' : ''}">${l.atrasadas.length}</td><td class="num">${l.abertas.length}</td></tr>
+    <tr><td colspan="9" style="padding-top:0"><details${R.linhas.length === 1 ? ' open' : ''}><summary class="small muted">relatos da semana (${l.relatos.length})${l.atrasadas.length ? ' · atrasadas: ' : ''}${l.atrasadas.length ? l.atrasadas.map(t => esc(t.titulo)).join('; ') : ''}</summary>
+      ${l.relatos.length ? `<table class="t small"><tr><th>Data</th><th>Atividade</th><th class="num">Horas</th><th>O que foi feito</th></tr>${l.relatos.slice().sort((a, b) => String(a.data).localeCompare(String(b.data))).map(r => { const t = byId('tarefas', r.tarefa_id) || {};
+        return `<tr><td style="white-space:nowrap">${fmtD(r.data)}${r.tipo === 'entrega' ? ' ' + badge('entrega', 'b-green') : ''}</td><td><span class="link" data-a="tarefaVer" data-id="${esc(r.tarefa_id)}">${esc(t.titulo || '')}</span></td><td class="num">${fmtHoras(num(r.horas))}</td><td style="white-space:pre-line">${esc(r.descricao)}</td></tr>`; }).join('')}</table>` : '<div class="small faint">Nenhum relato nesta semana.</div>'}
+      <div class="small mt">Em aberto: ${lista(l.abertas)}</div></details></td></tr>`).join('');
+  return `<div class="toolbar"><div class="row"><button class="btn-s" data-a="rsSemana" data-v="-1">‹</button><b style="min-width:220px;text-align:center">${esc(rotuloSemana(semanaInicio(ano, sem)).replace(/\(.*\)/, ''))} · ${fmtD(R.ini)} a ${fmtD(R.fim)}</b><button class="btn-s" data-a="rsSemana" data-v="1">›</button>${eAtual ? '' : '<button class="btn-s" data-a="rsHoje">esta semana</button>'}
+      ${acomp ? `<select data-f="rsQuem" style="width:auto"><option value="">Todos com atividades</option><option value="alunos"${UI.f.rsQuem === 'alunos' ? ' selected' : ''}>Só alunos (IC, mestrado, doutorado)</option></select>` : ''}</div>
+    <div class="row"><button class="btn-s" data-a="rsCSV">⬇ Relatos (.csv)</button><button class="btn-p" data-a="rsRelatorio">Relatório da semana (Word / PDF)</button></div></div>
+  <div class="metrics">${[['Horas relatadas', fmtHoras(R.horas) + (R.meta ? ` <span class="small muted" style="font-weight:400">de ${fmtHoras(R.meta)}</span>` : '')], ['Abaixo da meta', `${R.abaixo} <span class="small muted" style="font-weight:400">de ${R.linhas.length} pessoa(s)</span>`, R.abaixo ? 'color:var(--red)' : ''], ['Entregas na semana', tot.ent], ['Aprovadas na semana', tot.apr], ['Atrasadas', tot.atr, tot.atr ? 'color:var(--red)' : ''], ['Em aberto', tot.ab]].map(([k, v, st]) => `<div class="metric"><div class="k">${k}</div><div class="v" style="font-size:17px;${st || ''}">${v}</div></div>`).join('')}</div>
+  <div class="card tw" style="padding:4px 8px">${R.linhas.length ? `<table class="t"><tr><th>Pessoa</th><th class="num">Horas</th><th class="num">Meta</th><th>Cumprimento${R.fracao < 1 && R.fracao > 0 ? ' <span class="small muted" style="font-weight:400">(traço = esperado até hoje)</span>' : ''}</th><th class="num">Atividades trabalhadas</th><th class="num">Entregues</th><th class="num">Aprovadas</th><th class="num">Atrasadas</th><th class="num">Em aberto</th></tr>${linhas}</table>` : '<div class="empty">Nenhuma atividade com solicitante nem relato nesta semana.</div>'}</div>
+  <div class="small muted mt">${acomp ? 'Você vê todas as pessoas por ser da Direção ou de gerência com a permissão “Acompanhar as atividades dos alunos”. ' : 'Você vê só as suas atividades. '}Horas = relatos com data nesta semana (segunda a domingo). Meta = a do cadastro da pessoa (ou, sem ela, as horas semanais da posição no plano de trabalho — ᵖ); na semana em curso, “abaixo” compara com o esperado até hoje (dias úteis). Atrasadas = atividades com prazo vencido ainda não entregues.</div>`;
+}
+A.rsCSV = () => { const { ano, sem } = semanaSel(), R = Calc.relatorioSemana(ano, sem, pessoasRelSemanal());
+  const c = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const linhas = ['Pessoa;Data;Atividade;Tipo;Horas;Descrição;Solicitante;Situação da atividade', ...R.linhas.flatMap(l => l.relatos.map(r => { const t = byId('tarefas', r.tarefa_id) || {};
+    return [l.pessoa.nome, fmtD(r.data), t.titulo, r.tipo === 'entrega' ? 'entrega' : 'relato', String(num(r.horas)).replace('.', ','), r.descricao, nomePessoa(t.solicitante_id), (SIT_TAREFA[sitTarefa(t)] || [''])[0]].map(c).join(';'); }))];
+  baixar(`atividades-semana-${ano}-${String(sem).padStart(2, '0')}.csv`, '﻿' + linhas.join('\r\n'), 'text/csv;charset=utf-8'); };
+A.rsRelatorio = () => { const { ano, sem } = semanaSel(); abrirPrevia(montarRelSemanal(ano, sem), `relatorio-atividades-semana-${ano}-${String(sem).padStart(2, '0')}`); };
+function montarRelSemanal(ano, sem) {
+  const R0 = Calc.relatorioSemana(ano, sem, pessoasRelSemanal());
+  const pm = l => l.meta ? Math.round(l.horas / l.meta * 100) + '%' : '—';
+  const S = [{ h: 'Resumo da semana', blocks: [{ head: ['Pessoa', 'Horas', 'Meta', '% meta', 'Trabalhadas', 'Entregues', 'Aprovadas', 'Atrasadas', 'Em aberto'],
+    rows: [...R0.linhas.map(l => [l.pessoa.nome, fmtHoras(l.horas), l.meta != null ? fmtHoras(l.meta) : '—', pm(l), String(l.trabalhadas.length), String(l.entregues.length), String(l.aprovadas.length), String(l.atrasadas.length), String(l.abertas.length)]),
+      ['Total', fmtHoras(R0.horas), R0.meta ? fmtHoras(R0.meta) : '—', R0.meta ? Math.round(R0.horas / R0.meta * 100) + '%' : '—', '', String(R0.linhas.reduce((s, l) => s + l.entregues.length, 0)), String(R0.linhas.reduce((s, l) => s + l.aprovadas.length, 0)), String(R0.linhas.reduce((s, l) => s + l.atrasadas.length, 0)), String(R0.linhas.reduce((s, l) => s + l.abertas.length, 0))]], total: true }] }];
+  R0.linhas.forEach(l => {
+    const blocks = [{ kv: [['Horas relatadas', fmtHoras(l.horas) + (l.meta ? ` de ${fmtHoras(l.meta)} (${pm(l)} da meta${l.abaixo ? ' — abaixo' : ''})` : '')], ['Entregas na semana', l.entregues.map(t => t.titulo).join('; ') || '—'], ['Aprovadas na semana', l.aprovadas.map(t => t.titulo).join('; ') || '—'], ['Atrasadas', l.atrasadas.map(t => `${t.titulo} (${rotuloSemana(t.prazo, true)})`).join('; ') || '—']] },
+      { head: ['Data', 'Atividade', 'Horas', 'O que foi feito'], rows: l.relatos.slice().sort((a, b) => String(a.data).localeCompare(String(b.data))).map(r => [fmtD(r.data) + (r.tipo === 'entrega' ? ' (entrega)' : ''), (byId('tarefas', r.tarefa_id) || {}).titulo || '', fmtHoras(num(r.horas)), r.descricao]) }];
+    if (l.abertas.length) blocks.push({ h3: 'Atividades em aberto' }, { head: ['Atividade', 'Prazo', 'Situação', 'Solicitante'], rows: l.abertas.map(t => [t.titulo, t.prazo ? rotuloSemana(t.prazo, true) + ' · ' + fmtD(t.prazo) : '—', SIT_TAREFA[sitTarefa(t)][0], nomePessoa(t.solicitante_id) || '—']) });
+    S.push({ h: l.pessoa.nome, blocks });
+  });
+  return { titulo: 'Relatório semanal de atividades', subtitulo: `${rotuloSemana(R0.ini).replace(/\s*\(.*\)/, '')} — ${fmtD(R0.ini)} a ${fmtD(R0.fim)}`, escopo: 'GPMOT/UFSM', data: fmtD(hoje()), S, rodape: `Atividades · semana ${sem}/${ano}` };
+}
 
 /* ════════════════════════════════════════════════════════════════════
    FINANCEIRO — orçamento por rubricas, despesas e bolsas
@@ -669,7 +736,7 @@ A.itemNovo = () => form({ title: 'Novo item de infraestrutura', fields: camposIt
 A.itemEditar = d => { const i = byId('infra_itens', d.id); form({ title: 'Editar — ' + i.nome, fields: camposItem(i), values: i, onSave: x => Data.update('infra_itens', i.id, x),
   onDelete: Perm.gereInfraGeral() ? () => Data.remove('infra_itens', i.id) : null, deleteConfirm: `Excluir ${i.nome}?\nReservas, manutenções e habilitações dele serão apagadas. Para tirar de uso mantendo o histórico, mude a situação para "Desativado".` }); };
 A.itemAbrir = d => {
-  const i = byId('infra_itens', d.id), gere = Perm.gereInfra(i.id);
+  const i = byId('infra_itens', d.id); if (!i) { flash('Item não encontrado ou sem acesso.', true); return; } const gere = Perm.gereInfra(i.id);
   const habs = D.infra_habilitacoes.filter(h => h.item_id === i.id);
   const mans = D.infra_manutencoes.filter(m => m.item_id === i.id).sort((a, b) => String(b.criado_em).localeCompare(String(a.criado_em)));
   const res = D.infra_reservas.filter(r => r.item_id === i.id && r.status !== 'cancelada' && r.fim >= new Date().toISOString()).sort(byName('inicio'));

@@ -63,7 +63,9 @@ async function rest(req, res, table, q, body, claims) {
     try { await c.query('begin'); await c.query(`set local role ${claims.role === 'authenticated' ? 'authenticated' : 'anon'}`);
       await c.query(`select set_config('request.jwt.claim.sub', $1, true)`, [claims.sub || '']);
       const ks = Object.keys(body || {}), vs = ks.map(k => { const v = body[k]; return v !== null && typeof v === 'object' ? JSON.stringify(v) : v; });
-      const r = await c.query(`select to_json(public.${fn}(${ks.map((k, i) => `${qi(k)} => $${i + 1}`).join(', ')})) as j`, vs); await c.query('commit'); return send(res, 200, r.rows[0].j);
+      const args = ks.map((k, i) => `${qi(k)} => $${i + 1}`).join(', ');
+      const conj = (await c.query(`select bool_or(proretset) as s from pg_proc where proname = $1 and pronamespace = 'public'::regnamespace`, [table.slice(4)])).rows[0].s;   // função que devolve várias linhas: lista, como no PostgREST
+      const r = await c.query(conj ? `select coalesce(json_agg(_r), '[]'::json) as j from public.${fn}(${args}) _r` : `select to_json(public.${fn}(${args})) as j`, vs); await c.query('commit'); return send(res, 200, r.rows[0].j);
     } catch (e) { await c.query('rollback').catch(() => { }); const st = e.code === '42883' ? 404 : e.code === '42501' ? 403 : 400; return send(res, st, { code: e.code === '42883' ? 'PGRST202' : e.code, message: e.code === '42883' ? 'Could not find the function' : e.message }); } finally { c.release(); }
   }
   const T = 'public.' + qi(table), params = [], pref = String(req.headers.prefer || '');
