@@ -102,7 +102,8 @@ VIEWS.tarefas = () => {
   if (esc_ === 'semresp') list = list.filter(t => !D.tarefa_responsaveis.some(r => r.tarefa_id === t.id));
   if (esc_ !== 'aprovar') {
     if (st === 'abertas') list = list.filter(t => !t.concluida);
-    else if (st === 'concluidas') list = list.filter(t => t.concluida);
+    else if (st === 'concluidas') list = list.filter(t => t.concluida && t.situacao !== 'cancelada');
+    else if (st === 'canceladas') list = list.filter(t => t.situacao === 'cancelada');
     else if (st === 'entregues') list = list.filter(t => t.situacao === 'entregue');
     else if (st === 'devolvidas') list = list.filter(t => t.situacao === 'devolvida');
   }
@@ -114,7 +115,7 @@ VIEWS.tarefas = () => {
   const nAprovar = Calc.aguardandoMinhaAprovacao().length, leitor = Perm.leitor();
   return cabTarefas(vis, `<div class="row">
     ${sel('tfEscopo', [['minhas', 'Minhas'], ...(ME.pessoa_id && !leitor ? [['aprovar', `Aguardando minha aprovação${nAprovar ? ` (${nAprovar})` : ''}`], ['solicitadas', 'Solicitadas por mim']] : []), ['atrasadas', 'Atrasadas'], ...(leitor ? [] : [['semresp', 'Sem responsável']])], 'Todas')}
-    <select data-f="tfStatus" style="width:auto">${[['abertas', 'Abertas'], ['entregues', 'Entregues (aguardando aprovação)'], ['devolvidas', 'Devolvidas'], ['concluidas', 'Concluídas / aprovadas'], ['todas', 'Todas as situações']].map(([v, l]) => `<option value="${v}"${st === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+    <select data-f="tfStatus" style="width:auto">${[['abertas', 'Abertas'], ['entregues', 'Entregues (aguardando aprovação)'], ['devolvidas', 'Devolvidas'], ['concluidas', 'Concluídas / aprovadas'], ['canceladas', 'Canceladas'], ['todas', 'Todas as situações']].map(([v, l]) => `<option value="${v}"${st === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
     ${leitor ? '' : `${sel('tfProjeto', optProjetos(), 'Todos os projetos')} ${sel('tfGerencia', optGerencias(), 'Todas as gerências')} ${sel('tfPessoa', optPessoas(), 'Qualquer responsável')}`}
     <input id="tfBusca" data-f="tfBusca" placeholder="Buscar…" value="${esc(f.tfBusca || '')}" style="min-width:140px"></div>`)
   + `<div class="small muted mb">${list.length} tarefa(s)${esc_ === 'aprovar' ? ' entregue(s) aguardando a sua aprovação' : ''}</div>

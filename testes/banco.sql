@@ -65,7 +65,7 @@ select count(*) as vinculos_visiveis_esperado_2 from vinculos_financeiros;
 update vinculos_financeiros set valor_mensal=3200 where valor_mensal=3100;
 update projetos set fase='x' where sigla='Aramco';
 select count(*) historico_visivel_maior_0 from historico;
-insert into tarefas(gerencia_id,titulo,prazo) select id,'Prestação de contas Petrobras','2026-10-30' from gerencias where nome='Gerência Financeira';
+insert into tarefas(gerencia_id,titulo,prazo) select id,'Prestação de contas Petrobras','2099-10-30' from gerencias where nome='Gerência Financeira';
 insert into tarefas(gerencia_id,titulo) select id,'Tentativa em Infra' from gerencias where nome='Gerência de Infraestrutura';
 
 \echo '=== JEAN (Gerência de Projetos)'
@@ -970,3 +970,107 @@ select nome, meta_horas_semana from v_pessoas where id = '00000000-0000-0000-000
 update pessoas set meta_horas_semana = 2 where id = '00000000-0000-0000-0000-00000000000c';
 reset role;
 select nome, meta_horas_semana from pessoas order by nome;
+
+-- @@ 20_cancelar_apagar_atividades
+\set ON_ERROR_STOP 0
+\pset footer off
+-- v1.11: solicitante e criador editam e cancelam (motivo obrigatório); atividade cancelada não recebe relatos;
+-- a gestão das atividades (tarefas_gerir / atividades_acompanhar) apaga atividades e relatos, mesmo aprovados.
+insert into pessoas(id,nome,email,tipo) values
+ ('00000000-0000-0000-0000-00000000000a','Lucas','lucas@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000b','Mario','mario@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000e','Gil','gil@ufsm.br','tecnico'),
+ ('00000000-0000-0000-0000-00000000000f','Rui','rui@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000c','Ana','ana@ufsm.br','ic');
+insert into auth.users values
+ ('10000000-0000-0000-0000-00000000000a','lucas@ufsm.br'),('10000000-0000-0000-0000-00000000000b','mario@ufsm.br'),
+ ('10000000-0000-0000-0000-00000000000e','gil@ufsm.br'),('10000000-0000-0000-0000-00000000000f','rui@ufsm.br'),
+ ('10000000-0000-0000-0000-00000000000c','ana@ufsm.br');
+update perfis set ativo = true, papel = 'membro';
+update perfis set papel = 'direcao' where email = 'lucas@ufsm.br';
+update perfis set papel = 'leitura' where email = 'ana@ufsm.br';
+insert into gerencia_membros(gerencia_id,pessoa_id) select id, '00000000-0000-0000-0000-00000000000e' from gerencias where nome = 'Gerência Técnica';
+\echo == a aluna registra uma atividade com Mario de solicitante (sem projeto) e reporta
+set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000c';
+insert into tarefas(id,titulo,descricao,prazo,solicitante_id) values ('70000000-0000-0000-0000-000000000001','Estudo','x','2026-10-23','00000000-0000-0000-0000-00000000000b');
+insert into tarefa_responsaveis values ('70000000-0000-0000-0000-000000000001','00000000-0000-0000-0000-00000000000c');
+insert into tarefa_relatos(tarefa_id,horas,descricao) values ('70000000-0000-0000-0000-000000000001',2,'Leitura');
+\echo == o solicitante (que não criou) edita o título; outro membro sem cargo não edita nem cancela
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+update tarefas set titulo = 'Estudo da norma', prazo = '2026-10-30' where id = '70000000-0000-0000-0000-000000000001' returning titulo, prazo;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000f';
+update tarefas set situacao = 'cancelada', parecer = 'x' where id = '70000000-0000-0000-0000-000000000001' returning situacao;
+\echo == cancelar exige motivo; o solicitante cancela; atividade cancelada sai das abertas e não recebe relatos
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+update tarefas set situacao = 'cancelada' where id = '70000000-0000-0000-0000-000000000001';
+update tarefas set situacao = 'cancelada', parecer = 'Mudou o escopo' where id = '70000000-0000-0000-0000-000000000001' returning situacao, concluida, avaliada_em is not null as registrada;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000c';
+insert into tarefa_relatos(tarefa_id,horas,descricao) values ('70000000-0000-0000-0000-000000000001',1,'depois');
+\echo == quem registrou também reativa e cancela a própria atividade
+update tarefas set situacao = 'em_andamento' where id = '70000000-0000-0000-0000-000000000001' returning situacao, concluida;
+update tarefas set situacao = 'cancelada', parecer = 'Desisti' where id = '70000000-0000-0000-0000-000000000001' returning situacao;
+\echo == a aluna não apaga a atividade (já tem relato); a gerência técnica apaga atividade e relatos
+delete from tarefas where id = '70000000-0000-0000-0000-000000000001';
+select count(*) as ainda_existe from tarefas;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000e';
+insert into tarefas(id,titulo,solicitante_id,situacao) values ('70000000-0000-0000-0000-000000000002','Aprovada antiga','00000000-0000-0000-0000-00000000000b','a_fazer');
+insert into tarefa_responsaveis values ('70000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-00000000000c');
+reset role; set request.jwt.claim.sub = '';
+insert into tarefa_relatos(tarefa_id,pessoa_id,tipo,horas,descricao,criado_em) values ('70000000-0000-0000-0000-000000000002','00000000-0000-0000-0000-00000000000c','entrega',3,'feito','2026-09-01');
+update tarefas set situacao = 'aprovada' where id = '70000000-0000-0000-0000-000000000002' returning titulo, situacao;
+set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000f';
+delete from tarefas where id = '70000000-0000-0000-0000-000000000002' returning titulo;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000e';
+update tarefas set situacao = 'cancelada', parecer = 'x' where id = '70000000-0000-0000-0000-000000000002';
+delete from tarefa_relatos where tarefa_id = '70000000-0000-0000-0000-000000000002' returning descricao;
+delete from tarefas returning titulo, situacao;
+reset role;
+select (select count(*) from tarefas) as tarefas, (select count(*) from tarefa_relatos) as relatos;
+
+-- @@ 21_fichas_equipe
+\set ON_ERROR_STOP 0
+\pset footer off
+-- v1.12: fichas de gestão da equipe — importadas por quem gere a equipe do projeto E vê o financeiro dele
+-- (coordenação, Direção); gerência só de alocações (sem financeiro) não registra; ninguém grava CPF.
+insert into pessoas(id,nome,email,tipo) values
+ ('00000000-0000-0000-0000-00000000000a','Lucas','lucas@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000b','Mario','mario@ufsm.br','docente'),
+ ('00000000-0000-0000-0000-00000000000e','Gil','gil@ufsm.br','tecnico'),
+ ('00000000-0000-0000-0000-00000000000f','Bia','bia@ufsm.br','mestrando');
+insert into auth.users values
+ ('10000000-0000-0000-0000-00000000000a','lucas@ufsm.br'),('10000000-0000-0000-0000-00000000000b','mario@ufsm.br'),
+ ('10000000-0000-0000-0000-00000000000e','gil@ufsm.br'),('10000000-0000-0000-0000-00000000000f','bia@ufsm.br');
+update perfis set ativo = true, papel = 'membro';
+update perfis set papel = 'direcao' where email = 'lucas@ufsm.br';
+update perfis set papel = 'leitura' where email = 'bia@ufsm.br';
+insert into gerencia_membros(gerencia_id,pessoa_id) select id, '00000000-0000-0000-0000-00000000000e' from gerencias where nome = 'Gerência Técnica';
+insert into projetos(id,sigla,inicio,fim) values ('20000000-0000-0000-0000-000000000001','NUCL','2026-10-01','2030-09-30');
+insert into alocacoes(pessoa_id,projeto_id,coordena) values ('00000000-0000-0000-0000-00000000000b','20000000-0000-0000-0000-000000000001',true);
+insert into alocacoes(pessoa_id,projeto_id) values ('00000000-0000-0000-0000-00000000000f','20000000-0000-0000-0000-000000000001');
+\echo == coordenação registra a ficha (autor gravado pelo banco)
+set role authenticated; set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+insert into fichas_equipe(projeto_id,numero,formulario,contrato,vigencia_inicio,vigencia_fim,participantes,aplicada_em) values
+ ('20000000-0000-0000-0000-000000000001',1,'Retificador','27192.01.01/2025.01-00','2026-09-17','2030-09-16','[{"nome":"Mario","valor":8313,"pagamentos":48}]',now())
+ returning numero, formulario, autor, jsonb_array_length(participantes) as participantes;
+\echo == o CPF não entra (com ou sem pontuação)
+insert into fichas_equipe(projeto_id,participantes) values ('20000000-0000-0000-0000-000000000001','[{"nome":"X","cpf":"123.456.789-00"}]');
+insert into fichas_equipe(projeto_id,participantes) values ('20000000-0000-0000-0000-000000000001','[{"nome":"X","doc":"12345678900"}]') returning numero;
+insert into fichas_equipe(projeto_id,participantes) values ('20000000-0000-0000-0000-000000000001','[{"nome":"X","doc":"123456789-00"}]');
+\echo == vigência invertida é recusada
+insert into fichas_equipe(projeto_id,vigencia_inicio,vigencia_fim) values ('20000000-0000-0000-0000-000000000001','2030-01-01','2026-01-01');
+\echo == gerência técnica (alocacoes_gerir, sem financeiro) não vê nem registra
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000e';
+select count(*) as fichas from fichas_equipe;
+insert into fichas_equipe(projeto_id) values ('20000000-0000-0000-0000-000000000001');
+\echo == aluna do projeto (Leitura) não vê nem registra
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000f';
+select count(*) as fichas from fichas_equipe;
+insert into fichas_equipe(projeto_id) values ('20000000-0000-0000-0000-000000000001');
+\echo == coordenação não apaga; Direção apaga
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000b';
+delete from fichas_equipe returning numero;
+set request.jwt.claim.sub = '10000000-0000-0000-0000-00000000000a';
+select count(*) as fichas from fichas_equipe;
+delete from fichas_equipe where numero = 1 returning numero;
+reset role;
+select count(*) as historico from historico where tabela = 'fichas_equipe';

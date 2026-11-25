@@ -301,9 +301,9 @@ function tarefaLinha(t, o = {}) {
   const bts = [Perm.relataTarefa(t) ? `<button class="btn-s" data-a="tarefaReportar" data-id="${t.id}">Reportar</button><button class="btn-s btn-p" data-a="tarefaEntregar" data-id="${t.id}">Entregar</button>` : '',
     Perm.avaliaTarefa(t) ? `<button class="btn-s btn-p" data-a="tarefaAprovar" data-id="${t.id}">Aprovar</button><button class="btn-s" data-a="tarefaDevolver" data-id="${t.id}">Devolver</button>` : ''].join('');
   return `<div class="task${t.concluida ? ' done' : ''}">
-    <span class="tk-ico" title="${esc(st[0])}" style="width:16px;text-align:center;color:${t.concluida ? 'var(--green)' : t.situacao === 'entregue' ? 'var(--yellow-txt)' : t.situacao === 'devolvida' ? 'var(--red)' : 'var(--muted)'}">${t.concluida ? '✓' : t.situacao === 'entregue' ? '⧗' : t.situacao === 'devolvida' ? '↩' : t.situacao === 'em_andamento' ? '◐' : '○'}</span>
+    <span class="tk-ico" title="${esc(st[0])}" style="width:16px;text-align:center;color:${t.situacao === 'cancelada' ? 'var(--muted)' : t.concluida ? 'var(--green)' : t.situacao === 'entregue' ? 'var(--yellow-txt)' : t.situacao === 'devolvida' ? 'var(--red)' : 'var(--muted)'}">${t.situacao === 'cancelada' ? '⊘' : t.concluida ? '✓' : t.situacao === 'entregue' ? '⧗' : t.situacao === 'devolvida' ? '↩' : t.situacao === 'em_andamento' ? '◐' : '○'}</span>
     <div><span class="tt link" data-a="tarefaVer" data-id="${t.id}" style="font-weight:600">${esc(t.titulo || '(sem título)')}</span> ${badge(st[0], st[1])} ${pri}
-      <div class="meta">${onde} ${resp ? esc(resp) : '<span class="faint">sem responsável</span>'} · solicitante ${esc(nomePessoa(t.solicitante_id) || '?')}${h ? ` · <b>${fmtHoras(h)}</b> relatada(s)` : ''}${t.situacao === 'devolvida' && t.parecer ? ` · <span style="color:var(--red)">${esc(t.parecer.slice(0, 120))}</span>` : t.descricao ? ' · ' + esc(t.descricao.slice(0, 120)) : ''}</div>
+      <div class="meta">${onde} ${resp ? esc(resp) : '<span class="faint">sem responsável</span>'} · solicitante ${esc(nomePessoa(t.solicitante_id) || '?')}${h ? ` · <b>${fmtHoras(h)}</b> relatada(s)` : ''}${t.situacao === 'devolvida' && t.parecer ? ` · <span style="color:var(--red)">${esc(t.parecer.slice(0, 120))}</span>` : t.situacao === 'cancelada' && t.parecer ? ` · cancelada: ${esc(t.parecer.slice(0, 120))}` : t.descricao ? ' · ' + esc(t.descricao.slice(0, 120)) : ''}</div>
       ${bts ? `<div class="row mt" style="gap:6px">${bts}</div>` : ''}</div>
     <div class="small" style="text-align:right;${late ? 'color:var(--red);font-weight:600' : ''}">${t.prazo ? esc(rotuloSemana(t.prazo, true)) + `<div class="muted" style="font-weight:400">até ${fmtD(t.prazo)}</div>` : '<span class="faint">sem prazo</span>'}${late ? 'atrasada' : ''}</div>
   </div>`;
@@ -388,18 +388,19 @@ A.tarefaVer = d => {
   const st = SIT_TAREFA[sitTarefa(t)], rel = Calc.relatos(t.id), h = Calc.horasTarefa(t.id), resp = Calc.responsaveis(t.id).map(p => p.nome).join(', ');
   const kv = (k, v) => v ? `<span class="k">${k}</span><span>${v}</span>` : '';
   const html = `<div class="between mb"><h3 style="margin:0">${esc(t.titulo || '(sem título)')}</h3><button class="btn-s" id="tv_x">✕</button></div>
-  <div class="kv mb small">${kv('Situação', badge(st[0], st[1]) + (t.entregue_em && t.situacao === 'entregue' ? ` <span class="muted">entregue em ${fmtD(t.entregue_em.slice(0, 10))}</span>` : '') + (t.avaliada_em && ['aprovada', 'devolvida'].includes(t.situacao) ? ` <span class="muted">${t.situacao === 'aprovada' ? 'aprovada' : 'devolvida'} em ${fmtD(t.avaliada_em.slice(0, 10))}</span>` : ''))}
+  <div class="kv mb small">${kv('Situação', badge(st[0], st[1]) + (t.entregue_em && t.situacao === 'entregue' ? ` <span class="muted">entregue em ${fmtD(t.entregue_em.slice(0, 10))}</span>` : '') + (t.avaliada_em && ['aprovada', 'devolvida', 'cancelada'].includes(t.situacao) ? ` <span class="muted">${t.situacao} em ${fmtD(t.avaliada_em.slice(0, 10))}</span>` : ''))}
     ${kv('Prazo', t.prazo ? `${esc(rotuloSemana(t.prazo))}${Calc.atrasada(t) ? ' <b style="color:var(--red)">atrasada</b>' : ''}` : '<span class="faint">sem prazo</span>')}
     ${kv('Solicitante', esc(nomePessoa(t.solicitante_id) || '—'))}${kv('Responsável', esc(resp || '—'))}
     ${kv('Projeto', t.projeto_id ? esc(siglaProjeto(t.projeto_id)) : '')}${kv('Gerência', t.gerencia_id ? esc((byId('gerencias', t.gerencia_id) || {}).nome || '') : '')}</div>
   ${t.descricao ? `<div class="small mb" style="white-space:pre-line">${esc(t.descricao)}</div>` : ''}
-  ${t.parecer ? `<div class="alert ${t.situacao === 'devolvida' ? 'bad' : 'info'} small mb"><b>Parecer do solicitante:</b> ${esc(t.parecer)}</div>` : ''}
+  ${t.parecer ? `<div class="alert ${t.situacao === 'devolvida' ? 'bad' : 'info'} small mb"><b>${t.situacao === 'cancelada' ? 'Motivo do cancelamento' : 'Parecer do solicitante'}:</b> ${esc(t.parecer)}</div>` : ''}
   <div class="sec" style="margin-top:0">Relatório da atividade · ${fmtHoras(h)}</div>
   ${rel.length ? `<div class="tw mb" style="max-height:300px;overflow:auto"><table class="t small"><tr><th>Data</th><th>Quem</th><th class="num">Horas</th><th>O que foi feito</th><th></th></tr>
     ${rel.map(r => `<tr><td style="white-space:nowrap">${fmtD(r.data)}${r.tipo === 'entrega' ? ' ' + badge('entrega', 'b-green') : ''}</td><td>${esc(nomePessoa(r.pessoa_id) || '—')}</td><td class="num">${fmtHoras(num(r.horas))}</td><td style="white-space:pre-line">${esc(r.descricao)}</td>
-      <td>${permitido('tarefa_relatos', 'del', null, r) && (Perm.dir() || !['entregue', 'aprovada'].includes(t.situacao)) ? `<button class="btn-s" data-a="relatoExcluir" data-id="${r.id}" title="Apagar este relato">✕</button>` : ''}</td></tr>`).join('')}</table></div>`
+      <td>${permitido('tarefa_relatos', 'del', null, r) && (Perm.gereAtividades() || !['entregue', 'aprovada'].includes(t.situacao)) ? `<button class="btn-s" data-a="relatoExcluir" data-id="${r.id}" title="Apagar este relato">✕</button>` : ''}</td></tr>`).join('')}</table></div>`
     : '<div class="empty small mb">Nenhum relato ainda.</div>'}
-  <div class="mactions">${Perm.editaTarefa(t) || permitido('tarefas', 'del', null, t) ? `<button class="left" data-a="tarefaEditar" data-id="${t.id}">Editar</button>` : ''}
+  <div class="mactions">${Perm.editaTarefa(t) ? `<button class="left" data-a="tarefaEditar" data-id="${t.id}">Editar</button>` : ''}${permitido('tarefas', 'del', null, t) ? `<button class="btn-d${Perm.editaTarefa(t) ? '' : ' left'}" data-a="tarefaExcluir" data-id="${t.id}">Excluir</button>` : ''}
+    ${Perm.cancelaTarefa(t) ? `<button data-a="tarefaCancelar" data-id="${t.id}">Cancelar atividade</button>` : ''}${Perm.reativaTarefa(t) ? `<button data-a="tarefaReativar" data-id="${t.id}">Reativar</button>` : ''}
     ${Perm.relataTarefa(t) ? `<button data-a="tarefaReportar" data-id="${t.id}">Reportar</button><button class="btn-p" data-a="tarefaEntregar" data-id="${t.id}">Entregar</button>` : ''}
     ${Perm.avaliaTarefa(t) ? `<button data-a="tarefaDevolver" data-id="${t.id}">Devolver</button><button class="btn-p" data-a="tarefaAprovar" data-id="${t.id}">Aprovar</button>` : ''}
     ${t.situacao === 'aprovada' && (Perm.solicitante(t) || Perm.dir()) ? `<button data-a="tarefaReabrir" data-id="${t.id}">Reabrir</button>` : ''}
@@ -430,6 +431,15 @@ A.tarefaDevolver = d => { const t = byId('tarefas', d.id);
   form({ title: 'Devolver: ' + t.titulo, values: {}, intro: '<div class="note mb small">A atividade volta para o responsável, que pode reportar de novo e entregar outra vez.</div>',
     fields: [{ k: 'parecer', l: 'O que falta ou precisa ser corrigido', t: 'textarea', req: true }], okLabel: 'Devolver', okMsg: 'Atividade devolvida ao responsável',
     onSave: x => Data.update('tarefas', t.id, { situacao: 'devolvida', parecer: x.parecer }) }); };
+A.tarefaCancelar = d => { const t = byId('tarefas', d.id);
+  form({ title: 'Cancelar: ' + t.titulo, values: {}, intro: '<div class="note mb small">A atividade deixa de contar como aberta ou atrasada e não recebe mais relatos; as horas já relatadas continuam no relatório. Pode ser reativada depois.</div>',
+    fields: [{ k: 'parecer', l: 'Motivo do cancelamento', t: 'textarea', req: true }], okLabel: 'Cancelar atividade', okMsg: 'Atividade cancelada',
+    onSave: x => Data.update('tarefas', t.id, { situacao: 'cancelada', parecer: x.parecer }) }); };
+A.tarefaReativar = d => run(async () => { if (!await confirmar('Reativar esta atividade cancelada?')) return; const t = byId('tarefas', d.id);
+  await Data.update('tarefas', d.id, { situacao: D.tarefa_relatos.some(r => r.tarefa_id === t.id) ? 'em_andamento' : 'a_fazer', parecer: null }); closeModal(); render(); flash('Atividade reativada'); });
+A.tarefaExcluir = d => run(async () => { const t = byId('tarefas', d.id), n = D.tarefa_relatos.filter(r => r.tarefa_id === d.id).length;
+  if (!await confirmar(`Excluir definitivamente "${t.titulo}"?${n ? `\n\n${n} relato(s) de horas também serão apagados e deixam de aparecer nos relatórios semanais.` : ''}\n\nPara só tirar da lista de abertas, prefira "Cancelar atividade".`)) return;
+  await Data.remove('tarefas', d.id); closeModal(); render(); flash('Atividade excluída'); });
 A.tarefaReabrir = d => run(async () => { if (!await confirmar('Reabrir esta atividade aprovada? Ela volta para "em andamento".')) return; await Data.update('tarefas', d.id, { situacao: 'em_andamento' }); closeModal(); render(); flash('Atividade reaberta'); });
 A.relatoExcluir = d => run(async () => { if (!await confirmar('Apagar este relato?')) return; const r = byId('tarefa_relatos', d.id); await Data.remove('tarefa_relatos', d.id); if (r) A.tarefaVer({ id: r.tarefa_id }); render(); });
 
@@ -1076,13 +1086,14 @@ function projEquipe(p) {
     : `<div class="card empty">Nenhuma posição do plano de trabalho cadastrada.${gere ? ' Importe a planilha do edital ou adicione as posições manualmente — inclusive as vagas de bolsistas ainda não contratados.' : ''}</div>`;
   return `<div class="metrics">${mets.map(([k, v, s]) => `<div class="metric"><div class="k">${k}</div><div class="v" style="font-size:18px;${s || ''}">${v}</div></div>`).join('')}</div>
   ${conf}
-  <div class="toolbar"><span class="sec" style="margin:0">Equipe do plano de trabalho</span><div class="row">${gere ? `<button class="btn-s" data-a="importarPlanilha" data-projeto="${p.id}">Importar plano de trabalho…</button><button class="btn-p" data-a="vagaNova" data-projeto="${p.id}">+ Posição / vaga</button>` : ''}</div></div>
+  <div class="toolbar"><span class="sec" style="margin:0">Equipe do plano de trabalho</span><div class="row">${Perm.importaFicha(p.id) ? `<button class="btn-s" data-a="fichaImportar" data-projeto="${p.id}" title="Ficha de gestão da UFSM (ajuste de item — alteração da equipe): atualiza posições, alocações e bolsas">Importar ficha de gestão…</button>` : ''}${gere ? `<button class="btn-s" data-a="importarPlanilha" data-projeto="${p.id}">Importar plano de trabalho…</button><button class="btn-p" data-a="vagaNova" data-projeto="${p.id}">+ Posição / vaga</button>` : ''}</div></div>
   ${plano}
   <div class="toolbar mt"><span class="sec" style="margin:0">Alocações no projeto <span class="small muted" style="text-transform:none;letter-spacing:0;font-weight:400">(${alocs.length} · carga e permissões no dia a dia)</span></span>${gere ? `<button class="btn-s" data-a="alocNova" data-projeto="${p.id}">+ Alocar pessoa</button>` : ''}</div>
   <div class="card tw" style="padding:4px 8px">${alocs.length ? `<table class="t"><tr><th>Pessoa</th><th>Papel</th><th>Nível</th><th class="num">Carga</th><th>Atribuição</th><th>Desde</th><th>Status</th></tr>
     ${alocs.map(a => `<tr class="${gere ? 'click' : ''}" ${gere ? `data-a="alocEditar" data-id="${a.id}"` : ''}><td><b>${esc(nomePessoa(a.pessoa_id))}</b> ${a.coordena ? badge('coordena', 'b-green') : a.vice_coordena ? badge('vice-coordena', 'b-green') : ''} ${EP.rows.length && foraIds.has(a.id) ? `<span title="Alocada no projeto, mas não ocupa nenhuma posição do plano de trabalho">${badge('fora do plano', 'b-gray')}</span>` : ''}</td><td>${esc(a.papel || '—')}</td><td>${NIVEIS[a.nivel] || '—'}</td>
       <td class="num">${pillCarga(num(a.carga_pct))}</td><td class="small">${esc(a.atribuicao || '')}</td><td class="small">${fmtD(a.desde)}</td><td>${badge(lbl(ST_ALOC, a.status), a.status === 'ativo' ? 'b-green' : 'b-gray')}</td></tr>`).join('')}</table>`
-      : '<div class="empty">Ninguém alocado.</div>'}</div>`;
+      : '<div class="empty">Ninguém alocado.</div>'}</div>
+  ${projFichas(p)}`;
 }
 
 /* formulário da posição (dados do plano + bolsa prevista, esta só para quem edita o financeiro) */
@@ -1410,7 +1421,7 @@ function historicoBloco(filtro, limite = 15) {
   return `<div class="sec">Histórico recente</div><div class="card small">${list.map(h => `<div class="mb"><span class="muted">${fmtDT(h.em)} · ${esc(quem(h.usuario))}</span> — ${esc(descHist(h))}</div>`).join('')}</div>`;
 }
 function quem(u) { if (!u) return 'sistema'; if (String(u).startsWith('local:')) { const pid = u.slice(6); return byId('pessoas', pid) ? nomePessoa(pid) : 'Direção (local)'; } const pf = D.perfis.find(p => p.id === u); return pf ? (pf.pessoa_id ? nomePessoa(pf.pessoa_id) : pf.email) : 'usuário'; }
-const NOME_TAB = { tarefa_relatos: 'relato de atividade', reformulacoes: 'reformulação financeira', plano_itens: 'item do plano de aplicação', reprogramacoes: 'reprogramação', pessoas: 'pessoa', projetos: 'projeto', alocacoes: 'alocação', tarefas: 'tarefa', tarefa_responsaveis: 'responsável de tarefa', aditivos: 'aditivo', entregas: 'entrega', cronograma: 'atividade do cronograma', vinculos_financeiros: 'bolsa/pagamento', orcamento_rubricas: 'orçamento da rubrica', despesas: 'despesa', prospeccoes: 'prospecção', avaliacoes: 'avaliação', gerencias: 'gerência', gerencia_membros: 'gerente', perfis: 'perfil', infra_itens: 'item de infraestrutura', infra_reservas: 'reserva', infra_manutencoes: 'manutenção', infra_habilitacoes: 'habilitação' };
+const NOME_TAB = { tarefa_relatos: 'relato de atividade', reformulacoes: 'reformulação financeira', fichas_equipe: 'ficha de gestão da equipe', plano_itens: 'item do plano de aplicação', reprogramacoes: 'reprogramação', pessoas: 'pessoa', projetos: 'projeto', alocacoes: 'alocação', tarefas: 'tarefa', tarefa_responsaveis: 'responsável de tarefa', aditivos: 'aditivo', entregas: 'entrega', cronograma: 'atividade do cronograma', vinculos_financeiros: 'bolsa/pagamento', orcamento_rubricas: 'orçamento da rubrica', despesas: 'despesa', prospeccoes: 'prospecção', avaliacoes: 'avaliação', gerencias: 'gerência', gerencia_membros: 'gerente', perfis: 'perfil', infra_itens: 'item de infraestrutura', infra_reservas: 'reserva', infra_manutencoes: 'manutenção', infra_habilitacoes: 'habilitação' };
 const REF_COL = { projeto_id: 'projetos', pessoa_id: 'pessoas', responsavel_id: 'pessoas', solicitante_id: 'pessoas', gerencia_id: 'gerencias', item_id: 'infra_itens', pai_id: 'infra_itens', tarefa_id: 'tarefas', prospeccao_id: 'prospeccoes', projeto_aquisicao_id: 'projetos', vinculo_id: 'vinculos_financeiros', atividade_id: 'cronograma' };
 function nomeRef(t, id) { const r = byId(t, id); if (!r) return id ? '(removido)' : '∅'; return r.sigla || r.nome || r.titulo || r.item || (r.pessoa_id ? nomePessoa(r.pessoa_id) : '?'); }
 function rotuloReg(t, r) {

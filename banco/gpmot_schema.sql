@@ -1,6 +1,10 @@
 -- ════════════════════════════════════════════════════════════════════
 --  GPMOT/UFSM — Gestão de Portfólio
---  Esquema do banco de dados (PostgreSQL / Supabase) — versão 1.10
+--  Esquema do banco de dados (PostgreSQL / Supabase) — versão 1.12
+--  25/11/2026 — v1.12: fichas de gestão da equipe (UFSM) — registro de cada ficha importada,
+--               sem CPF; importadas por quem gere a equipe do projeto e vê o financeiro dele
+--  16/10/2026 — v1.11: atividades canceladas (com motivo); solicitante e criador editam e cancelam;
+--               gestão das atividades (tarefas_gerir / atividades_acompanhar) edita, cancela e apaga
 --  15/10/2026 — v1.10: meta semanal de horas por pessoa (relatório semanal das atividades)
 --  15/10/2026 — v1.9: atividades com acompanhamento — solicitante, prazo por semana, relatos de horas,
 --               entrega e aprovação; alunos (Leitura) registram e reportam as suas; permissão atividades_acompanhar
@@ -2555,3 +2559,222 @@ select p.id, p.nome,
   from public.pessoas p
  cross join lateral (select public.pode_editar() or p.id = public.minha_pessoa() as completo) x
  where public.pessoa_visivel(p.id);
+
+-- ────────────────────────────────────────────────────────────────────
+-- 19. Cancelamento e exclusão de atividades (v1.11)
+--     O solicitante ou quem registrou a atividade a edita e cancela (com motivo); a gestão das
+--     atividades (Direção e gerências com tarefas_gerir ou atividades_acompanhar) também edita,
+--     cancela e apaga atividades e relatos, inclusive as já entregues ou aprovadas.
+-- ────────────────────────────────────────────────────────────────────
+alter table public.tarefas drop constraint if exists tarefas_situacao_check;
+alter table public.tarefas add constraint tarefas_situacao_check
+  check (situacao in ('a_fazer','em_andamento','entregue','aprovada','devolvida','cancelada'));
+
+-- gere as atividades de todo o laboratório
+create or replace function public.gere_atividades()
+returns boolean language sql stable set search_path = public as $$
+  select public.e_direcao() or public.tem_permissao('tarefas_gerir') or public.tem_permissao('atividades_acompanhar')
+$$;
+
+create or replace function public.tg_tarefa_fluxo()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare eu uuid := public.minha_pessoa(); gestor boolean; resp boolean;
+begin
+  if tg_op = 'INSERT' then
+    if auth.uid() is not null and not public.pode_editar() then   -- Leitura registrando a própria atividade
+      if new.solicitante_id is null then raise exception 'Informe o solicitante da atividade.'; end if;
+      if new.solicitante_id = eu then raise exception 'O solicitante deve ser outra pessoa (quem vai conferir a entrega).'; end if;
+      if not exists (select 1 from public.perfis f where f.pessoa_id = new.solicitante_id and f.ativo and f.papel in ('suporte','direcao','membro')) then
+        raise exception 'O solicitante deve ser um membro do laboratório com acesso ao programa.'; end if;
+      if new.gerencia_id is not null then raise exception 'Atividades registradas por alunos não pertencem a gerências.'; end if;
+      new.situacao := 'a_fazer'; new.concluida := false; new.criado_por := auth.uid();
+    end if;
+    if new.solicitante_id is null then new.situacao := case when new.concluida then 'aprovada' else 'a_fazer' end;
+    else new.concluida := new.situacao in ('aprovada','cancelada'); end if;
+    return new;
+  end if;
+  -- UPDATE
+  if new.solicitante_id is null then   -- tarefa simples: só marca como concluída
+    if new.concluida is distinct from old.concluida then new.situacao := case when new.concluida then 'aprovada' else 'a_fazer' end;
+    elsif new.situacao is distinct from old.situacao then new.concluida := new.situacao = 'aprovada'; end if;
+    return new;
+  end if;
+  if auth.uid() is null then new.concluida := new.situacao in ('aprovada','cancelada'); return new; end if;   -- manutenção pelo painel
+  gestor := public.e_direcao() or public.gere_tarefas(old.projeto_id) or (old.gerencia_id is not null and public.gerencia(old.gerencia_id))
+            or (public.pode_editar() and old.criado_por = auth.uid()) or public.gere_atividades();
+  resp := public.responsavel_tarefa(old.id);
+  -- "concluída" segue a situação (aprovada); não se marca à mão numa atividade com solicitante
+  if new.concluida is distinct from old.concluida and new.situacao is not distinct from old.situacao then
+    raise exception 'Atividade com solicitante: use Entregar (responsável) e Aprovar (solicitante).'; end if;
+  if new.situacao is distinct from old.situacao then
+    if new.situacao in ('aprovada','devolvida') then
+      if old.situacao <> 'entregue' then raise exception 'Só uma atividade entregue pode ser aprovada ou devolvida.'; end if;
+      if not (eu is not null and eu = old.solicitante_id) and not public.e_direcao() then
+        raise exception 'Só o solicitante (ou a Direção) aprova ou devolve a atividade.'; end if;
+      if new.situacao = 'devolvida' and coalesce(btrim(new.parecer), '') = '' then raise exception 'Ao devolver, explique o que falta no parecer.'; end if;
+      new.avaliada_em := now(); new.avaliada_por := auth.uid();
+    elsif new.situacao = 'entregue' then
+      if not (resp or gestor) then raise exception 'Só o responsável entrega a atividade.'; end if;
+      if old.situacao in ('entregue','aprovada') then raise exception 'Esta atividade já foi entregue.'; end if;
+      if not exists (select 1 from public.tarefa_relatos r where r.tarefa_id = old.id and r.tipo = 'entrega') then
+        raise exception 'Para entregar, informe as horas e a descrição do que foi realizado.'; end if;
+      new.entregue_em := now();
+    elsif new.situacao = 'cancelada' then
+      if old.situacao = 'aprovada' then raise exception 'Atividade aprovada não pode ser cancelada (reabra-a antes).'; end if;
+      if not (gestor or (eu is not null and eu = old.solicitante_id) or old.criado_por = auth.uid()) then
+        raise exception 'Só o solicitante, quem registrou a atividade ou quem gere as atividades pode cancelá-la.'; end if;
+      if coalesce(btrim(new.parecer), '') = '' then raise exception 'Informe o motivo do cancelamento.'; end if;
+      new.avaliada_em := now(); new.avaliada_por := auth.uid();
+    elsif new.situacao in ('a_fazer','em_andamento') then
+      if old.situacao = 'cancelada' and not (gestor or (eu is not null and eu = old.solicitante_id) or old.criado_por = auth.uid()) then
+        raise exception 'Só o solicitante, quem registrou a atividade ou quem gere as atividades pode reativá-la.'; end if;
+      if old.situacao = 'aprovada' and not (public.e_direcao() or (eu is not null and eu = old.solicitante_id)) then
+        raise exception 'Só o solicitante (ou a Direção) reabre uma atividade aprovada.'; end if;
+      if old.situacao = 'entregue' and not (gestor or resp or (eu is not null and eu = old.solicitante_id)) then
+        raise exception 'Sem permissão para reabrir esta atividade.'; end if;
+    end if;
+  end if;
+  -- quem só é responsável (não gestor nem solicitante) não muda solicitante, título, prazo nem destino;
+  -- na atividade que ele mesmo registrou, pode ajustar enquanto não entregou
+  if not gestor and not public.e_direcao() and not (eu is not null and eu = old.solicitante_id)
+     and not (old.criado_por = auth.uid() and old.situacao in ('a_fazer','em_andamento','devolvida')) then
+    if new.solicitante_id is distinct from old.solicitante_id or new.titulo is distinct from old.titulo or new.descricao is distinct from old.descricao
+       or new.prazo is distinct from old.prazo or new.inicio is distinct from old.inicio or new.projeto_id is distinct from old.projeto_id
+       or new.gerencia_id is distinct from old.gerencia_id or new.prioridade is distinct from old.prioridade then
+      raise exception 'O responsável não altera solicitante, descrição, prazo nem projeto da atividade: peça ao solicitante.'; end if;
+  end if;
+  if new.solicitante_id is distinct from old.solicitante_id and new.solicitante_id = eu and not public.pode_editar() then
+    raise exception 'O solicitante deve ser outra pessoa (quem vai conferir a entrega).'; end if;
+  if new.avaliada_por is distinct from old.avaliada_por and new.situacao is not distinct from old.situacao then new.avaliada_por := old.avaliada_por; end if;
+  new.concluida := new.situacao in ('aprovada','cancelada');
+  return new;
+end $$;
+
+create or replace function public.tg_relato()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare s text;
+begin
+  if tg_op = 'DELETE' then
+    select situacao into s from public.tarefas where id = old.tarefa_id;
+    if auth.uid() is not null and s in ('entregue','aprovada') and not public.gere_atividades() then
+      raise exception 'Relatos de atividade entregue não podem ser apagados.'; end if;
+    return old;
+  end if;
+  select situacao into s from public.tarefas where id = new.tarefa_id;
+  if auth.uid() is not null then
+    if tg_op = 'INSERT' then
+      if not public.e_direcao() or new.pessoa_id is null then   -- a Direção, ao restaurar um backup, mantém autor e data originais
+        new.pessoa_id := public.minha_pessoa(); new.criado_por := auth.uid(); new.criado_em := now(); end if;
+    else new.pessoa_id := old.pessoa_id; new.criado_por := old.criado_por; new.criado_em := old.criado_em; new.tarefa_id := old.tarefa_id; end if;
+    if s = 'cancelada' and not public.e_direcao() then raise exception 'A atividade foi cancelada: não recebe relatos.'; end if;
+    if s in ('entregue','aprovada') and not public.e_direcao() then
+      raise exception 'A atividade já foi entregue: não recebe novos relatos (o solicitante pode devolvê-la).'; end if;
+  end if;
+  return new;
+end $$;
+
+-- quem gere a tarefa (responsáveis): também o solicitante (membro) e a gestão das atividades
+create or replace function public.gere_tarefa(p_tarefa uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select exists (select 1 from public.tarefas t where t.id = p_tarefa
+    and (public.e_direcao() or public.gere_atividades() or public.gere_tarefas(t.projeto_id)
+         or (t.gerencia_id is not null and public.gerencia(t.gerencia_id))
+         or (public.pode_editar() and (t.criado_por = auth.uid() or (t.solicitante_id is not null and t.solicitante_id = public.minha_pessoa())))))
+$$;
+
+drop policy if exists tarefas_editar on public.tarefas;
+create policy tarefas_editar on public.tarefas for update to authenticated
+  using (public.e_direcao() or public.gere_atividades() or public.gere_tarefas(projeto_id)
+    or (gerencia_id is not null and public.gerencia(gerencia_id))
+    or (public.pode_editar() and (criado_por = auth.uid() or public.responsavel_tarefa(id)))
+    or (solicitante_id is not null and solicitante_id = public.minha_pessoa())
+    or (public.tem_acesso() and (criado_por = auth.uid() or public.responsavel_tarefa(id))));
+drop policy if exists tarefas_apagar on public.tarefas;
+create policy tarefas_apagar on public.tarefas for delete to authenticated
+  using (public.e_direcao() or public.gere_atividades() or public.gere_tarefas(projeto_id)
+    or (gerencia_id is not null and public.gerencia(gerencia_id))
+    or (public.pode_editar() and criado_por = auth.uid())
+    or (public.tem_acesso() and criado_por = auth.uid() and situacao = 'a_fazer'
+        and not exists (select 1 from public.tarefa_relatos r where r.tarefa_id = tarefas.id)));
+drop policy if exists relatos_editar on public.tarefa_relatos;
+create policy relatos_editar  on public.tarefa_relatos for update to authenticated
+  using (criado_por = auth.uid() or public.gere_atividades()) with check (criado_por = auth.uid() or public.gere_atividades());
+drop policy if exists relatos_apagar on public.tarefa_relatos;
+create policy relatos_apagar  on public.tarefa_relatos for delete to authenticated using (criado_por = auth.uid() or public.gere_atividades());
+
+revoke execute on function public.gere_atividades() from public, anon;
+grant execute on function public.gere_atividades() to authenticated, service_role;
+
+-- ────────────────────────────────────────────────────────────────────
+-- 20. Fichas de gestão da equipe (v1.12)
+--     "Autorização para execução de projeto — ajuste de item — alteração da equipe" (UFSM):
+--     a cada mudança na equipe executora sai uma nova ficha com a equipe completa. O programa
+--     lê a ficha, aplica as mudanças (posições do plano, alocações e bolsas) e guarda o registro.
+--     O CPF dos participantes NUNCA é gravado (só se a ficha o informa, para a conferência).
+-- ────────────────────────────────────────────────────────────────────
+create table public.fichas_equipe (
+  id              uuid primary key default gen_random_uuid(),
+  projeto_id      uuid not null references public.projetos(id) on delete cascade,
+  numero          smallint,                                -- ordem das fichas do projeto (1 = inicial)
+  data            date not null default public.hoje(),     -- aprovação pela coordenação
+  formulario      text,                                    -- Original / Retificador
+  referencia      text,                                    -- referência da fundação (ex.: FAURGS 2.9290)
+  processo        text,                                    -- nº do processo UFSM
+  contrato        text,                                    -- nº do contrato UFSM/fundação
+  vigencia_inicio date,
+  vigencia_fim    date,
+  descricao       text,                                    -- "Descrição da adequação realizada"
+  documento       text,                                    -- arquivo de origem
+  participantes   jsonb not null default '[]',             -- equipe completa da ficha (sem CPF)
+  aprovacoes      jsonb not null default '{}',             -- datas de aprovação (coordenação, fiscal, PRA)
+  alteracoes      jsonb not null default '{}',             -- o que foi aplicado no sistema
+  aplicada_em     timestamptz,
+  criado_em       timestamptz not null default now(),
+  criado_por      uuid default auth.uid(),
+  autor           text,
+  atualizado_em   timestamptz not null default now(),
+  atualizado_por  uuid,
+  constraint ficha_vigencia check (vigencia_fim is null or vigencia_inicio is null or vigencia_fim >= vigencia_inicio),
+  constraint ficha_sem_cpf check (participantes::text !~ '(^|\D)\d{3}\.?\d{3}\.?\d{3}-?\d{2}(\D|$)')
+);
+create index on public.fichas_equipe (projeto_id, data desc);
+create trigger carimbo before update on public.fichas_equipe
+  for each row execute function public.tg_carimbo();
+
+-- quem importa fichas: quem gere a equipe do projeto e vê o financeiro dele (a ficha traz valores)
+create or replace function public.gere_ficha_equipe(p_projeto uuid)
+returns boolean language sql stable set search_path = public as $$
+  select (public.gere_projeto(p_projeto) or public.tem_permissao('alocacoes_gerir')) and public.ve_financeiro(p_projeto)
+$$;
+
+create or replace function public.tg_ficha_autor()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is not null and not (public.e_direcao() and new.criado_por is not null and new.autor is not null) then
+    new.criado_por := auth.uid(); new.criado_em := now();
+    new.autor := (select coalesce(p.nome, f.email) from public.perfis f left join public.pessoas p on p.id = f.pessoa_id where f.id = auth.uid());
+  end if;
+  return new;
+end $$;
+create trigger ficha_autor before insert on public.fichas_equipe
+  for each row execute function public.tg_ficha_autor();
+create trigger historico after insert or update or delete on public.fichas_equipe
+  for each row execute function public.tg_historico();
+
+alter table public.fichas_equipe enable row level security;
+create policy fichas_ver     on public.fichas_equipe for select to authenticated using (public.ve_financeiro(projeto_id));
+create policy fichas_incluir on public.fichas_equipe for insert to authenticated with check (public.gere_ficha_equipe(projeto_id));
+create policy fichas_editar  on public.fichas_equipe for update to authenticated using (public.gere_ficha_equipe(projeto_id)) with check (public.gere_ficha_equipe(projeto_id));
+create policy fichas_apagar  on public.fichas_equipe for delete to authenticated using (public.e_direcao());
+
+grant select, insert, update, delete on public.fichas_equipe to authenticated, service_role;
+revoke truncate, references, trigger on public.fichas_equipe from anon, authenticated;
+revoke all on public.fichas_equipe from anon;
+revoke execute on function public.gere_ficha_equipe(uuid), public.tg_ficha_autor() from public, anon;
+grant execute on function public.gere_ficha_equipe(uuid), public.tg_ficha_autor() to authenticated, service_role;
+do $$ begin
+  if exists (select 1 from pg_publication where pubname = 'supabase_realtime')
+     and not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'fichas_equipe') then
+    execute 'alter publication supabase_realtime add table public.fichas_equipe';
+  end if;
+end $$;

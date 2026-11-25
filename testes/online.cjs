@@ -65,6 +65,7 @@ const ignorar = t => /WebSocket|realtime|ERR_CONNECTION_REFUSED|status of 40[0-9
       await ins('entregas', { projeto_id: P.id, titulo: 'Relatório parcial 1', prazo: '2026-12-15', status: 'pendente' });
       await ins('documentos', { projeto_id: P.id, titulo: 'Termo de outorga', url: 'https://exemplo.ufsm.br/termo.pdf' });
       await ins('pendencias', { projeto_id: P.id, titulo: 'Assinar termo aditivo', status: 'aberta' });
+      await ins('fichas_equipe', { projeto_id: P.id, numero: 1, data: '2026-11-25', formulario: 'Retificador', contrato: '27192.01.01/2025.01-00', participantes: [{ grupo: 'ufsm', nome: 'Pessoa Teste', horas: 10, pagamentos: 48, valor: 1000, inicio: '2026-10-01', fim: '2030-09-30' }], alteracoes: { resumo: 'teste' }, aplicada_em: new Date().toISOString() });
       const it = D.plano_itens.find(i => i.projeto_id === P.id && i.rubrica === '1.3') || D.plano_itens[0];
       if (it) await ins('despesas', { projeto_id: it.projeto_id, item_id: it.id, data: '2026-08-10', descricao: 'Compra teste', valor: 1234.56, documento: 'NF 99' });
       const inf = await ins('infra_itens', { nome: 'Dinamômetro de teste', status: 'operacional' });
@@ -272,6 +273,10 @@ const ignorar = t => /WebSocket|realtime|ERR_CONNECTION_REFUSED|status of 40[0-9
   ok(/solicitante/i.test(at.auto) && at.semSol !== 'gravou', 'banco: a Leitura não aprova a própria entrega nem cria atividade sem solicitante', [at.auto, at.semSol]);
   const apr = await pg.evaluate(async id => { await SB.loadAll(); await Data.update('tarefas', id, { situacao: 'aprovada', parecer: 'ok' }); return byId('tarefas', id).concluida; }, at.id);
   ok(apr === true && sql(`select situacao || '|' || concluida from public.tarefas where id = '${at.id}'`) === 'aprovada|true', 'Direção aprova a entrega (concluída no banco)');
+  const can = await u4.pg.evaluate(async id => { await SB.reload(['tarefas']); return Data.update('tarefas', id, { situacao: 'cancelada', parecer: 'x' }).then(() => 'gravou', e => traduzErro(e)); }, at.id);
+  ok(/reabra|permiss/i.test(can), 'aprovada não pode ser cancelada', can);
+  await pg.evaluate(id => Data.remove('tarefas', id), at.id);
+  ok(sql(`select count(*) from public.tarefas where id = '${at.id}'`) === '0' && sql(`select count(*) from public.tarefa_relatos where tarefa_id = '${at.id}'`) === '0', 'Direção apaga a atividade aprovada e os relatos (banco)');
   console.log(errs.length ? 'ERROS NA PÁGINA:\n' + errs.join('\n') : '  sem erros na página');
   console.log(falhas || errs.length ? `\n${falhas} verificação(ões) falharam, ${errs.length} erro(s) na página` : '\nTudo certo'); await b.close(); try { fs.unlinkSync(BK); } catch { }
   process.exit(falhas || errs.length ? 1 : 0);

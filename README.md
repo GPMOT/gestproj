@@ -2,7 +2,7 @@
 
 Programa de gestão de projetos, equipe, financeiro e infraestrutura do laboratório.
 O produto final é **um único arquivo HTML** (funciona offline, sem instalar nada), montado a partir das partes em `app/`.
-Versão do programa: **2.32** · versão do esquema do banco: **1.10**. Implantação no Supabase: veja `../Guia de implantação online (Supabase).docx`.
+Versão do programa: **2.34** · versão do esquema do banco: **1.12**. Implantação no Supabase: veja `../Guia de implantação online (Supabase).docx`.
 
 ```
 Software de Gestão/
@@ -12,9 +12,10 @@ Software de Gestão/
 ├─ gpmot-portfolio-26-09-23.json                 ← dados do programa antigo (usados nos testes)
 ├─ H - Fundep_…_revisao_final.xlsx               ← planilha do edital (tem CPFs — nunca copiar para o código-fonte)
 ├─ Plano_de_Trabalho_Final_-_SIGITEC.pdf · visualizaSolicitaçãoDeAditiv.pdf ← documentos da Petrobras (usados nos testes t21 e t23)
-└─ codigo-fonte/                                 (41 arquivos)
+├─ 25_11_26 - Ficha de Gestão - Ajuste de equipe….pdf ← ficha de gestão da UFSM (tem CPFs — nunca copiar para o código-fonte; usada no t26)
+└─ codigo-fonte/                                 (42 arquivos)
    ├─ README.md · build.cjs · .gitignore
-   ├─ app/          10 partes do programa (editar aqui) + marca/ (logotipo e ícones) + vendor/ (biblioteca supabase-js)
+   ├─ app/          11 partes do programa (editar aqui) + marca/ (logotipo e ícones) + vendor/ (biblioteca supabase-js)
    ├─ banco/        gpmot_schema.sql (banco completo) + atualização da versão anterior
    ├─ docs/         versão publicada pelo GitHub Pages (gerada pelo build)
    └─ testes/       tela.cjs · banco.sh + banco.sql + banco_esperado.txt · online.cjs + simulador_supabase.cjs · package.json
@@ -49,6 +50,7 @@ As partes são concatenadas nesta ordem, num único `<script>` (as funções de 
 | `p4_modulos.js` | Entregas, Gerências, Tarefas, Financeiro (resumo, compras, calendário de bolsas, orçamento, plano de aplicação, desembolso, despesas, bolsas), Prospecção, Infraestrutura |
 | `p6_import.js` | leitor de .xlsx embutido, leitura da planilha Mover/Fundep, prévia e gravação da importação de planos de trabalho |
 | `p6b_plano.js` | leitor de PDF embutido, leitor do Plano de Trabalho SIGITEC (Petrobras), plano padrão GPMOT (.json), conferências e escolha do leitor (`LEITORES_PLANO`) |
+| `p6d_ficha.js` | fichas de gestão da equipe (UFSM): leitor da ficha “Ajuste de item — alteração da equipe” (PDF), ficha padrão (.json), conferências, casamento com pessoas/posições/bolsas, prévia, aplicação e registro (`LEITORES_FICHA`) |
 | `p6c_reformulacao.js` | reformulações financeiras: leitor da Solicitação de Reformulação Financeira do SIGITEC, reformulação padrão (.json), comparação com o sistema, prévia, registro e aplicação (`LEITORES_REFORMULACAO`) |
 | `p7_rel.js` | gerador de Word (.docx) embutido e relatório físico-financeiro por projeto |
 | `p5_final.js` | relatório do laboratório, configurações, backup, conversão do programa antigo, envio ao banco online e inicialização |
@@ -72,6 +74,7 @@ Tarefas com **solicitante** viram atividades com entrega e aprovação — o con
 - **Entregar:** horas + resumo do que foi realizado; a atividade fica “entregue · aguardando aprovação”, não recebe mais relatos e o solicitante é avisado (contador no menu Tarefas e cartão “Aguardando a sua aprovação” no Painel).
 - **Aprovar / Devolver:** só o solicitante (ou a Direção). Devolver exige parecer; o aluno vê a devolução, reporta de novo e entrega outra vez. Aprovada = concluída.
 - **Relatório semanal** (Tarefas → Relatório semanal): por pessoa, horas relatadas na semana, atividades trabalhadas, entregues, aprovadas, atrasadas e em aberto, com os relatos; exporta CSV e Word/PDF. Vê todos quem tem a permissão de gerência `atividades_acompanhar` (dada à Gerência Técnica) e a Direção; os demais veem só o próprio.
+- **Editar, cancelar e excluir:** o solicitante e quem registrou a atividade editam e **cancelam** (motivo obrigatório; pode ser reativada). Cancelada sai das abertas e atrasadas, não recebe relatos e aparece no filtro “Canceladas”; as horas já relatadas continuam no relatório. A **gestão das atividades** — Direção e gerências com `tarefas_gerir` ou `atividades_acompanhar` — também edita, cancela e **exclui** atividades e relatos, inclusive entregues e aprovadas. Atividade aprovada não se cancela (reabra antes). Banco v1.11, teste `20_cancelar_apagar_atividades` e tela `t25`.
 - **Meta semanal de horas:** no cadastro da pessoa (ou pelo ✎ no relatório semanal), definida pela Direção, gerência com `pessoas_gerir` ou coordenação — a própria pessoa não altera. Sem meta no cadastro vale a soma das horas semanais das posições que ela ocupa na equipe do plano de trabalho (marcada com ᵖ). O relatório mostra horas × meta com barra de cumprimento e quantas pessoas ficaram abaixo; na semana em curso compara com o esperado até hoje (dias úteis). O Painel do aluno mostra “x h de y h nesta semana”. Banco v1.10: coluna `pessoas.meta_horas_semana` (0–60), teste `19_meta_semanal`.
 - **Banco (v1.9):** colunas `solicitante_id`, `situacao`, `entregue_em`, `avaliada_em`, `avaliada_por`, `parecer` em `tarefas`; tabela `tarefa_relatos` (autor gravado pelo banco); gatilho `tg_tarefa_fluxo` garante as transições e que o responsável não mude solicitante, descrição nem prazo de atividade atribuída; a Leitura só cria atividades com solicitante, nunca de gerência, e só nos projetos de que participa. Teste `18_atividades_alunos`.
 
@@ -88,6 +91,18 @@ Remanejamentos entre rubricas, inclusão, exclusão ou alteração de itens e no
 - **Refazer**: carregar de novo a mesma solicitação oferece *substituir o registro e refazer a aplicação* — serve para corrigir o mapa natureza → rubrica ou as opções. Itens já lançados em outra rubrica mudam de rubrica (exceto os que têm gastos), nada é duplicado, e rubricas que só o mapa anterior usava voltam a zero.
 - **Registro** (`reformulacoes`): nº, data de submissão, documento, justificativa técnica, autor (gravado pelo banco) e o retrato completo da solicitação em `alteracoes` (rubricas, itens, relação proposta, desembolso, opções e o resultado da aplicação). A Direção pode excluir o registro (o que já foi aplicado não é desfeito).
 - **Outros financiadores**: o mesmo caminho do plano de trabalho — um leitor em `LEITORES_REFORMULACAO`, ou a **reformulação padrão (.json)** (`gpmot-reformulacao-1`, exportável pela prévia): `numero`, `data`, `documento`, `justificativa`, `naturezas: [{nome, rubrica?, vigente, proposto}]`, `itens: [{operacao: "I"|"E"|"A", natureza, descricao, origem, vigente: {quantidade, valor_unitario, valor}, proposto: {quantidade, valor_unitario, valor, aplicacao}, justificativa}]` e, opcional, `orcamento_proposto` (um plano padrão `gpmot-plano-1` com o orçamento completo depois da reformulação, que habilita a sincronização e o desembolso).
+
+## Fichas de gestão da equipe (UFSM)
+
+A cada mudança na equipe executora a UFSM emite uma ficha nova (“Autorização para execução de projeto — ajuste de item — alteração da equipe”) com a **equipe completa** — inclusive quem já saiu, com o período. Importam: quem **gere a equipe do projeto e vê o financeiro dele** (Direção, coordenação e vice; gerência com `alocacoes_gerir` **e** `financeiro_ver`), porque a ficha traz valores. Bolsas só são gravadas por quem edita o financeiro.
+
+- **Projeto → Equipe → Importar ficha de gestão…** lê o PDF (ou a ficha padrão .json) e mostra a prévia. **O CPF nunca é gravado** (o banco recusa qualquer número com formato de CPF no registro); SIAPE/matrícula só servem às conferências.
+- **Conferências do documento:** datas inexistentes (ex.: 31/09 — corrigida para o fim de N pagamentos), período dentro da vigência, nº de pagamentos × meses, CPF e SIAPE/matrícula informados, SIAPE repetido, regra dos 2/3 da UFSM (Decreto 7.423/2010), coordenador na equipe, participante repetido. Com divergências, é preciso marcar “Revisei” para aplicar.
+- **Comparação com o projeto:** título da ficha × nome do projeto (avisa quando parece ser de **outro** projeto), nº do contrato, vigência e fundação; e, a partir da 2ª ficha, o que mudou em relação à anterior (entram, saem, mudam valor/pagamentos/horas/período).
+- **Casamento de cada linha:** pessoa do cadastro (nome completo ou abreviado; homônimos: a que já está no projeto) → posição do plano (a que ela ocupa; a posição com o nome dela; ou uma vaga com a mesma bolsa/categoria/horas) — trocável na prévia, inclusive “nova posição” ou “sem posição”. Avisa valor, nº de pagamentos e horas diferentes do previsto na posição.
+- **Aplicar:** cadastra quem não existe; ocupa a posição; aloca (carga = horas/40); registra ou atualiza a bolsa (valor, início e fim da ficha, modalidade e rubrica da posição, situação *prevista*); quem tem fim já passado tem a bolsa encerrada, a posição liberada e a alocação concluída. **Quem está no projeto e não aparece na ficha** é listado: a coordenação marca quem encerrar (posição liberada, alocação concluída e bolsa encerrada na data escolhida; a coordenação do projeto é mantida). Pode preencher o nº do contrato do projeto, se estiver vazio.
+- **Registro** (`fichas_equipe`, banco v1.12): nº, data, formulário (original/retificador), referência da fundação, processo, contrato, vigência, descrição da adequação, aprovações (coordenação, fiscal, PRA), equipe completa (sem CPF) e o que foi aplicado em cada linha. Lista na aba Equipe; a Direção pode excluir o registro (nada do que foi aplicado é desfeito).
+- **Ficha padrão (.json)** — `gpmot-ficha-equipe-1`, exportável pela prévia: `titulo`, `processo`, `contrato`, `vigencia: {inicio, fim}`, `coordenador`, `fundacao`, `formulario`, `data`, `descricao`, `participantes: [{grupo: "ufsm"|"externo", nome, unidade, vinculo, funcao, horas, pagamentos, valor, inicio, fim}]` (datas ISO, sem CPF). Serve para corrigir à mão uma leitura e para fichas de outros formatos.
 
 ## Importação de planos de trabalho
 
@@ -150,6 +165,8 @@ Abre `app/gpmot.html` no Chromium, carrega os dados do programa antigo e, quando
 | t22 | reprogramação do cronograma: Direção desloca uma etapa inteira (motivo obrigatório, documento, plano original guardado, indicadores, Gantt com linha de base); gerência com `cronograma_gerir` muda prazos mas não a estrutura; ficha da atividade exige motivo; membro sem cargo não reprograma; Direção adota nova linha de base |
 | t23 | reformulação financeira (5ª solicitação da Petrobras, PDF): 29 conferências, naturezas → rubricas, comparação item a item com o sistema, registro como submetida sem mudar o orçamento, aplicação por gerência (rubricas, 15 itens cancelados, cabeçote alterado, serviços incluídos com rendimentos, 2ª parcela redistribuída), não aplica duas vezes, reformulação padrão (.json) de ida e volta; membro sem cargo não registra. Usa o PDF da pasta (nome com “Solicitação” e “Aditivo”/“Reformulação”); sem ele, é pulado |
 | t24 | atividades com acompanhamento: membro atribui à aluna (Leitura) com prazo na sexta; aluna reporta (em andamento), não muda o prazo, entrega e não se aprova; registra a própria (solicitante obrigatório, só membros); solicitante avisado (menu e Painel), devolve com parecer, aluna entrega de novo, outro membro não aprova, solicitante aprova; relatório semanal da Gerência Técnica (Word); membro sem a permissão vê só o seu; outro aluno não vê |
+| t25 | atividades: membro sem cargo não edita, cancela nem exclui; solicitante edita e cancela com motivo (sai das abertas, entra em Canceladas); cancelada não recebe relato; criadora reativa; aluna não apaga atividade com relato; aprovada não se cancela; Gerência Técnica exclui a aprovada com os relatos |
+| t26 | fichas de gestão da equipe: PDF real da ficha (sem CPF na prévia nem no registro; aviso de título de outro projeto e vigência diferente; datas inexistentes, SIAPE repetido e CPF ausente; casamento com as posições pelo valor da bolsa), aplicação (posições, bolsas com a data corrigida, pessoas novas, Nina fora da ficha encerrada, coordenação mantida, nº do contrato), ficha retificadora em JSON (entra, sai, muda valor), registro, permissões (coordenação importa; gerência técnica sem financeiro, membro sem cargo e Leitura não veem). Sem o PDF da pasta (nome com “Ficha” e “Gestão”), a 1ª ficha entra pelo JSON |
 | t20 | perfis (Suporte técnico, Leitura, vice-coordenação) e valores de projeto: visíveis a quem tem cargo; Membro sem cargo e Leitura não veem |
 | `desempenho` | diagnóstico: tempo de cada tela com ≈ 11 mil registros (`node tela.cjs desempenho`) |
 | `celular` | diagnóstico: telas num celular de 390 px (`node tela.cjs celular`) |
@@ -171,5 +188,5 @@ Recria um banco de teste no PostgreSQL local, sobe `simulador_supabase.cjs` (o s
 
 ## Dados e privacidade
 
-- Planilhas de edital, backups (.json) e capturas de tela têm dados pessoais (CPF, e-mail, valores de bolsa) e **não** devem ir para repositórios — o `.gitignore` já os exclui.
+- Planilhas de edital, **fichas de gestão (PDF)**, backups (.json) e capturas de tela têm dados pessoais (CPF, e-mail, valores de bolsa) e **não** devem ir para repositórios — o `.gitignore` já os exclui.
 - No modo local não há controle de acesso real (“Trocar usuário” permite simular qualquer perfil); as permissões valem de verdade no modo online (Supabase).

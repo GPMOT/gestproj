@@ -10,8 +10,8 @@ if (window.top !== window.self) { document.documentElement.hidden = true; try { 
    - Modo online: preencha SUPABASE_CONFIG abaixo (ou em Configurações)
      e o programa passa a ler e gravar no banco Supabase, com login.
    ════════════════════════════════════════════════════════════════════ */
-const VERSAO = '2.32';
-const VERSAO_DATA = '15/10/2026';
+const VERSAO = '2.34';
+const VERSAO_DATA = '25/11/2026';
 const SUPABASE_CONFIG = { url: '', anonKey: '' };   // ← preencher na implantação
 
 /* ── utilidades ─────────────────────────────────────────────────── */
@@ -152,7 +152,7 @@ const TABLES = {
   tarefas: {}, tarefa_responsaveis: { key: null, noStamp: true }, tarefa_relatos: { noStamp: true }, rubricas: { key: 'codigo', noStamp: true },
   vinculos_financeiros: {}, orcamento_rubricas: {}, plano_itens: {}, desembolsos: {}, desembolso_rubricas: { key: null, noStamp: true }, despesas: {}, prospeccoes: {}, avaliacoes: { noStamp: true },
   historico: { noStamp: true, noHist: true, key: 'id' },
-  reprogramacoes: { noStamp: true }, reformulacoes: {},
+  reprogramacoes: { noStamp: true }, reformulacoes: {}, fichas_equipe: {},
   infra_itens: {}, infra_habilitacoes: {}, infra_reservas: {}, infra_manutencoes: {},
 };
 /* Colunas de cada tabela no banco (gpmot_schema.sql). Campos fora desta lista não são gravados,
@@ -167,6 +167,7 @@ const COLUNAS = Object.fromEntries(Object.entries({
   cronograma: 'id projeto_id codigo titulo descricao entrega validador mes_inicio mes_fim responsavel_texto responsavel_id percentual status data_conclusao evidencia obs ordem criado_em atualizado_em atualizado_por mes_inicio_base mes_fim_base',
   reprogramacoes: 'id projeto_id data motivo documento alteracoes criado_em criado_por autor',
   reformulacoes: 'id projeto_id numero tipo data situacao documento justificativa alteracoes remanejado rendimentos aplicada_em criado_em criado_por autor atualizado_em atualizado_por',
+  fichas_equipe: 'id projeto_id numero data formulario referencia processo contrato vigencia_inicio vigencia_fim descricao documento participantes aprovacoes alteracoes aplicada_em criado_em criado_por autor atualizado_em atualizado_por',
   desembolso_rubricas: 'desembolso_id projeto_id rubrica valor',
   desembolsos: 'id projeto_id numero descricao fundacao data_prevista valor_previsto status data_recebida valor_recebido documento obs criado_em atualizado_em atualizado_por',
   despesas: 'id projeto_id rubrica data competencia descricao favorecido documento valor pessoa_id vinculo_id item_id obs criado_em criado_por atualizado_em atualizado_por',
@@ -197,7 +198,7 @@ const COLUNAS = Object.fromEntries(Object.entries({
 }).map(([t, c]) => [t, new Set(c.split(' '))]));
 /* Campos obrigatórios que têm valor padrão no banco. Dados antigos (de antes de o campo existir)
    chegam sem eles ou vazios; ao enviar ao banco, recebem o mesmo padrão que o banco usaria. */
-const PADRAO_BANCO = {"aditivos":{"tipo":"prazo"},"alocacoes":{"carga_pct":25,"coordena":false,"nivel":1,"status":"ativo","vice_coordena":false},"avaliacoes":{"avaliado_em":"@agora","bloqueada":false,"esforcos":{},"filtros":{},"notas":{}},"candidatos":{"status":"inscrito"},"checklist_itens":{"ativo":true,"obrigatorio":true,"ordem":0,"tipos":[]},"cronograma":{"ordem":0,"percentual":0,"status":"planejada"},"desembolso_rubricas":{"valor":0},"desembolsos":{"status":"prevista","valor_previsto":0},"documentos":{"restrito":false,"tipo":"outro"},"entregas":{"status":"pendente","tipo":"relatorio_parcial"},"equipe_plano":{"categoria":"outro","etapas":[],"ordem":0,"status":"vaga"},"equipe_plano_bolsas":{"meses":1,"rubrica":"1.1.1","valor_mensal":0},"gerencia_membros":{"desde":"@hoje","funcao":"titular"},"gerencias":{"ativa":true,"ordem":0,"permissoes":[]},"infra_habilitacoes":{"desde":"@hoje","nivel":"operador"},"infra_itens":{"categoria":"equipamento","especificacoes":{},"requer_habilitacao":false,"reservavel":true,"status":"operacional"},"infra_manutencoes":{"status":"planejada"},"infra_reservas":{"status":"solicitada"},"orcamento_rubricas":{"aprovado":0,"previsto":0},"pendencias":{"categoria":"administrativa","prioridade":"normal","status":"aberta"},"pessoa_checklist":{"data":"@hoje","feito":true},"pessoas":{"ativo":true,"disponibilidade_pct":100,"habilidades":[],"ordem":0,"perfil_disponibilidade":"interno","risco_sobrecarga":false,"tipo":"outro"},"plano_itens":{"moeda":"BRL","numero":0,"origem":"nacional","status":"previsto","valor_previsto":0},"projetos":{"contrapartida":0,"ordem":0,"placeholder":false,"situacao":"vigente","status":"pendente","tipo":"edital","valor_total":0},"prospeccoes":{"situacao":"avaliacao"},"reformulacoes":{"alteracoes":{},"remanejado":0,"rendimentos":0,"situacao":"submetida","tipo":"financeira"},"rubricas":{"ordem":0,"planos":["edital","servico"]},"tarefa_relatos":{"data":"@hoje","tipo":"relato"},"tarefas":{"concluida":false,"prioridade":"normal","situacao":"a_fazer","titulo":""},"vinculos_financeiros":{"rubrica":"1.1.1","status":"previsto","tipo":"bolsa","valor_mensal":0}};
+const PADRAO_BANCO = {"aditivos":{"tipo":"prazo"},"alocacoes":{"carga_pct":25,"coordena":false,"nivel":1,"status":"ativo","vice_coordena":false},"avaliacoes":{"avaliado_em":"@agora","bloqueada":false,"esforcos":{},"filtros":{},"notas":{}},"candidatos":{"status":"inscrito"},"checklist_itens":{"ativo":true,"obrigatorio":true,"ordem":0,"tipos":[]},"cronograma":{"ordem":0,"percentual":0,"status":"planejada"},"desembolso_rubricas":{"valor":0},"desembolsos":{"status":"prevista","valor_previsto":0},"documentos":{"restrito":false,"tipo":"outro"},"entregas":{"status":"pendente","tipo":"relatorio_parcial"},"equipe_plano":{"categoria":"outro","etapas":[],"ordem":0,"status":"vaga"},"equipe_plano_bolsas":{"meses":1,"rubrica":"1.1.1","valor_mensal":0},"fichas_equipe":{"alteracoes":{},"aprovacoes":{},"data":"@hoje","participantes":[]},"gerencia_membros":{"desde":"@hoje","funcao":"titular"},"gerencias":{"ativa":true,"ordem":0,"permissoes":[]},"infra_habilitacoes":{"desde":"@hoje","nivel":"operador"},"infra_itens":{"categoria":"equipamento","especificacoes":{},"requer_habilitacao":false,"reservavel":true,"status":"operacional"},"infra_manutencoes":{"status":"planejada"},"infra_reservas":{"status":"solicitada"},"orcamento_rubricas":{"aprovado":0,"previsto":0},"pendencias":{"categoria":"administrativa","prioridade":"normal","status":"aberta"},"pessoa_checklist":{"data":"@hoje","feito":true},"pessoas":{"ativo":true,"disponibilidade_pct":100,"habilidades":[],"ordem":0,"perfil_disponibilidade":"interno","risco_sobrecarga":false,"tipo":"outro"},"plano_itens":{"moeda":"BRL","numero":0,"origem":"nacional","status":"previsto","valor_previsto":0},"projetos":{"contrapartida":0,"ordem":0,"placeholder":false,"situacao":"vigente","status":"pendente","tipo":"edital","valor_total":0},"prospeccoes":{"situacao":"avaliacao"},"reformulacoes":{"alteracoes":{},"remanejado":0,"rendimentos":0,"situacao":"submetida","tipo":"financeira"},"rubricas":{"ordem":0,"planos":["edital","servico"]},"tarefa_relatos":{"data":"@hoje","tipo":"relato"},"tarefas":{"concluida":false,"prioridade":"normal","situacao":"a_fazer","titulo":""},"vinculos_financeiros":{"rubrica":"1.1.1","status":"previsto","tipo":"bolsa","valor_mensal":0}};
 function completarObrigatorios(t, row) {
   const P = PADRAO_BANCO[t]; if (!P) return row;
   for (const [c, v] of Object.entries(P)) if (row[c] === undefined || row[c] === null || row[c] === '') {
@@ -334,19 +335,25 @@ const Perm = {
   editaPendencia: x => Perm.gereProjeto(x.projeto_id) || (Perm.podeEditar() && !!ME.pessoa_id && x.responsavel_id === ME.pessoa_id),
   editaEntrega: e => Perm.gereProjeto(e.projeto_id) || (Perm.podeEditar() && !!ME.pessoa_id && e.responsavel_id === ME.pessoa_id),
   gereAlocacao: pid => Perm.gereProjeto(pid) || Perm.tem('alocacoes_gerir'),
+  /* fichas de gestão da equipe (trazem valores): quem gere a equipe do projeto e vê o financeiro dele */
+  importaFicha: pid => Perm.gereAlocacao(pid) && Perm.veFin(pid),
   gerePessoas: () => Perm.dir() || Perm.tem('pessoas_gerir') || Perm.coordenaAlgum(),
   gereProspeccao: () => Perm.dir() || Perm.tem('prospeccao_gerir') || Perm.coordenaAlgum(),
   gereInfraGeral: () => Perm.dir() || Perm.tem('infraestrutura_gerir'),
   gereInfra: itemId => Perm.gereInfraGeral() || (Perm.podeEditar() && !!ME.pessoa_id && (byId('infra_itens', itemId) || {}).responsavel_id === ME.pessoa_id),
   responsavelTarefa: tid => !!ME.pessoa_id && D.tarefa_responsaveis.some(r => r.tarefa_id === tid && r.pessoa_id === ME.pessoa_id),
   gereTarefa(t) {
-    return Perm.dir() || Perm.gereTarefas(t.projeto_id) || (!!t.gerencia_id && Perm.gerencia(t.gerencia_id)) || (Perm.podeEditar() && t.criado_por === ME.uid);
+    return Perm.dir() || Perm.gereAtividades() || Perm.gereTarefas(t.projeto_id) || (!!t.gerencia_id && Perm.gerencia(t.gerencia_id)) || (Perm.podeEditar() && (t.criado_por === ME.uid || Perm.solicitante(t)));
   },
   editaTarefa(t) { return Perm.gereTarefa(t) || (Perm.podeEditar() && Perm.responsavelTarefa(t.id)) || Perm.solicitante(t) || (Perm.leitor() && (t.criado_por === ME.uid || Perm.responsavelTarefa(t.id))); },
   /* atividades com acompanhamento (v2.31): solicitante aprova; responsável relata e entrega */
   leitor: () => ME.papel === 'leitura' && !!ME.pessoa_id,
   solicitante: t => !!ME.pessoa_id && !!t.solicitante_id && t.solicitante_id === ME.pessoa_id,
-  relataTarefa: t => !!t.solicitante_id && Perm.responsavelTarefa(t.id) && !['entregue', 'aprovada'].includes(t.situacao),
+  relataTarefa: t => !!t.solicitante_id && Perm.responsavelTarefa(t.id) && !['entregue', 'aprovada', 'cancelada'].includes(t.situacao),
+  /* gestão das atividades de todo o laboratório: edita, cancela e apaga (Direção, tarefas_gerir, atividades_acompanhar) */
+  gereAtividades: () => Perm.dir() || Perm.tem('tarefas_gerir') || Perm.tem('atividades_acompanhar'),
+  cancelaTarefa: t => !!t.solicitante_id && !['aprovada', 'cancelada'].includes(sitTarefa(t)) && (Perm.gereTarefa(t) || Perm.solicitante(t) || t.criado_por === ME.uid),
+  reativaTarefa: t => sitTarefa(t) === 'cancelada' && (Perm.gereTarefa(t) || Perm.solicitante(t) || t.criado_por === ME.uid),
   avaliaTarefa: t => t.situacao === 'entregue' && (Perm.solicitante(t) || Perm.dir()),
   acompanhaAtividades: () => Perm.dir() || Perm.tem('atividades_acompanhar'),
   /* o responsável que não gere nem solicita só mexe no conteúdo da atividade que ele mesmo registrou, antes de entregar */
@@ -371,6 +378,7 @@ const POLICY = {
   aditivos: { all: r => Perm.gereProjeto(r.projeto_id) },
   reprogramacoes: { ins: n => Perm.gereCronograma(n.projeto_id), upd: () => false, del: () => Perm.dir() },
   reformulacoes: { ins: n => Perm.reformulaFin(n.projeto_id), upd: r => Perm.reformulaFin(r.projeto_id), del: () => Perm.dir() },
+  fichas_equipe: { ins: n => Perm.importaFicha(n.projeto_id), upd: r => Perm.importaFicha(r.projeto_id), del: () => Perm.dir() },
   cronograma: { ins: n => Perm.gereProjeto(n.projeto_id), upd: (n, o) => Perm.gereCronograma(o.projeto_id) || (Perm.podeEditar() && !!ME.pessoa_id && o.responsavel_id === ME.pessoa_id), del: (n, o) => Perm.gereProjeto(o.projeto_id) },
   candidatos: { all: r => Perm.gereCandidatos(r.projeto_id) },
   checklist_itens: { all: () => Perm.dir() || Perm.tem('pessoas_gerir') },
@@ -382,10 +390,10 @@ const POLICY = {
   tarefas: {
     ins: n => Perm.podeCriarTarefa(n.projeto_id, n.gerencia_id) && (!Perm.leitor() || !!n.solicitante_id),
     upd: (n, o) => Perm.editaTarefa(o),
-    del: (n, o) => Perm.gereTarefa(o) || (Perm.leitor() && o.criado_por === ME.uid && (o.situacao || 'a_fazer') === 'a_fazer' && !D.tarefa_relatos.some(r => r.tarefa_id === o.id))
+    del: (n, o) => Perm.dir() || Perm.gereAtividades() || Perm.gereTarefas(o.projeto_id) || (!!o.gerencia_id && Perm.gerencia(o.gerencia_id)) || (Perm.podeEditar() && o.criado_por === ME.uid) || (Perm.leitor() && o.criado_por === ME.uid && (o.situacao || 'a_fazer') === 'a_fazer' && !D.tarefa_relatos.some(r => r.tarefa_id === o.id))
   },
   tarefa_responsaveis: { all: r => { const t = byId('tarefas', r.tarefa_id); return !!t && (Perm.gereTarefa(t) || (r.pessoa_id === ME.pessoa_id && t.criado_por === ME.uid)); } },
-  tarefa_relatos: { ins: n => Perm.responsavelTarefa(n.tarefa_id) || Perm.dir(), upd: (n, o) => o.criado_por === ME.uid || Perm.dir(), del: (n, o) => o.criado_por === ME.uid || Perm.dir() },
+  tarefa_relatos: { ins: n => Perm.responsavelTarefa(n.tarefa_id) || Perm.dir(), upd: (n, o) => o.criado_por === ME.uid || Perm.gereAtividades(), del: (n, o) => o.criado_por === ME.uid || Perm.gereAtividades() },
   vinculos_financeiros: { all: r => Perm.editaFin(r.projeto_id) },
   orcamento_rubricas: { all: r => Perm.reformulaFin(r.projeto_id) },
   plano_itens: { all: r => Perm.reformulaFin(r.projeto_id) },
@@ -659,7 +667,7 @@ function travas(t, n, o) {
 
 /* exclusões protegidas (equivalente ao gatilho do banco) */
 function travasExclusao(t, o) {
-  if (t === 'tarefa_relatos' && !Perm.dir() && ['entregue', 'aprovada'].includes((byId('tarefas', o.tarefa_id) || {}).situacao)) falha('Relatos de atividade entregue não podem ser apagados.');
+  if (t === 'tarefa_relatos' && !Perm.gereAtividades() && ['entregue', 'aprovada'].includes((byId('tarefas', o.tarefa_id) || {}).situacao)) falha('Relatos de atividade entregue não podem ser apagados.');
   if (t === 'alocacoes' && !Perm.dir()) {
     if (o.coordena) falha('Somente a Direção pode retirar o coordenador do projeto.');
     if (o.vice_coordena && !Perm.coordenaTitular(o.projeto_id)) falha('Somente a Direção ou o coordenador do projeto podem retirar a vice-coordenação.');
@@ -759,7 +767,7 @@ function aplicarVisaoLocal() {
   const tids = new Set(D.tarefas.map(t => t.id));
   D.tarefa_responsaveis = D.tarefa_responsaveis.filter(r => (eu && r.pessoa_id === eu) || tids.has(r.tarefa_id));
   D.tarefa_relatos = D.tarefa_relatos.filter(r => tids.has(r.tarefa_id));
-  ['equipe_plano_bolsas', 'plano_itens', 'reformulacoes', 'desembolsos', 'desembolso_rubricas', 'vinculos_financeiros', 'orcamento_rubricas', 'despesas', 'prospeccoes', 'avaliacoes',
+  ['equipe_plano_bolsas', 'plano_itens', 'reformulacoes', 'fichas_equipe', 'desembolsos', 'desembolso_rubricas', 'vinculos_financeiros', 'orcamento_rubricas', 'despesas', 'prospeccoes', 'avaliacoes',
     'infra_itens', 'infra_habilitacoes', 'infra_reservas', 'infra_manutencoes', 'candidatos', 'historico'].forEach(t => D[t] = []);
   D.pessoa_checklist = D.pessoa_checklist.filter(r => r.pessoa_id === eu);
   D.perfis = D.perfis.filter(p => eu && p.pessoa_id === eu);
@@ -815,12 +823,16 @@ const SB = {
   fonte: {},
   /* colunas devolvidas após gravar (sem as colunas de valor, que o banco não deixa ler direto) */
   retorno(t) { const p = this.PROTEGIDAS[t]; return p ? [...COLUNAS[t]].filter(c => !p.includes(c)).join(',') : '*'; },
+  /* tabelas criadas por atualizações recentes do banco: se o banco online ainda não as tem, o programa abre assim mesmo */
+  OPCIONAIS: { fichas_equipe: 'atualizacao_para_1.12.sql' },
+  faltam: new Set(),
   async fetchAll(t) {
     const out = []; let from = 0;
     const src = this.fonte[t] || this.VISAO[t] || t;
     for (; ;) {
       const { data, error } = await this.client.from(src).select('*').range(from, from + 999);
       if (error && src !== t && /does not exist|could not find|PGRST205|42P01/i.test((error.message || '') + (error.code || ''))) { this.fonte[t] = t; return this.fetchAll(t); }   // banco em versão anterior (sem a visão)
+      if (error && this.OPCIONAIS[t] && /does not exist|could not find|PGRST205|42P01/i.test((error.message || '') + (error.code || ''))) { this.faltam.add(t); console.warn(`Banco sem a tabela ${t}: rode ${this.OPCIONAIS[t]}`); return []; }
       if (error) throw error;
       out.push(...data); if (data.length < 1000) break; from += 1000;
     }
@@ -870,7 +882,7 @@ function diffOf(o, n) {
 }
 /* fluxo das atividades (modo local; no online, o gatilho tg_tarefa_fluxo do banco):
    a fazer → em andamento (1º relato) → entregue (responsável) → aprovada | devolvida (solicitante) */
-const SIT_TAREFA = { a_fazer: ['A fazer', 'b-gray'], em_andamento: ['Em andamento', 'b-blue'], entregue: ['Entregue · aguardando aprovação', 'b-yellow'], aprovada: ['Aprovada', 'b-green'], devolvida: ['Devolvida', 'b-red'] };
+const SIT_TAREFA = { a_fazer: ['A fazer', 'b-gray'], em_andamento: ['Em andamento', 'b-blue'], entregue: ['Entregue · aguardando aprovação', 'b-yellow'], aprovada: ['Aprovada', 'b-green'], devolvida: ['Devolvida', 'b-red'], cancelada: ['Cancelada', 'b-gray'] };
 const sitTarefa = t => t.situacao || (t.concluida ? 'aprovada' : 'a_fazer');
 function solicitanteValido(pid) { if (ME.online) return !SOLICITANTES || SOLICITANTES.some(p => p.id === pid);   /* no online quem confere é o banco */ const perfis = (D_TODOS || D).perfis; return perfis.some(f => f.pessoa_id === pid && f.ativo && ['suporte', 'direcao', 'membro'].includes(f.papel)); }
 function fluxoTarefa(n, o) {
@@ -883,13 +895,13 @@ function fluxoTarefa(n, o) {
       if (n.gerencia_id) falha('Atividades registradas por alunos não pertencem a gerências.');
       n.situacao = 'a_fazer'; n.concluida = false;
     }
-    if (!n.solicitante_id) n.situacao = n.concluida ? 'aprovada' : 'a_fazer'; else n.concluida = n.situacao === 'aprovada';
+    if (!n.solicitante_id) n.situacao = n.concluida ? 'aprovada' : 'a_fazer'; else n.concluida = ['aprovada', 'cancelada'].includes(n.situacao);
   } else if (!n.solicitante_id) {
     if (!!n.concluida !== !!o.concluida) n.situacao = n.concluida ? 'aprovada' : 'a_fazer';
     else if (n.situacao !== sitTarefa(o)) n.concluida = n.situacao === 'aprovada';
     else n.situacao = sitTarefa(o);
   } else {
-    const so = sitTarefa(o), gestor = Perm.gereTarefa(o), resp = Perm.responsavelTarefa(o.id), solic = !!eu && eu === o.solicitante_id;
+    const so = sitTarefa(o), gestor = Perm.gereTarefa(o) || Perm.gereAtividades(), resp = Perm.responsavelTarefa(o.id), solic = !!eu && eu === o.solicitante_id;
     n.situacao = n.situacao || so;
     if (!!n.concluida !== !!o.concluida && n.situacao === so) falha('Atividade com solicitante: use Entregar (responsável) e Aprovar (solicitante).');
     if (n.situacao !== so) {
@@ -903,7 +915,13 @@ function fluxoTarefa(n, o) {
         if (['entregue', 'aprovada'].includes(so)) falha('Esta atividade já foi entregue.');
         if (!D.tarefa_relatos.some(r => r.tarefa_id === o.id && r.tipo === 'entrega')) falha('Para entregar, informe as horas e a descrição do que foi realizado.');
         n.entregue_em = new Date().toISOString();
+      } else if (n.situacao === 'cancelada') {
+        if (so === 'aprovada') falha('Atividade aprovada não pode ser cancelada (reabra-a antes).');
+        if (!(gestor || solic || o.criado_por === ME.uid)) falha('Só o solicitante, quem registrou a atividade ou quem gere as atividades pode cancelá-la.');
+        if (!String(n.parecer || '').trim()) falha('Informe o motivo do cancelamento.');
+        n.avaliada_em = new Date().toISOString(); n.avaliada_por = ME.uid;
       } else {
+        if (so === 'cancelada' && !(gestor || solic || o.criado_por === ME.uid)) falha('Só o solicitante, quem registrou a atividade ou quem gere as atividades pode reativá-la.');
         if (so === 'aprovada' && !(Perm.dir() || solic)) falha('Só o solicitante (ou a Direção) reabre uma atividade aprovada.');
         if (so === 'entregue' && !(gestor || resp || solic)) falha('Sem permissão para reabrir esta atividade.');
       }
@@ -912,7 +930,7 @@ function fluxoTarefa(n, o) {
         && ['solicitante_id', 'titulo', 'descricao', 'prazo', 'inicio', 'projeto_id', 'gerencia_id', 'prioridade'].some(k => (n[k] ?? null) !== (o[k] ?? null)))
       falha('O responsável não altera solicitante, descrição, prazo nem projeto da atividade: peça ao solicitante.');
     if (n.solicitante_id !== o.solicitante_id && n.solicitante_id === eu && !Perm.podeEditar()) falha('O solicitante deve ser outra pessoa (quem vai conferir a entrega).');
-    n.concluida = n.situacao === 'aprovada';
+    n.concluida = ['aprovada', 'cancelada'].includes(n.situacao);
   }
   if (n.concluida && (!o || !o.concluida)) n.concluida_em = new Date().toISOString();
   if (!n.concluida) n.concluida_em = null;
@@ -952,6 +970,7 @@ function efeitosAntes(t, n, o) {
   if (t === 'tarefas') fluxoTarefa(n, o);
   if (t === 'tarefa_relatos') {
     if (!o) n.pessoa_id = (Perm.dir() && n.pessoa_id) || ME.pessoa_id || n.pessoa_id || null; else { n.pessoa_id = o.pessoa_id; n.tarefa_id = o.tarefa_id; n.criado_por = o.criado_por; }
+    if ((byId('tarefas', n.tarefa_id) || {}).situacao === 'cancelada' && !Perm.dir()) falha('A atividade foi cancelada: não recebe relatos.');
     if (['entregue', 'aprovada'].includes((byId('tarefas', n.tarefa_id) || {}).situacao) && !Perm.dir()) falha('A atividade já foi entregue: não recebe novos relatos (o solicitante pode devolvê-la).');
   }
 }

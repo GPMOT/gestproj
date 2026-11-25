@@ -234,6 +234,7 @@ async function enviarAoBanco(T0) {
   await up('cronograma', g('cronograma').slice().sort((a, b) => Calc.codCmp(a.codigo, b.codigo)), 'projeto_id,codigo');
   await up('reprogramacoes', g('reprogramacoes'));
   await up('reformulacoes', g('reformulacoes'));
+  if (!SB.faltam.has('fichas_equipe')) await up('fichas_equipe', g('fichas_equipe'));
   // gerências já existentes no banco (criadas pelo SQL) são reaproveitadas pelo nome
   const gmap = {}; g('gerencias').forEach(x => { const ex = D.gerencias.find(y => norm(y.nome) === norm(x.nome)); gmap[x.id] = ex ? ex.id : x.id; });
   await up('gerencias', g('gerencias').map(x => ({ ...x, id: gmap[x.id] })));

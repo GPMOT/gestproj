@@ -816,7 +816,7 @@ psql:17_reformulacao_financeira.sql:47: ERROR:  new row for relation "reformulac
 
 == a aluna não muda o prazo, não marca como concluída e não entrega sem relato de entrega
 psql:18_atividades_alunos.sql:27: ERROR:  O responsável não altera solicitante, descrição, prazo nem projeto da atividade: peça ao solicitante.
-CONTEXT:  PL/pgSQL function tg_tarefa_fluxo() line 57 at RAISE
+CONTEXT:  PL/pgSQL function tg_tarefa_fluxo() line 65 at RAISE
 psql:18_atividades_alunos.sql:28: ERROR:  Atividade com solicitante: use Entregar (responsável) e Aprovar (solicitante).
 CONTEXT:  PL/pgSQL function tg_tarefa_fluxo() line 29 at RAISE
 psql:18_atividades_alunos.sql:29: ERROR:  Para entregar, informe as horas e a descrição do que foi realizado.
@@ -836,7 +836,7 @@ CONTEXT:  PL/pgSQL function tg_tarefa_fluxo() line 41 at RAISE
 
 == depois de entregue: sem novos relatos; a própria aluna não aprova
 psql:18_atividades_alunos.sql:36: ERROR:  A atividade já foi entregue: não recebe novos relatos (o solicitante pode devolvê-la).
-CONTEXT:  PL/pgSQL function tg_relato() line 17 at RAISE
+CONTEXT:  PL/pgSQL function tg_relato() line 18 at RAISE
 psql:18_atividades_alunos.sql:37: ERROR:  Só o solicitante (ou a Direção) aprova ou devolve a atividade.
 CONTEXT:  PL/pgSQL function tg_tarefa_fluxo() line 34 at RAISE
 == outro aluno não vê nem relata
@@ -845,7 +845,7 @@ CONTEXT:  PL/pgSQL function tg_tarefa_fluxo() line 34 at RAISE
                 0 |       0
 
 psql:18_atividades_alunos.sql:41: ERROR:  A atividade já foi entregue: não recebe novos relatos (o solicitante pode devolvê-la).
-CONTEXT:  PL/pgSQL function tg_relato() line 17 at RAISE
+CONTEXT:  PL/pgSQL function tg_relato() line 18 at RAISE
 == o solicitante devolve (parecer obrigatório); a aluna volta a reportar e entrega de novo; ele aprova
 psql:18_atividades_alunos.sql:44: ERROR:  Ao devolver, explique o que falta no parecer.
 CONTEXT:  PL/pgSQL function tg_tarefa_fluxo() line 35 at RAISE
@@ -928,4 +928,99 @@ CONTEXT:  PL/pgSQL function tg_protege_pessoa() line 15 at RAISE
  Gil   |                  
  Lucas |                  
  Mario |                  
+
+-- @@ 20_cancelar_apagar_atividades
+== a aluna registra uma atividade com Mario de solicitante (sem projeto) e reporta
+== o solicitante (que não criou) edita o título; outro membro sem cargo não edita nem cancela
+     titulo      |   prazo    
+-----------------+------------
+ Estudo da norma | 2026-10-30
+
+ situacao 
+----------
+
+== cancelar exige motivo; o solicitante cancela; atividade cancelada sai das abertas e não recebe relatos
+psql:20_cancelar_apagar_atividades.sql:31: ERROR:  Informe o motivo do cancelamento.
+CONTEXT:  PL/pgSQL function tg_tarefa_fluxo() line 47 at RAISE
+ situacao  | concluida | registrada 
+-----------+-----------+------------
+ cancelada | t         | t
+
+psql:20_cancelar_apagar_atividades.sql:34: ERROR:  A atividade foi cancelada: não recebe relatos.
+CONTEXT:  PL/pgSQL function tg_relato() line 16 at RAISE
+== quem registrou também reativa e cancela a própria atividade
+   situacao   | concluida 
+--------------+-----------
+ em_andamento | f
+
+ situacao  
+-----------
+ cancelada
+
+== a aluna não apaga a atividade (já tem relato); a gerência técnica apaga atividade e relatos
+ ainda_existe 
+--------------
+            1
+
+     titulo      | situacao 
+-----------------+----------
+ Aprovada antiga | aprovada
+
+ titulo 
+--------
+
+psql:20_cancelar_apagar_atividades.sql:50: ERROR:  Atividade aprovada não pode ser cancelada (reabra-a antes).
+CONTEXT:  PL/pgSQL function tg_tarefa_fluxo() line 44 at RAISE
+ descricao 
+-----------
+ feito
+
+     titulo      | situacao  
+-----------------+-----------
+ Estudo da norma | cancelada
+ Aprovada antiga | aprovada
+
+ tarefas | relatos 
+---------+---------
+       0 |       0
+
+-- @@ 21_fichas_equipe
+== coordenação registra a ficha (autor gravado pelo banco)
+ numero | formulario  | autor | participantes 
+--------+-------------+-------+---------------
+      1 | Retificador | Mario |             1
+
+== o CPF não entra (com ou sem pontuação)
+psql:21_fichas_equipe.sql:26: ERROR:  new row for relation "fichas_equipe" violates check constraint "ficha_sem_cpf"
+psql:21_fichas_equipe.sql:27: ERROR:  new row for relation "fichas_equipe" violates check constraint "ficha_sem_cpf"
+psql:21_fichas_equipe.sql:28: ERROR:  new row for relation "fichas_equipe" violates check constraint "ficha_sem_cpf"
+== vigência invertida é recusada
+psql:21_fichas_equipe.sql:30: ERROR:  new row for relation "fichas_equipe" violates check constraint "ficha_vigencia"
+== gerência técnica (alocacoes_gerir, sem financeiro) não vê nem registra
+ fichas 
+--------
+      0
+
+psql:21_fichas_equipe.sql:34: ERROR:  new row violates row-level security policy for table "fichas_equipe"
+== aluna do projeto (Leitura) não vê nem registra
+ fichas 
+--------
+      0
+
+psql:21_fichas_equipe.sql:38: ERROR:  new row violates row-level security policy for table "fichas_equipe"
+== coordenação não apaga; Direção apaga
+ numero 
+--------
+
+ fichas 
+--------
+      1
+
+ numero 
+--------
+      1
+
+ historico 
+-----------
+         2
 

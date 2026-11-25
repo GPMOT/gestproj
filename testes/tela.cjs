@@ -32,9 +32,13 @@ if (PDF_ORIG) { PLANO_PDF = path.join(require('os').tmpdir(), `gpmot_plano_${pro
 const REF_ORIG = process.env.GPMOT_REFORMULACAO_PDF || achar(/solicita.*(aditiv|reformula).*\.pdf$/i);
 let REFORM_PDF = null;
 if (REF_ORIG) { REFORM_PDF = path.join(require('os').tmpdir(), `gpmot_reform_${process.pid}.pdf`); fs.copyFileSync(REF_ORIG, REFORM_PDF); process.on('exit', () => { try { fs.unlinkSync(REFORM_PDF); } catch { } }); }
+// ficha de gestão da equipe (UFSM) usada pelo t26 — tem CPFs: fica só na pasta Software de Gestão; cópia temporária sem acento no caminho
+const FICHA_ORIG = process.env.GPMOT_FICHA_PDF || achar(/ficha.*gest.*\.pdf$/i);
+let FICHA_PDF = null;
+if (FICHA_ORIG) { FICHA_PDF = path.join(require('os').tmpdir(), `gpmot_ficha_${process.pid}.pdf`); fs.copyFileSync(FICHA_ORIG, FICHA_PDF); process.on('exit', () => { try { fs.unlinkSync(FICHA_PDF); } catch { } }); }
 // arquivo de backup gerado pelo t03 e reutilizado pelo t06 (caminho sem acento, fora do código-fonte)
 const BACKUP = path.join(require('os').tmpdir(), 'gpmot_backup_teste.json');
-const CFG = { BACKUP, PLANO_PDF, REFORM_PDF, APP: pathToFileURL(path.join(RAIZ, 'app', 'gpmot.html')).href, DADOS_V1, PLANILHA, SAIDA, saida: n => path.join(SAIDA, n) };
+const CFG = { BACKUP, PLANO_PDF, REFORM_PDF, FICHA_PDF, APP: pathToFileURL(path.join(RAIZ, 'app', 'gpmot.html')).href, DADOS_V1, PLANILHA, SAIDA, saida: n => path.join(SAIDA, n) };
 
 const TESTES = {
 't01': () => {
@@ -1497,6 +1501,179 @@ const TESTES = {
     await como('direcao', null);
     const final = await pg.evaluate(() => { Local.load(); const t = D.tarefas.find(x => x.titulo === 'Estudo da NBR 6601'); return { t: !!t, rel: D.tarefa_relatos.length, criador: t && t.criado_por }; });
     ok(simples[0] === 'aprovada' && simples[1] && final.t && final.rel === 3 && /^local:/.test(final.criador), 'tarefa simples marca concluída; atividades e relatos da aluna gravados', { simples, final });
+    console.log(errs.join('\n') || 'sem erros na página');
+    await b.close(); process.exit(falhas || errs.length ? 1 : 0);
+  })();
+},
+'t25': () => {
+  // Atividades: solicitante e criador editam e cancelam (motivo); reativar; gestão das atividades exclui (mesmo aprovadas, com relatos)
+  const { chromium } = require('playwright'); const fs = require('fs');
+  (async () => {
+    const b = await chromium.launch(); const pg = await b.newPage({ viewport: { width: 1400, height: 900 } });
+    const errs = []; pg.on('pageerror', e => errs.push('PAGEERR ' + e.message)); pg.on('console', m => { if (m.type() === 'error' && !/ErroRegra/.test(m.text())) errs.push('CONSOLE ' + m.text()); });
+    let falhas = 0; const ok = (c, m, x) => { console.log((c ? '✓ ' : '✗ ') + m + (x !== undefined ? ' — ' + JSON.stringify(x) : '')); if (!c) falhas++; };
+    await pg.goto(CFG.APP); await pg.waitForTimeout(200);
+    const old = JSON.parse(fs.readFileSync(CFG.DADOS_V1, 'utf8'));
+    const ids = await pg.evaluate(async d => { localStorage.clear(); Local.load(); const { T } = converterV1(d); Object.keys(TABLES).forEach(t => D[t] = T[t] || []); seedPadrao(); Local.persistAll();
+      aplicarSim({ papel: 'direcao', pessoa_id: null });
+      const mk = async (nome, tipo) => (await Data.insert('pessoas', { nome, tipo, email: nome.toLowerCase().replace(/\W+/g, '.') + '@ufsm.br' })).id;
+      const membro = await mk('Mario Solicitante', 'docente'), outro = await mk('Rui Outro Membro', 'docente'), gerente = await mk('Gil Gerente Tecnico', 'tecnico'), ana = await mk('Ana Aluna IC', 'ic');
+      for (const [pid, papel] of [[membro, 'membro'], [outro, 'membro'], [gerente, 'membro'], [ana, 'leitura']]) await Data.insert('perfis', { id: crypto.randomUUID(), email: byId('pessoas', pid).email, pessoa_id: pid, papel, ativo: true });
+      await Data.insert('gerencia_membros', { gerencia_id: D.gerencias.find(g => /T[eé]cnica/.test(g.nome)).id, pessoa_id: gerente, funcao: 'titular', desde: '2020-01-01' });
+      return { membro, outro, gerente, ana }; }, old);
+    const como = (papel, pessoa) => pg.evaluate(([p, id]) => { closeModal(); aplicarSim({ papel: p, pessoa_id: id }); UI.tab = 'tarefas'; UI.sub.tarefas = 'lista'; UI.f.tfEscopo = ''; UI.f.tfStatus = 'abertas'; render(); }, [papel, pessoa]);
+    const tf = titulo => pg.evaluate(t => { const x = D.tarefas.find(y => y.titulo === t); return x ? { id: x.id, sit: x.situacao, concl: x.concluida, parecer: x.parecer } : null; }, titulo);
+    const botoes = id => pg.evaluate(id => { A.tarefaVer({ id }); const r = [...document.querySelectorAll('#modal-root [data-a]')].map(e => e.dataset.a); closeModal(); return r; }, id);
+    // aluna registra e reporta
+    await como('leitura', ids.ana);
+    await pg.evaluate(async m => { const t = await Data.insert('tarefas', { titulo: 'Estudo de normas', descricao: 'NBR', prazo: semanaSexta(semanaISO(hoje()).ano, semanaISO(hoje()).sem), solicitante_id: m });
+      await Data.insert('tarefa_responsaveis', { tarefa_id: t.id, pessoa_id: ME.pessoa_id }); await Data.insert('tarefa_relatos', { tarefa_id: t.id, tipo: 'relato', data: hoje(), horas: 2, descricao: 'Leitura' }); }, ids.membro);
+    let t = await tf('Estudo de normas');
+    ok(t && t.sit === 'em_andamento', 'aluna registrou e reportou', t);
+    // outro membro sem cargo: não edita, não cancela, não exclui
+    await como('membro', ids.outro);
+    const bo = await botoes(t.id);
+    ok(!bo.includes('tarefaEditar') && !bo.includes('tarefaCancelar') && !bo.includes('tarefaExcluir'), 'outro membro sem cargo não edita, não cancela nem exclui', bo);
+    // solicitante edita e cancela pela tela
+    await como('membro', ids.membro);
+    const bs = await botoes(t.id);
+    await pg.evaluate(id => A.tarefaEditar({ id }), t.id); await pg.waitForSelector('#fld_titulo'); await pg.fill('#fld_titulo', 'Estudo das normas ABNT'); await pg.click('#m_ok'); await pg.waitForTimeout(200);
+    t = await tf('Estudo das normas ABNT');
+    await pg.evaluate(id => A.tarefaVer({ id }), t.id); await pg.click('#modal-root [data-a="tarefaCancelar"]'); await pg.waitForSelector('#fld_parecer');
+    await pg.click('#m_ok'); await pg.waitForTimeout(100); const semMot = await pg.evaluate(() => (document.querySelector('#m_err') || {}).textContent || '');
+    await pg.fill('#fld_parecer', 'Escopo mudou'); await pg.click('#m_ok'); await pg.waitForTimeout(200);
+    t = await tf('Estudo das normas ABNT');
+    const abertas = await pg.evaluate(() => { UI.f.tfStatus = 'abertas'; render(); return document.querySelector('#app').innerText.includes('Estudo das normas ABNT'); });
+    const canc = await pg.evaluate(() => { UI.f.tfStatus = 'canceladas'; render(); return document.querySelector('#app').innerText.includes('Estudo das normas ABNT'); });
+    await pg.screenshot({ path: CFG.saida('c1_canceladas.png') });
+    ok(bs.includes('tarefaEditar') && bs.includes('tarefaCancelar') && t && t.sit === 'cancelada' && t.concl && t.parecer === 'Escopo mudou' && /Preencha/.test(semMot) && !abertas && canc,
+      'solicitante edita o título e cancela com motivo; some das abertas e aparece em Canceladas', { bs, t, semMot, abertas, canc });
+    // aluna: não relata na cancelada; como criadora reativa
+    await como('leitura', ids.ana);
+    const rel = await pg.evaluate(id => Data.insert('tarefa_relatos', { tarefa_id: id, tipo: 'relato', data: hoje(), horas: 1, descricao: 'x' }).then(() => 'gravou', e => e.message), t.id);
+    const ba = await botoes(t.id);
+    await pg.evaluate(id => A.tarefaVer({ id }), t.id); await pg.click('#modal-root [data-a="tarefaReativar"]'); await pg.waitForSelector('#c_yes'); await pg.click('#c_yes'); await pg.waitForTimeout(200);
+    t = await tf('Estudo das normas ABNT');
+    const apaga = await pg.evaluate(id => Data.remove('tarefas', id).then(() => 'apagou', e => e.message), t.id);
+    ok(/cancelada/.test(rel) && ba.includes('tarefaReativar') && t.sit === 'em_andamento' && !t.concl && apaga !== 'apagou', 'cancelada não recebe relato; a criadora reativa; aluna não apaga atividade com relato', { rel, t, apaga });
+    // aprovar e a gerência técnica (gestão das atividades) exclui a aprovada, com os relatos
+    await pg.evaluate(async id => { await Data.insert('tarefa_relatos', { tarefa_id: id, tipo: 'entrega', data: hoje(), horas: 1, descricao: 'fim' }); await Data.update('tarefas', id, { situacao: 'entregue' }); }, t.id);
+    await como('membro', ids.membro); await pg.evaluate(id => Data.update('tarefas', id, { situacao: 'aprovada' }), t.id);
+    const cancApr = await pg.evaluate(id => Data.update('tarefas', id, { situacao: 'cancelada', parecer: 'x' }).then(() => 'gravou', e => e.message), t.id);
+    await como('membro', ids.gerente);
+    const bg = await botoes(t.id);
+    await pg.evaluate(id => A.tarefaVer({ id }), t.id); await pg.click('#modal-root [data-a="tarefaExcluir"]'); await pg.waitForSelector('#c_yes');
+    const aviso = await pg.textContent('.ov[style*="z-index:70"]'); await pg.click('#c_yes'); await pg.waitForTimeout(200);
+    const fim = await pg.evaluate(id => ({ t: !!byId('tarefas', id), rel: D.tarefa_relatos.filter(r => r.tarefa_id === id).length, perm: Perm.gereAtividades() }), t.id);
+    ok(/reabra/.test(cancApr) && bg.includes('tarefaExcluir') && /2 relato/.test(aviso) && !fim.t && fim.rel === 0 && fim.perm, 'aprovada não se cancela; gerência técnica exclui a atividade aprovada e os relatos', { cancApr, fim });
+    console.log(errs.join('\n') || 'sem erros na página');
+    await b.close(); process.exit(falhas || errs.length ? 1 : 0);
+  })();
+},
+'t26': () => {
+  // Fichas de gestão da equipe (UFSM): leitura do PDF (sem CPF), conferências, casamento com posições/pessoas, aplicação
+  // (posições, alocações, bolsas, ausentes), ficha retificadora em JSON padrão (entra/sai/muda), permissões e visão da Leitura
+  const { chromium } = require('playwright'); const fs = require('fs'), os = require('os');
+  (async () => {
+    const b = await chromium.launch(); const pg = await b.newPage({ viewport: { width: 1400, height: 900 }, acceptDownloads: true });
+    const errs = []; pg.on('pageerror', e => errs.push('PAGEERR ' + e.message)); pg.on('console', m => { if (m.type() === 'error' && !/ErroRegra/.test(m.text())) errs.push('CONSOLE ' + m.text()); });
+    let falhas = 0; const ok = (c, m, x) => { console.log((c ? '✓ ' : '✗ ') + m + (x !== undefined ? ' — ' + JSON.stringify(x) : '')); if (!c) falhas++; };
+    await pg.goto(CFG.APP); await pg.waitForTimeout(200);
+    const old = JSON.parse(fs.readFileSync(CFG.DADOS_V1, 'utf8'));
+    const ids = await pg.evaluate(async d => { localStorage.clear(); Local.load(); const { T } = converterV1(d); Object.keys(TABLES).forEach(t => D[t] = T[t] || []); seedPadrao(); Local.persistAll();
+      aplicarSim({ papel: 'direcao', pessoa_id: null });
+      const mk = async (nome, tipo) => (D.pessoas.find(q => q.nome === nome) || await Data.insert('pessoas', { nome, tipo, email: nome.toLowerCase().normalize('NFD').replace(/[^a-z]+/g, '.') + '.t26@ufsm.br' })).id;
+      const mario = await mk('Mario Martins', 'docente'), nina = await mk('Nina Salau', 'docente'), enzo = await mk('Enzo Vinadé', 'mestrando'), pedro = await mk('Pedro Prestes', 'ic');
+      const gil = await mk('Gil Gerente Tecnico', 'tecnico'), rui = await mk('Rui Membro Sem Cargo', 'docente');
+      await Data.insert('gerencia_membros', { gerencia_id: D.gerencias.find(g => /T[eé]cnica/.test(g.nome)).id, pessoa_id: gil, funcao: 'titular', desde: '2020-01-01' });
+      const petro = D.projetos.find(x => /petrobras/i.test(x.sigla)); await Data.update('projetos', petro.id, { nome: 'Biodiesel P7/P8 – Banco de provas' });
+      const p = await Data.insert('projetos', { sigla: 'NUCL', nome: 'Motores a Etanol com Tecnologias Disruptivas para Consolidação da Matriz Energética Brasileira', inicio: '2026-10-01', fim: '2030-09-30', fundacao_apoio: 'FAURGS', tipo: 'edital' });
+      await Data.insert('alocacoes', { pessoa_id: mario, projeto_id: p.id, coordena: true, nivel: 3, carga_pct: 20, papel: 'Coordenador', status: 'ativo' });
+      await Data.insert('alocacoes', { pessoa_id: nina, projeto_id: p.id, nivel: 2, carga_pct: 25, papel: 'Pesquisadora', status: 'ativo' });
+      const pos = async (nome_plano, categoria, horas, bolsa, ocup) => { const e = await Data.insert('equipe_plano', { projeto_id: p.id, nome_plano, funcao: nome_plano, categoria, horas_semanais: horas, status: ocup ? 'ocupada' : 'vaga', pessoa_id: ocup || null, desde: ocup ? '2026-10-01' : null, etapas: ['2.1'] });
+        if (bolsa) await Data.insert('equipe_plano_bolsas', { vaga_id: e.id, projeto_id: p.id, modalidade: bolsa[2], valor_mensal: bolsa[0], meses: bolsa[1], rubrica: '1.1.1' }); return e.id; };
+      const v = {};
+      v.mario = await pos('Mario Eduardo Santos Martins', 'docente', 10, [8313, 48, 'Coord. geral (COG)'], mario);
+      v.nina = await pos('Nina Paula Gonçalves Salau', 'docente', 10, null, nina);
+      v.dout = await pos('Bolsista de Doutorado 1 (UFSM)', 'doutorando', 40, [6810, 48, 'Doutorado (BD)']);
+      v.mest = await pos('Bolsista de Mestrado 1 (UFSM)', 'mestrando', 40, [3300, 24, 'Mestrado (BM)']);
+      for (let i = 1; i <= 4; i++) v['g' + i] = await pos(`Bolsista de Graduação ${i} (UFSM)`, 'ic', 20, [1080, 48, 'Graduando (BG)']);
+      await Data.insert('vinculos_financeiros', { pessoa_id: nina, projeto_id: p.id, vaga_id: v.nina, tipo: 'bolsa', rubrica: '1.1.1', valor_mensal: 2000, inicio: '2026-10-01', fim: '2030-09-30', status: 'previsto' });
+      return { p: p.id, petro: petro.id, mario, nina, enzo, pedro, gil, rui, v };
+    }, old);
+    const abrirProj = (papel, pessoa) => pg.evaluate(([pp, id, pid]) => { closeModal(); aplicarSim({ papel: pp, pessoa_id: id }); A.projAbrir({ id: pid, aba: 'equipe' }); render(); }, [papel, pessoa, ids.p]);
+    // 1. PDF real da ficha (se estiver na pasta)
+    if (CFG.FICHA_PDF) {
+      await abrirProj('direcao', null);
+      const [fc] = await Promise.all([pg.waitForEvent('filechooser'), pg.click('#app [data-a="fichaImportar"]')]); await fc.setFiles(CFG.FICHA_PDF);
+      await pg.waitForSelector('#fi_ok', { timeout: 15000 });
+      const pv = await pg.evaluate(() => { const t = document.querySelector('#modal-root .modal').innerText; return { t, sels: [...document.querySelectorAll('.fi-vaga')].map(s => s.selectedOptions[0].textContent) }; });
+      ok(!/\d{3}\.\d{3}\.\d{3}-\d{2}/.test(pv.t), 'prévia sem nenhum CPF');
+      ok(/parece ser o do projeto Petrobras/.test(pv.t) && /Vigência na ficha 17\/09\/2026 a 16\/09\/2030/.test(pv.t), 'avisa título de outro projeto (Petrobras) e vigência diferente');
+      ok(/31\/09\/2028 não existe — considerado 31\/10\/2028/.test(pv.t) && /Mesmo SIAPE\/matrícula para Lucas Giuliani Scherer e Enzo Hoffmeister Vinadé/.test(pv.t) && /CPF não informado: João Pedro de Araújo Santos/.test(pv.t), 'conferências: data inexistente, SIAPE repetido, CPF ausente');
+      ok(/23081\.057051\/2025-12/.test(pv.t) && /27192\.01\.01\/2025\.01-00/.test(pv.t) && /10 da UFSM \+ 1 externo/.test(pv.t), 'processo, contrato e equipe lidos', pv.t.match(/Processo · contrato\s*\n?[^\n]*/)?.[0]);
+      const esperado = ['Mario Eduardo Santos Martins', null, null, null, null, 'Bolsista de Mestrado 1 (UFSM)', 'Bolsista de Graduação 1 (UFSM)', 'Bolsista de Graduação 2 (UFSM)', 'Bolsista de Graduação 3 (UFSM)', 'Bolsista de Graduação 4 (UFSM)', 'Bolsista de Doutorado 1 (UFSM)'];
+      ok(esperado.every((e, i) => e === null || pv.sels[i].startsWith(e)), 'cada participante casado com a posição certa (pela pessoa, pelo nome ou pelo valor da bolsa)', pv.sels);
+      ok(/Nina Salau/.test(pv.t) && /No projeto, mas fora da ficha \(1\)/i.test(pv.t), 'quem está no projeto e não na ficha é listado (Nina)');
+      // aplica sem confirmar as divergências → bloqueia; confirma, encerra a Nina
+      await pg.click('#fi_ok'); const e1 = await pg.textContent('#fi_err');
+      await pg.check('.fi-aus[data-k="0"]'); await pg.fill('#fi_saida', '2026-11-25'); await pg.check('#fi_conf'); await pg.click('#fi_ok'); await pg.waitForTimeout(800);
+      const r = await pg.evaluate(x => { const vg = id => byId('equipe_plano', id), pv = id => D.vinculos_financeiros.filter(v => v.pessoa_id === id && v.projeto_id === x.p);
+        const enzo = pv(x.enzo)[0], ped = pv(x.pedro)[0], nina = pv(x.nina)[0], f = D.fichas_equipe.filter(f => f.projeto_id === x.p);
+        return { modal: !!document.querySelector('#fi_ok'), mest: [vg(x.v.mest).status, vg(x.v.mest).pessoa_id === x.enzo], g1: vg(x.v.g1).pessoa_id === x.pedro, dout: nomePessoa(vg(x.v.dout).pessoa_id),
+          enzo: enzo && [enzo.valor_mensal, enzo.inicio, enzo.fim, enzo.status, enzo.vaga_id === x.v.mest, enzo.modalidade], ped: ped && [ped.fim, ped.valor_mensal],
+          nina: [vg(x.v.nina).status, nina.fim, nina.status, D.alocacoes.find(a => a.pessoa_id === x.nina && a.projeto_id === x.p).status],
+          coord: D.alocacoes.find(a => a.pessoa_id === x.mario && a.projeto_id === x.p).status, novos: D.pessoas.filter(p => /Lazzarotto|Zanchin|Garlet/.test(p.nome)).length,
+          bolsas: D.vinculos_financeiros.filter(v => v.projeto_id === x.p).length, contrato: byId('projetos', x.p).numero_contrato,
+          ficha: f.length && { n: f[0].numero, part: f[0].participantes.length, cpf: /(^|\D)\d{3}\.?\d{3}\.?\d{3}-?\d{2}(\D|$)/.test(JSON.stringify([f[0].participantes, f[0].alteracoes, f[0].descricao, f[0].aprovacoes])), fimFicha: f[0].participantes.find(p => /Prestes/.test(p.nome)).fim_ficha, res: f[0].alteracoes.resumo } }; }, ids);
+      ok(/divergência/.test(e1) && !r.modal, 'só aplica depois de confirmar as divergências');
+      ok(r.mest[0] === 'ocupada' && r.mest[1] && r.g1 && /Zanchin/.test(r.dout), 'posições ocupadas pelos bolsistas da ficha', r);
+      ok(JSON.stringify(r.enzo) === JSON.stringify([3300, '2026-11-25', '2028-11-24', 'previsto', true, 'Mestrado (BM)']) && JSON.stringify(r.ped) === '["2028-10-31",1080]', 'bolsas com valor, período e modalidade da posição (data inexistente corrigida)', [r.enzo, r.ped]);
+      ok(r.nina[0] === 'vaga' && r.nina[1] === '2026-11-25' && r.nina[2] === 'encerrado' && r.nina[3] === 'concluido' && r.coord === 'ativo', 'Nina (fora da ficha) encerrada; coordenação mantida', r.nina);
+      ok(r.novos === 3 && r.bolsas === 12 && r.contrato === '27192.01.01/2025.01-00', 'pessoas novas cadastradas, 11 bolsas da ficha + a da Nina, nº do contrato preenchido', [r.novos, r.bolsas, r.contrato]);
+      ok(r.ficha && r.ficha.n === 1 && r.ficha.part === 11 && !r.ficha.cpf && r.ficha.fimFicha === '31/09/2028', 'ficha registrada sem CPF, com a data original da ficha guardada', r.ficha);
+      await pg.screenshot({ path: CFG.saida('t26_equipe.png'), fullPage: true });
+    } else console.log('(sem a ficha de gestão em PDF na pasta Software de Gestão — parte do PDF pulada)');
+    // 2. ficha retificadora em JSON padrão: Pedro sai (fim já passou), Enzo muda de valor, entra Bia
+    const ontem = await pg.evaluate(() => addDays(hoje(), -1)), H = await pg.evaluate(() => hoje());
+    const base = CFG.FICHA_PDF ? await pg.evaluate(id => D.fichas_equipe.find(f => f.projeto_id === id).participantes, ids.p)
+      : [{ grupo: 'ufsm', nome: 'Mario Eduardo Santos Martins', vinculo: 'Servidor', horas: 10, pagamentos: 48, valor: 8313, inicio: '2026-10-01', fim: '2030-09-30' },
+         { grupo: 'ufsm', nome: 'Enzo Hoffmeister Vinadé', vinculo: 'Aluno', horas: 40, pagamentos: 24, valor: 3300, inicio: '2026-11-25', fim: '2028-11-24' },
+         { grupo: 'ufsm', nome: 'Pedro Severo Prestes', vinculo: 'Aluno', horas: 20, pagamentos: 24, valor: 1080, inicio: '2026-11-01', fim: '2028-10-31' }];
+    if (!CFG.FICHA_PDF) {   // sem o PDF: a 1ª ficha entra pelo JSON
+      const f0 = path.join(os.tmpdir(), `gpmot_ficha0_${process.pid}.json`); fs.writeFileSync(f0, JSON.stringify({ formato: 'gpmot-ficha-equipe-1', coordenador: 'Mario Eduardo Santos Martins', data: '2026-11-25', participantes: base }));
+      await abrirProj('direcao', null); const [fc] = await Promise.all([pg.waitForEvent('filechooser'), pg.click('#app [data-a="fichaImportar"]')]); await fc.setFiles(f0); await pg.waitForSelector('#fi_ok');
+      if (await pg.$('#fi_conf')) await pg.check('#fi_conf'); await pg.click('#fi_ok'); await pg.waitForTimeout(600); fs.unlinkSync(f0);
+    }
+    const part = base.map(x => /Prestes/.test(x.nome) ? { ...x, inicio: '2026-11-01', fim: ontem < '2026-11-01' ? '2026-11-01' : ontem, pagamentos: 1 } : /Vinad/.test(x.nome) ? { ...x, valor: 3500 } : x).map(({ fim_ficha, ...x }) => x);
+    part.push({ grupo: 'externo', nome: 'Bia Nova Pesquisadora', vinculo: 'Bolsa', funcao: 'Pesquisadora', horas: 20, pagamentos: 12, valor: 0, inicio: H, fim: addDaysNode(H, 364) });
+    function addDaysNode(iso, n) { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
+    const fj = path.join(os.tmpdir(), `gpmot_ficha2_${process.pid}.json`);
+    fs.writeFileSync(fj, JSON.stringify({ formato: 'gpmot-ficha-equipe-1', titulo: 'Motores a Etanol com Tecnologias Disruptivas', contrato: '27192.01.01/2025.01-00', coordenador: 'Mario Eduardo Santos Martins', formulario: 'Retificador', data: H, descricao: 'Desligamento do Pedro; reajuste do Enzo; inclusão da Bia.', participantes: part }));
+    await abrirProj('direcao', null);
+    const [fc2] = await Promise.all([pg.waitForEvent('filechooser'), pg.click('#app [data-a="fichaImportar"]')]); await fc2.setFiles(fj); await pg.waitForSelector('#fi_ok');
+    const t2 = await pg.evaluate(() => document.querySelector('#modal-root .modal').innerText);
+    ok(/entram: Bia Nova Pesquisadora/.test(t2) && /Enzo Hoffmeister Vinadé: valor R\$\s3\.300,00 → R\$\s3\.500,00/.test(t2) && /participação encerrada/.test(t2) && !/parece ser o do projeto/.test(t2), 'retificadora: compara com a ficha anterior (entra, muda) e marca quem saiu', t2.match(/Em relação[^\n]*\n?[^\n]*/)?.[0]);
+    if (await pg.$('#fi_conf')) await pg.check('#fi_conf');
+    await pg.click('#fi_ok'); await pg.waitForTimeout(700);
+    const r2 = await pg.evaluate(x => { const v = id => D.vinculos_financeiros.filter(q => q.pessoa_id === id && q.projeto_id === x.p).sort((a, b) => String(b.inicio).localeCompare(a.inicio))[0];
+      const bia = D.pessoas.find(p => p.nome === 'Bia Nova Pesquisadora');
+      return { enzo: v(x.enzo).valor_mensal, ped: [v(x.pedro).status, v(x.pedro).fim, byId('equipe_plano', x.v.g1).status, D.alocacoes.find(a => a.pessoa_id === x.pedro && a.projeto_id === x.p).status],
+        bia: bia && [bia.tipo, D.alocacoes.find(a => a.pessoa_id === bia.id && a.projeto_id === x.p).carga_pct, D.vinculos_financeiros.filter(q => q.pessoa_id === bia.id).length, D.equipe_plano.some(e => e.projeto_id === x.p && e.pessoa_id === bia.id)],
+        fichas: D.fichas_equipe.filter(f => f.projeto_id === x.p).map(f => f.numero).sort() }; }, ids);
+    ok(r2.enzo === 3500 && r2.ped[0] === 'encerrado' && r2.ped[2] === 'vaga' && r2.ped[3] === 'concluido', 'retificadora aplicada: bolsa reajustada; quem saiu tem bolsa encerrada, posição liberada e alocação concluída', r2);
+    ok(r2.bia && r2.bia[0] === 'pesquisador' && r2.bia[1] === 50 && r2.bia[2] === 0 && r2.bia[3] && JSON.stringify(r2.fichas) === '[1,2]', 'participante novo sem valor: cadastrado, alocado (20 h = 50%) e em posição nova, sem bolsa; 2 fichas registradas', r2.bia);
+    fs.unlinkSync(fj);
+    // 3. histórico: abre a ficha
+    await pg.evaluate(id => A.fichaVer({ id: D.fichas_equipe.find(f => f.projeto_id === id && f.numero === 2).id }), ids.p); await pg.waitForTimeout(150);
+    const tv = await pg.evaluate(() => document.querySelector('#modal-root .modal').innerText);
+    ok(/2ª ficha de gestão da equipe/.test(tv) && /Desligamento do Pedro/.test(tv) && /bolsa atualizada/.test(tv), 'registro da ficha mostra participantes e o que foi aplicado');
+    // 4. permissões
+    const perm = async (papel, pessoa) => { await abrirProj(papel, pessoa); return pg.evaluate(async pid => ({ botao: !!document.querySelector('#app [data-a="fichaImportar"]'), lista: /Fichas de gestão da equipe/i.test(document.getElementById('app').innerText), fichas: D.fichas_equipe.length,
+      ins: await (async () => { try { await Data.insert('fichas_equipe', { projeto_id: pid, participantes: [] }); return 'gravou'; } catch (e) { return e.message; } })() }), ids.p); };
+    const gil = await perm('membro', ids.gil), rui = await perm('membro', ids.rui), coord = await perm('membro', ids.mario), alu = await perm('leitura', ids.enzo);
+    ok(coord.botao && coord.lista && !gil.botao && !gil.lista && gil.ins !== 'gravou' && !rui.botao && rui.ins !== 'gravou', 'coordenação importa; gerência técnica (sem financeiro) e membro sem cargo não veem nem gravam', { coord: coord.botao, gil, rui });
+    ok(alu.fichas === 0 && !alu.lista, 'aluno do projeto (Leitura) não vê as fichas (trazem valores)', alu);
     console.log(errs.join('\n') || 'sem erros na página');
     await b.close(); process.exit(falhas || errs.length ? 1 : 0);
   })();
