@@ -5,7 +5,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icone-192.png">
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-yIZVRrKSk4bS+rMBbp5pLSXujBk7t11VWd6fF0hkMLk=' 'sha256-a6jsunhsS9PcxPRC55We9yBIYAo1HWoNOhvPKueVR6c='; style-src 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; connect-src https://wsmvuqldcxuosdfisjob.supabase.co wss://wsmvuqldcxuosdfisjob.supabase.co; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-yIZVRrKSk4bS+rMBbp5pLSXujBk7t11VWd6fF0hkMLk=' 'sha256-4L8vqfHG/3LA4eBoRIjkyA+g5JXYTjTpGNv8YQwkUXw='; style-src 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; connect-src https://wsmvuqldcxuosdfisjob.supabase.co wss://wsmvuqldcxuosdfisjob.supabase.co; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GPMOT/UFSM — Gestão de Portfólio</title>
@@ -293,7 +293,7 @@ if (window.top !== window.self) { document.documentElement.hidden = true; try { 
    - Modo online: preencha SUPABASE_CONFIG abaixo (ou em Configurações)
      e o programa passa a ler e gravar no banco Supabase, com login.
    ════════════════════════════════════════════════════════════════════ */
-const VERSAO = '2.34';
+const VERSAO = '2.35';
 const VERSAO_DATA = '25/11/2026';
 const SUPABASE_CONFIG = { url: "https://wsmvuqldcxuosdfisjob.supabase.co", anonKey: "sb_publishable_LpOyzRZfKrq3uQB2G1ChxA_hd8EaJ89" };   // ← preencher na implantação
 
@@ -475,7 +475,7 @@ const COLUNAS = Object.fromEntries(Object.entries({
   prospeccoes: 'id nome financiador edital valor_estimado prazo_submissao inicio_previsto fim_previsto responsavel_id objetivo observacoes texto_origem arquivo_origem situacao projeto_id criado_em criado_por atualizado_em atualizado_por',
   rubricas: 'codigo nome pai ordem planos',
   tarefa_responsaveis: 'tarefa_id pessoa_id',
-  tarefas: 'id projeto_id gerencia_id atividade_id prioridade titulo descricao inicio prazo concluida concluida_em criado_em criado_por atualizado_em atualizado_por solicitante_id situacao entregue_em avaliada_em avaliada_por parecer',
+  tarefas: 'id projeto_id gerencia_id atividade_id prioridade titulo descricao inicio prazo concluida concluida_em criado_em criado_por atualizado_em atualizado_por solicitante_id situacao entregue_em avaliada_em avaliada_por parecer pendencia_id',
   tarefa_relatos: 'id tarefa_id pessoa_id tipo data horas descricao criado_em criado_por',
   vinculos_financeiros: 'id pessoa_id projeto_id tipo modalidade rubrica valor_mensal inicio fim status vaga_id obs criado_em atualizado_em atualizado_por',
 }).map(([t, c]) => [t, new Set(c.split(' '))]));
@@ -535,7 +535,7 @@ const FK = [
   ['perfis', 'pessoa_id', 'pessoas', 'null'],
   ['aditivos', 'projeto_id', 'projetos', 'cascade'],
   ['cronograma', 'projeto_id', 'projetos', 'cascade'], ['cronograma', 'responsavel_id', 'pessoas', 'null'],
-  ['tarefas', 'atividade_id', 'cronograma', 'null'],
+  ['tarefas', 'atividade_id', 'cronograma', 'null'], ['tarefas', 'pendencia_id', 'pendencias', 'null'],
   ['candidatos', 'vaga_id', 'equipe_plano', 'cascade'], ['candidatos', 'projeto_id', 'projetos', 'cascade'], ['candidatos', 'pessoa_id', 'pessoas', 'null'],
   ['pessoa_checklist', 'pessoa_id', 'pessoas', 'cascade'], ['pessoa_checklist', 'item_id', 'checklist_itens', 'cascade'],
   ['documentos', 'projeto_id', 'projetos', 'cascade'], ['documentos', 'aditivo_id', 'aditivos', 'null'], ['documentos', 'entrega_id', 'entregas', 'null'],
@@ -828,7 +828,7 @@ function validar(t, r, old) {
       break;
     case 'pendencias':
       if (!r.projeto_id) falha('Projeto não informado.');
-      if (!String(r.titulo || '').trim()) falha('Descreva a pendência.');
+      if (!String(r.titulo || '').trim()) falha('Descreva a exigência.');
       exigeData(r.prazo, 'o prazo'); exigeData(r.resolvida_em, 'a data de resolução');
       break;
     case 'desembolsos':
@@ -933,7 +933,7 @@ function travas(t, n, o) {
   }
   if (t === 'pendencias' && o && !Perm.gereProjeto(o.projeto_id)) {
     for (const k of ['titulo', 'prazo', 'responsavel_id', 'projeto_id', 'prioridade', 'categoria'])
-      if (JSON.stringify(n[k] ?? null) !== JSON.stringify(o[k] ?? null)) falha('O responsável pela pendência só atualiza situação, resolução e documento. Prazo e responsável são definidos pela coordenação.');
+      if (JSON.stringify(n[k] ?? null) !== JSON.stringify(o[k] ?? null)) falha('O responsável pela exigência só atualiza situação, resolução e documento. Prazo e responsável são definidos pela coordenação.');
   }
   if (t === 'entregas' && o && !Perm.gereProjeto(o.projeto_id)) {
     for (const k of ['titulo', 'tipo', 'prazo', 'responsavel_id', 'projeto_id'])
@@ -1238,6 +1238,10 @@ function efeitosAntes(t, n, o) {
   }
   if (t === 'candidatos') { const v = byId('equipe_plano', n.vaga_id); if (v) n.projeto_id = v.projeto_id; if (n.nota === '') n.nota = null; }
   if (t === 'pessoas' && n.saida === '') n.saida = null;
+  if (t === 'tarefas' && n.pendencia_id) {   // como o gatilho tg_tarefa_pendencia do banco: a tarefa fica no projeto da exigência
+    const x = byId('pendencias', n.pendencia_id); if (!x) falha('Exigência não encontrada.');
+    if (!n.projeto_id) n.projeto_id = x.projeto_id; else if (n.projeto_id !== x.projeto_id) falha('A exigência é de outro projeto: a tarefa ligada a ela fica no mesmo projeto.');
+  }
   if (t === 'pendencias') { if (n.status === 'resolvida' && !n.resolvida_em) n.resolvida_em = hoje(); if (n.status !== 'resolvida') n.resolvida_em = null; }
   if (t === 'documentos' && n.url) n.url = String(n.url).trim();
   if (t === 'desembolsos') { n.numero = +n.numero; ['valor_previsto', 'valor_recebido'].forEach(k => { if (n[k] === '') n[k] = null; if (n[k] != null) n[k] = num(n[k]); }); if (n.valor_previsto == null) n.valor_previsto = 0; }
@@ -1567,7 +1571,7 @@ const Calc = {
     if (Calc.vencido(p)) mot.bad.push('vigência vencida');
     if (p.status === 'critico') mot.bad.push('marcado como crítico');
     if (entAtr) mot.bad.push(`${entAtr} entrega(s) atrasada(s)`);
-    if (pendAtr) mot.bad.push(`${pendAtr} pendência(s) atrasada(s)`);
+    if (pendAtr) mot.bad.push(`${pendAtr} exigência(s) atrasada(s)`);
     if (caixa != null && caixa < -0.005) mot.bad.push('gastos acima do recebido');
     if (parcAtr) mot.bad.push(`${parcAtr} parcela(s) não recebida(s)`);
     if (fis && fis.prev - fis.pct > 15) mot.bad.push(`físico ${fis.prev - fis.pct} p.p. abaixo do previsto`);
@@ -1585,7 +1589,7 @@ const Calc = {
     const ev = [], me = ME.pessoa_id, dentro = d => d && d >= de && d <= ate, vig = D.projetos.filter(p => p.situacao === 'vigente');
     const add = (data, cat, txt, pid, a, extra) => ev.push({ data, cat, txt, pid, a, ...extra });
     D.entregas.filter(e => Calc.entregaAberta(e) && dentro(e.prazo) && (!soMeus || e.responsavel_id === me)).forEach(e => add(e.prazo, 0, 'Entrega: ' + e.titulo, e.projeto_id, { a: 'projAbrir', id: e.projeto_id, aba: 'entregas' }));
-    D.pendencias.filter(x => Calc.pendenciaAberta(x) && dentro(x.prazo) && (!soMeus || x.responsavel_id === me)).forEach(x => add(x.prazo, 0, 'Pendência: ' + x.titulo, x.projeto_id, { a: 'projAbrir', id: x.projeto_id, aba: 'docs' }));
+    D.pendencias.filter(x => Calc.pendenciaAberta(x) && dentro(x.prazo) && (!soMeus || x.responsavel_id === me)).forEach(x => add(x.prazo, 0, 'Exigência: ' + x.titulo, x.projeto_id, { a: 'projAbrir', id: x.projeto_id, aba: 'docs' }));
     vig.forEach(p => D.cronograma.filter(c => c.projeto_id === p.id && c.mes_fim && !['concluida', 'cancelada'].includes(c.status) && (!soMeus || c.responsavel_id === me)).forEach(c => { const d = Calc.mesDataFim(p, c.mes_fim); if (dentro(d)) add(d, 1, `Atividade ${c.codigo}: ${c.titulo}`, p.id, { a: 'projAbrir', id: p.id, aba: 'cronograma' }); }));
     if (!soMeus) {
       D.desembolsos.filter(d => Perm.veFin(d.projeto_id) && d.status === 'prevista' && dentro(d.data_prevista)).forEach(d => add(d.data_prevista, 2, `Parcela ${d.numero} (${fmtBRL(d.valor_previsto)})`, d.projeto_id, { a: 'finDesemb', id: d.projeto_id }));
@@ -1603,7 +1607,7 @@ const Calc = {
     const it = [], add = (data, tipo, txt, pid, a) => it.push({ data: data || null, tipo, txt, pid, a });
     D.tarefas.filter(x => !x.concluida && D.tarefa_responsaveis.some(r => r.tarefa_id === x.id && r.pessoa_id === me)).forEach(x => add(x.prazo, 'Tarefa', x.titulo, x.projeto_id, { a: 'tarefaEditar', id: x.id }));
     D.entregas.filter(e => Calc.entregaAberta(e) && e.responsavel_id === me).forEach(e => add(e.prazo, 'Entrega', e.titulo, e.projeto_id, { a: 'projAbrir', id: e.projeto_id, aba: 'entregas' }));
-    D.pendencias.filter(x => Calc.pendenciaAberta(x) && x.responsavel_id === me).forEach(x => add(x.prazo, 'Pendência', x.titulo, x.projeto_id, { a: 'projAbrir', id: x.projeto_id, aba: 'docs' }));
+    D.pendencias.filter(x => Calc.pendenciaAberta(x) && x.responsavel_id === me).forEach(x => add(x.prazo, 'Exigência', x.titulo, x.projeto_id, { a: 'projAbrir', id: x.projeto_id, aba: 'docs' }));
     D.projetos.filter(p => p.situacao === 'vigente').forEach(p => D.cronograma.filter(c => c.projeto_id === p.id && c.responsavel_id === me && c.mes_inicio && !['concluida', 'cancelada'].includes(c.status)).forEach(c => {
       if (Calc.mesData(p, c.mes_inicio) <= addDays(hoje(), 30)) add(Calc.mesDataFim(p, c.mes_fim || c.mes_inicio), 'Atividade ' + c.codigo, c.titulo + (c.percentual ? ` (${c.percentual}%)` : ''), p.id, { a: 'projAbrir', id: p.id, aba: 'cronograma' }); }));
     D.infra_reservas.filter(r => ['solicitada', 'confirmada'].includes(r.status) && (r.responsavel_id === me || r.solicitante_id === me)).forEach(r => { const d = isoOf(new Date(r.inicio)); if (d >= hoje() && d <= addDays(hoje(), 30)) { const h = new Date(r.inicio);
@@ -2032,8 +2036,8 @@ function tarefaLinha(t, o = {}) {
   const resp = Calc.responsaveis(t.id).map(p => p.nome).join(', ');
   const late = Calc.atrasada(t);
   const pode = Perm.editaTarefa(t), fluxo = !!t.solicitante_id;
-  const at = t.atividade_id ? byId('cronograma', t.atividade_id) : null;
-  const onde = [o.proj !== false && t.projeto_id ? `<span class="b b-blue">${esc(siglaProjeto(t.projeto_id))}</span>` : '', at ? `<span class="b b-gray" title="${esc(at.titulo)}">ativ. ${esc(at.codigo)}</span>` : '',
+  const at = t.atividade_id ? byId('cronograma', t.atividade_id) : null, ex = t.pendencia_id ? byId('pendencias', t.pendencia_id) : null;
+  const onde = [o.proj !== false && t.projeto_id ? `<span class="b b-blue">${esc(siglaProjeto(t.projeto_id))}</span>` : '', at ? `<span class="b b-gray" title="${esc(at.titulo)}">ativ. ${esc(at.codigo)}</span>` : '', ex ? `<span class="b b-yellow" title="Exigência: ${esc(ex.titulo)}">exigência</span>` : '',
     o.ger !== false && t.gerencia_id ? `<span class="b b-gray">${esc((byId('gerencias', t.gerencia_id) || {}).nome || '')}</span>` : ''].join(' ');
   const pri = t.prioridade && t.prioridade !== 'normal' ? badge(lbl(PRIORIDADES, t.prioridade), t.prioridade === 'urgente' ? 'b-red' : t.prioridade === 'alta' ? 'b-yellow' : 'b-gray') : '';
   if (!fluxo) return `<div class="task${t.concluida ? ' done' : ''}">
@@ -2073,7 +2077,7 @@ function listaTarefas(list, o = {}) {
 }
 A.tarefaToggle = async d => { const t = byId('tarefas', d.id); if (t.solicitante_id) return A.tarefaVer(d); await Data.update('tarefas', t.id, { concluida: !t.concluida }); render(); };
 A.tarefaEditar = d => run(async () => { await carregarSolicitantes(); formTarefa(byId('tarefas', d.id)); });
-A.tarefaNova = d => run(async () => { await carregarSolicitantes(); formTarefa(null, { projeto_id: d.projeto || null, gerencia_id: d.gerencia || null, solicitante_id: Perm.leitor() ? null : (d.pessoa && d.pessoa !== ME.pessoa_id ? ME.pessoa_id : null), responsaveis: d.pessoa ? [d.pessoa] : (ME.pessoa_id && !d.projeto && !d.gerencia ? [ME.pessoa_id] : []) }); });
+A.tarefaNova = d => run(async () => { await carregarSolicitantes(); const ex = d.pendencia ? byId('pendencias', d.pendencia) : null; formTarefa(null, { ...(ex ? { pendencia_id: ex.id, prioridade: ex.prioridade === 'alta' ? 'alta' : 'normal' } : {}), projeto_id: (ex && ex.projeto_id) || d.projeto || null, gerencia_id: d.gerencia || null, solicitante_id: Perm.leitor() ? null : (d.pessoa && d.pessoa !== ME.pessoa_id ? ME.pessoa_id : null), responsaveis: d.pessoa ? [d.pessoa] : (ME.pessoa_id && !d.projeto && !d.gerencia ? [ME.pessoa_id] : []) }); });
 function formTarefa(t, pre = {}) {
   const novo = !t, leitor = Perm.leitor();
   const v = t ? { ...t, responsaveis: D.tarefa_responsaveis.filter(r => r.tarefa_id === t.id).map(r => r.pessoa_id) } : { prioridade: 'normal', ...pre };
@@ -2097,12 +2101,17 @@ function formTarefa(t, pre = {}) {
       { k: 'gerencia_id', l: 'Gerência', t: 'select', opts: optGerencias(), blank: '— nenhuma —', hide: leitor, ro: !conteudo },
       { k: 'atividade_id', l: 'Atividade do cronograma físico', t: 'select', blank: '— nenhuma —', hide: leitor || !(v.projeto_id && Calc.folhasCronograma(v.projeto_id).length), ro: !conteudo,
         opts: v.projeto_id ? Calc.folhasCronograma(v.projeto_id).map(c => [c.id, `${c.codigo} ${c.titulo.length > 70 ? c.titulo.slice(0, 68) + '…' : c.titulo}`]) : [], full: true, help: 'Opcional — liga a tarefa do dia a dia a uma atividade do plano de trabalho' },
+      { k: 'pendencia_id', l: 'Exigência que esta tarefa atende', t: 'select', blank: '— nenhuma —', full: true, ro: !conteudo,
+        hide: leitor || !(v.projeto_id && (v.pendencia_id || D.pendencias.some(x => x.projeto_id === v.projeto_id && Calc.pendenciaAberta(x)))),
+        opts: v.projeto_id ? D.pendencias.filter(x => x.projeto_id === v.projeto_id && (Calc.pendenciaAberta(x) || x.id === v.pendencia_id)).map(x => [x.id, x.titulo.length > 80 ? x.titulo.slice(0, 78) + '…' : x.titulo]) : [],
+        help: 'Opcional — liga o trabalho interno a uma exigência externa do projeto (aba Docs e exigências)' },
       { k: 'inicio', l: 'Início', t: 'date', hide: leitor, ro: !conteudo },
       { k: 'prioridade', l: 'Prioridade', t: 'select', opts: PRIORIDADES, blank: false, hide: leitor, ro: !conteudo },
       { k: 'concluida', l: 'Concluída', t: 'check', hide: leitor || !!v.solicitante_id },
       { k: 'responsaveis', l: 'Responsáveis', t: 'multi', opts: optPessoas(), ro: !gereResp, hide: leitor },
     ],
     onSave: async x => {
+      if (novo && pre.pendencia_id && x.pendencia_id === undefined) x.pendencia_id = pre.pendencia_id;   // campo oculto (Leitura): mantém a exigência de origem
       let resp = x.responsaveis; delete x.responsaveis;
       if (leitor && novo) resp = [ME.pessoa_id];
       if (!leitor && x.solicitante_id && x.solicitante_id === ME.pessoa_id && (resp || []).length === 1 && resp[0] === ME.pessoa_id) x.solicitante_id = null;   // tarefa só minha: sem entrega
@@ -2136,7 +2145,7 @@ A.tarefaVer = d => {
   <div class="kv mb small">${kv('Situação', badge(st[0], st[1]) + (t.entregue_em && t.situacao === 'entregue' ? ` <span class="muted">entregue em ${fmtD(t.entregue_em.slice(0, 10))}</span>` : '') + (t.avaliada_em && ['aprovada', 'devolvida', 'cancelada'].includes(t.situacao) ? ` <span class="muted">${t.situacao} em ${fmtD(t.avaliada_em.slice(0, 10))}</span>` : ''))}
     ${kv('Prazo', t.prazo ? `${esc(rotuloSemana(t.prazo))}${Calc.atrasada(t) ? ' <b style="color:var(--red)">atrasada</b>' : ''}` : '<span class="faint">sem prazo</span>')}
     ${kv('Solicitante', esc(nomePessoa(t.solicitante_id) || '—'))}${kv('Responsável', esc(resp || '—'))}
-    ${kv('Projeto', t.projeto_id ? esc(siglaProjeto(t.projeto_id)) : '')}${kv('Gerência', t.gerencia_id ? esc((byId('gerencias', t.gerencia_id) || {}).nome || '') : '')}</div>
+    ${kv('Projeto', t.projeto_id ? esc(siglaProjeto(t.projeto_id)) : '')}${kv('Exigência', t.pendencia_id && byId('pendencias', t.pendencia_id) ? esc(byId('pendencias', t.pendencia_id).titulo) + ' ' + badgeOf(ST_PEND, byId('pendencias', t.pendencia_id).status) : '')}${kv('Gerência', t.gerencia_id ? esc((byId('gerencias', t.gerencia_id) || {}).nome || '') : '')}</div>
   ${t.descricao ? `<div class="small mb" style="white-space:pre-line">${esc(t.descricao)}</div>` : ''}
   ${t.parecer ? `<div class="alert ${t.situacao === 'devolvida' ? 'bad' : 'info'} small mb"><b>${t.situacao === 'cancelada' ? 'Motivo do cancelamento' : 'Parecer do solicitante'}:</b> ${esc(t.parecer)}</div>` : ''}
   <div class="sec" style="margin-top:0">Relatório da atividade · ${fmtHoras(h)}</div>
@@ -2233,7 +2242,7 @@ function alertasPainel() {
   D.vinculos_financeiros.filter(v => Perm.veFin(v.projeto_id) && ['previsto', 'ativo'].includes(v.status) && v.fim && v.fim >= t && v.fim <= addDays(t, 30)).sort(byName('fim')).forEach(v => push('warn', `Bolsa de <b>${esc(nomePessoa(v.pessoa_id))}</b> termina em ${fmtD(v.fim)}${btn('eqBolsas')}`, v.projeto_id));
   D.equipe_plano.filter(e => e.status === 'selecao' && e.selecao_prazo && e.selecao_prazo < t && Perm.gereAlocacao(e.projeto_id)).forEach(e => push('warn', `Seleção para “${esc(e.nome_plano)}” passou do prazo (${fmtD(e.selecao_prazo)})${btn('eqVagas')}`, e.projeto_id));
   Calc.emTransicao().filter(x => Perm.gerePessoa(x.pe.id) && x.falta && (x.fase === 'saida' ? x.pe.saida < t : x.pe.ingresso && x.pe.ingresso < addDays(t, -30))).forEach(x => push('warn', `<b>${esc(x.pe.nome)}</b>: ${x.falta} item(ns) de ${x.fase === 'entrada' ? 'integração' : 'desligamento'} pendente(s)${btn('pessoaAbrir', `data-id="${x.pe.id}"`)}`));
-  D.pendencias.filter(Calc.pendenciaAtrasada).sort(byName('prazo')).forEach(x => push('bad', `Pendência “${esc(x.titulo)}” venceu em ${fmtD(x.prazo)}${x.responsavel_id ? ' · ' + esc(nomePessoa(x.responsavel_id)) : ''}${btn('projAbrir', `data-id="${x.projeto_id}" data-aba="docs"`)}`, x.projeto_id));
+  D.pendencias.filter(Calc.pendenciaAtrasada).sort(byName('prazo')).forEach(x => push('bad', `Exigência “${esc(x.titulo)}” venceu em ${fmtD(x.prazo)}${x.responsavel_id ? ' · ' + esc(nomePessoa(x.responsavel_id)) : ''}${btn('projAbrir', `data-id="${x.projeto_id}" data-aba="docs"`)}`, x.projeto_id));
   D.entregas.filter(Calc.entregaAtrasada).sort(byName('prazo')).forEach(e => push('bad', `Entrega “${esc(e.titulo)}” venceu em ${fmtD(e.prazo)}${e.responsavel_id ? ' · ' + esc(nomePessoa(e.responsavel_id)) : ''}${btn('projAbrir', `data-id="${e.projeto_id}" data-aba="entregas"`)}`, e.projeto_id));
   D.entregas.filter(e => Calc.entregaAberta(e) && e.prazo >= t && e.prazo <= addDays(t, 15)).sort(byName('prazo')).forEach(e => push('warn', `Entrega “${esc(e.titulo)}” vence em ${fmtD(e.prazo)}${e.responsavel_id ? ' · ' + esc(nomePessoa(e.responsavel_id)) : ''}`, e.projeto_id));
   D.pessoas.filter(p => p.ativo !== false && Calc.carga(p.id) > 100).forEach(p => push('warn', `<b>${esc(p.nome)}</b> com carga de ${Math.round(Calc.carga(p.id))}% nos projetos vigentes`));
@@ -2244,7 +2253,7 @@ function alertasPainel() {
   return al;
 }
 const SINAL = { bad: ['Crítico', 'b-red', '●'], warn: ['Atenção', 'b-yellow', '▲'], ok: ['Em dia', 'b-green', '✓'] };
-const CAT_EV = [['Entregas e pendências', '#2a78d6'], ['Atividades do cronograma', '#eb6834'], ['Financeiro', '#1baf7a'], ['Equipe', '#eda100'], ['Vigência e propostas', '#e87ba4']];
+const CAT_EV = [['Entregas e exigências', '#2a78d6'], ['Atividades do cronograma', '#eb6834'], ['Financeiro', '#1baf7a'], ['Equipe', '#eda100'], ['Vigência e propostas', '#e87ba4']];
 const attrsEv = a => Object.entries(a || {}).map(([k, v]) => k === 'a' ? `data-a="${v}"` : `data-${k}="${esc(v)}"`).join(' ');
 A.nav2 = d => A.nav({ t: d.t });
 
@@ -2319,7 +2328,7 @@ function painelPortfolio() {
       <td class="small">${fmtD(p.fim)}<div class="muted">${Calc.vencido(p) ? '<b style="color:var(--red)">vencida</b>' : `${x.mesesRest} mês(es)`}</div></td>
       <td>${x.fis ? barraAvanco(x.fis.pct, x.fis.prev) + `<div class="small muted">previsto ${x.fis.prev}%</div>` : '<span class="small faint">sem cronograma</span>'}</td>
       ${algumFin ? `<td>${finCel}</td><td class="num small">${!x.veF || x.caixa == null ? '<span class="faint">—</span>' : `<span style="color:${x.caixa < 0 ? 'var(--red)' : 'inherit'};font-weight:600">${fmtBRL(x.caixa)}</span>`}</td>` : ''}
-      <td class="small">${x.entAtr ? `<b style="color:var(--red)">${x.entAtr} atrasada(s)</b><br>` : ''}${x.entProx ? `${x.entProx} em 30 dias` : x.entAtr ? '' : '<span class="faint">—</span>'}${x.pendAb ? `<div class="muted">${x.pendAb} pendência(s)${x.pendAtr ? ` · <b style="color:var(--red)">${x.pendAtr} atrasada(s)</b>` : ''}</div>` : ''}</td>
+      <td class="small">${x.entAtr ? `<b style="color:var(--red)">${x.entAtr} atrasada(s)</b><br>` : ''}${x.entProx ? `${x.entProx} em 30 dias` : x.entAtr ? '' : '<span class="faint">—</span>'}${x.pendAb ? `<div class="muted">${x.pendAb} exigência(s)${x.pendAtr ? ` · <b style="color:var(--red)">${x.pendAtr} atrasada(s)</b>` : ''}</div>` : ''}</td>
       <td class="small">${x.eq.posicoes ? `${x.eq.ocupadas}/${x.eq.posicoes}${x.eq.vagas ? ` · <span style="color:var(--yellow-txt)">${x.eq.vagas} vaga(s)</span>` : ''}` : `${D.alocacoes.filter(a => a.projeto_id === p.id && a.status === 'ativo').length} pessoa(s)`}</td>
       <td>${badge(sg[2] + ' ' + sg[0], sg[1])}${[...x.mot.bad, ...x.mot.warn].length ? `<div class="small muted" style="max-width:220px">${esc([...x.mot.bad, ...x.mot.warn].slice(0, 3).join(' · '))}</div>` : ''}</td></tr>`; }).join('');
   // alertas agrupados por projeto
@@ -2331,8 +2340,8 @@ function painelPortfolio() {
       ${aberto ? l.sort((a, b) => (a.c === 'bad' ? 0 : 1) - (b.c === 'bad' ? 0 : 1)).map(x => `<div class="alert ${x.c}" style="margin:6px 0 0 18px">${x.h}</div>`).join('') : ''}</div>`; }).join('');
   return `<div class="metrics">${mets.map(([k, v, s]) => `<div class="metric"><div class="k">${k}</div><div class="v" style="${s || ''}">${v}</div></div>`).join('')}</div>
   <div class="sec" style="margin-top:4px">Saúde dos projetos</div>
-  <div class="card tw" style="padding:4px 8px">${S.length ? `<table class="t"><tr><th>Projeto</th><th>Vigência</th><th>Avanço físico</th>${algumFin ? '<th>Execução financeira</th><th class="num">Caixa</th>' : ''}<th>Entregas / pendências</th><th>Equipe do plano</th><th>Sinal</th></tr>${linhas}</table>` : '<div class="empty">Nenhum projeto vigente.</div>'}</div>
-  <div class="small muted mt">Sinal: <b>● Crítico</b> — entrega ou pendência atrasada, caixa negativo, parcela não recebida, vigência vencida ou físico mais de 15 p.p. abaixo do previsto. <b>▲ Atenção</b> — físico 5–15 p.p. abaixo, execução financeira baixa para o tempo decorrido, fim da vigência em até 6 meses com execução baixa, vagas abertas ou entregas nos próximos 30 dias.</div>
+  <div class="card tw" style="padding:4px 8px">${S.length ? `<table class="t"><tr><th>Projeto</th><th>Vigência</th><th>Avanço físico</th>${algumFin ? '<th>Execução financeira</th><th class="num">Caixa</th>' : ''}<th>Entregas / exigências</th><th>Equipe do plano</th><th>Sinal</th></tr>${linhas}</table>` : '<div class="empty">Nenhum projeto vigente.</div>'}</div>
+  <div class="small muted mt">Sinal: <b>● Crítico</b> — entrega ou exigência atrasada, caixa negativo, parcela não recebida, vigência vencida ou físico mais de 15 p.p. abaixo do previsto. <b>▲ Atenção</b> — físico 5–15 p.p. abaixo, execução financeira baixa para o tempo decorrido, fim da vigência em até 6 meses com execução baixa, vagas abertas ou entregas nos próximos 30 dias.</div>
   <div class="mt">${linhaTempo()}</div>
   <div class="mt"><div class="card"><div class="between mb"><span class="bold">Alertas (${al.length})</span><span class="small">${al.filter(x => x.c === 'bad').length ? `<span class="b b-red">● ${al.filter(x => x.c === 'bad').length}</span> ` : ''}<span class="b b-yellow">▲ ${al.filter(x => x.c !== 'bad').length}</span></span></div>${al.length ? blocoAl : '<div class="empty">Nenhum alerta. 👍</div>'}</div></div>`;
 }
@@ -2446,7 +2455,7 @@ A.projNovo = (d, el, pre) => form({
 A.projEditar = d => { const p = byId('projetos', d.id); form({ title: 'Editar projeto — ' + p.sigla, fields: camposProjeto(p), values: p, wide: true, onSave: x => Data.update('projetos', p.id, fixProj(x)) }); };
 A.projAba = d => { UI.projAba = d.v; render(); };
 
-const ABAS_PROJ = [['resumo', 'Resumo'], ['contrato', 'Contrato e aditivos'], ['cronograma', 'Cronograma físico'], ['entregas', 'Entregas e prazos'], ['docs', 'Docs e pendências'], ['equipe', 'Equipe'], ['tarefas', 'Tarefas'], ['financeiro', 'Financeiro'], ['historico', 'Histórico']];
+const ABAS_PROJ = [['resumo', 'Resumo'], ['contrato', 'Contrato e aditivos'], ['cronograma', 'Cronograma físico'], ['entregas', 'Entregas e prazos'], ['docs', 'Docs e exigências'], ['equipe', 'Equipe'], ['tarefas', 'Tarefas'], ['financeiro', 'Financeiro'], ['historico', 'Histórico']];
 function projetoDetalhe(p) {
   const st = STATUS_PROJ[p.status] || STATUS_PROJ.pendente;
   const gere = Perm.gereProjeto(p.id), fin = Perm.veOrc(p.id);
@@ -3004,7 +3013,7 @@ A.vagaBolsa = d => {
     onSave: async x => flash('✓ Registrada ' + await criarBolsaVaga(r, e.pessoa_id, x.inicio, x.meses, x.status)),
   });
 };
-/* ── Documentos e pendências do projeto ─────────────────────────────── */
+/* ── Documentos e exigências do projeto ─────────────────────────────── */
 const linkDoc = d => urlSegura(d.url) ? `<a href="${esc(urlSegura(d.url))}" target="_blank" rel="noopener" title="${esc(d.url)}">${esc(d.titulo)} ↗</a>` : `<b>${esc(d.titulo)}</b>`;
 function projDocs(p) {
   const gere = Perm.gereProjeto(p.id), fp = UI.f.pdSt || 'abertas';
@@ -3014,11 +3023,11 @@ function projDocs(p) {
     .sort((a, b) => (Calc.pendenciaAberta(b) - Calc.pendenciaAberta(a)) || String(a.prazo || '9999').localeCompare(String(b.prazo || '9999')));
   const docs = D.documentos.filter(d => d.projeto_id === p.id && Perm.veDoc(d));
   const ck = Calc.checklistDocs(p), falta = ck.filter(c => !c.ok && !c.opcional);
-  const mets = [['Pendências abertas', abertas.length], ['Atrasadas', atras.length, atras.length ? 'color:var(--red)' : ''], ['Documentos', docs.length], ['Checklist', `${ck.filter(c => c.ok).length} de ${ck.length}`, falta.length ? 'color:var(--yellow-txt)' : 'color:var(--green-txt)']];
+  const mets = [['Exigências abertas', abertas.length], ['Atrasadas', atras.length, atras.length ? 'color:var(--red)' : ''], ['Documentos', docs.length], ['Checklist', `${ck.filter(c => c.ok).length} de ${ck.length}`, falta.length ? 'color:var(--yellow-txt)' : 'color:var(--green-txt)']];
   const prio = x => x.prioridade === 'alta' ? badge('alta', 'b-red') : x.prioridade === 'baixa' ? '<span class="small faint">baixa</span>' : '';
   const linhasP = lista.map(x => { const st = ST_PEND[x.status] || [x.status, 'b-gray'], pode = Perm.editaPendencia(x), doc = x.documento_id && byId('documentos', x.documento_id);
     return `<tr class="${pode ? 'click' : ''}${['resolvida', 'cancelada'].includes(x.status) ? ' faint' : ''}" ${pode ? `data-a="pendEditar" data-id="${x.id}"` : ''}>
-      <td><b>${esc(x.titulo)}</b> ${prio(x)}${x.origem ? `<div class="small muted">Origem: ${esc(x.origem)}</div>` : ''}${x.resolucao ? `<div class="small" style="color:var(--green-txt)">✓ ${esc(x.resolucao)}${doc && Perm.veDoc(doc) ? ' · ' + linkDoc(doc) : ''}</div>` : ''}</td>
+      <td><b>${esc(x.titulo)}</b> ${prio(x)}${x.origem ? `<div class="small muted">Origem: ${esc(x.origem)}</div>` : ''}${resumoTarefasExig(x)}${x.resolucao ? `<div class="small" style="color:var(--green-txt)">✓ ${esc(x.resolucao)}${doc && Perm.veDoc(doc) ? ' · ' + linkDoc(doc) : ''}</div>` : ''}</td>
       <td class="small">${esc(lbl(CAT_PEND, x.categoria))}</td><td class="small">${x.responsavel_id ? esc(nomePessoa(x.responsavel_id)) : '<span class="faint">—</span>'}</td>
       <td class="small" style="white-space:nowrap;${Calc.pendenciaAtrasada(x) ? 'color:var(--red);font-weight:600' : ''}">${fmtD(x.prazo) || '—'}${Calc.pendenciaAtrasada(x) ? ' · atrasada' : ''}${x.resolvida_em ? `<div class="muted">resolvida ${fmtD(x.resolvida_em)}</div>` : ''}</td>
       <td>${badge(st[0], st[1])}</td><td>${pode && Calc.pendenciaAberta(x) ? `<button class="btn-s" data-a="pendResolver" data-id="${x.id}">Resolver</button>` : ''}</td></tr>`; }).join('');
@@ -3031,10 +3040,10 @@ function projDocs(p) {
   const ckHTML = ck.map((c, i) => `<div class="small" style="display:grid;grid-template-columns:18px 1fr auto;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid #eeebe4"><span style="font-weight:700;color:${c.ok ? 'var(--green-txt)' : c.opcional ? 'var(--muted)' : 'var(--yellow-txt)'}">${c.ok ? '✓' : c.opcional ? '○' : '!'}</span><span class="${c.ok ? 'muted' : ''}">${esc(c.txt)}${c.opcional && !c.ok ? ' <span class="faint">(opcional)</span>' : ''}</span>
       <span>${!c.ok && Perm.incluiDoc(p.id) ? `<button class="btn-s" data-a="docNovo" data-projeto="${p.id}" data-tipo="${c.tipo}" data-aditivo="${c.aditivo_id || ''}" data-entrega="${c.entrega_id || ''}">+ adicionar</button>` : ''}</span></div>`).join('');
   return `<div class="metrics">${mets.map(([k, v, s]) => `<div class="metric"><div class="k">${k}</div><div class="v" style="font-size:18px;${s || ''}">${v}</div></div>`).join('')}</div>
-  <div class="toolbar"><div class="row"><span class="sec" style="margin:0 8px 0 0">Pendências</span>${[['abertas', 'Em aberto'], ['resolvidas', 'Resolvidas'], ['todas', 'Todas']].map(([k, l]) => `<button class="chip${fp === k ? ' on' : ''}" data-a="pdFiltro" data-v="${k}">${l}</button>`).join('')}</div>
-    ${gere ? `<button class="btn-p" data-a="pendNova" data-projeto="${p.id}">+ Pendência</button>` : ''}</div>
-  <div class="card tw" style="padding:4px 8px">${lista.length ? `<table class="t"><tr><th>Pendência</th><th>Categoria</th><th>Responsável</th><th>Prazo</th><th>Situação</th><th></th></tr>${linhasP}</table>`
-    : `<div class="empty">${fp === 'abertas' ? 'Nenhuma pendência em aberto. 👍' : 'Nenhuma pendência.'}</div>`}</div>
+  <div class="toolbar"><div class="row"><span class="sec" style="margin:0 8px 0 0">Exigências</span>${[['abertas', 'Em aberto'], ['resolvidas', 'Resolvidas'], ['todas', 'Todas']].map(([k, l]) => `<button class="chip${fp === k ? ' on' : ''}" data-a="pdFiltro" data-v="${k}">${l}</button>`).join('')}</div>
+    ${gere ? `<button class="btn-p" data-a="pendNova" data-projeto="${p.id}">+ Exigência</button>` : ''}</div>
+  <div class="card tw" style="padding:4px 8px">${lista.length ? `<table class="t"><tr><th>Exigência</th><th>Categoria</th><th>Responsável</th><th>Prazo</th><th>Situação</th><th></th></tr>${linhasP}</table>`
+    : `<div class="empty">${fp === 'abertas' ? 'Nenhuma exigência em aberto. 👍' : 'Nenhuma exigência.'}</div>`}</div>
   <div class="grid mt" style="grid-template-columns:minmax(280px,1fr) 2fr;align-items:start">
     <div class="card"><div class="bold mb">Checklist documental</div>${ckHTML}<div class="small muted mt">Gerado a partir do contrato, dos termos aditivos e das entregas já feitas.</div></div>
     <div><div class="toolbar" style="margin-top:0"><span class="sec" style="margin:0">Documentos</span>${Perm.incluiDoc(p.id) ? `<button class="btn-p" data-a="docNovo" data-projeto="${p.id}">+ Documento</button>` : ''}</div>
@@ -3064,11 +3073,24 @@ A.docEditar = d => {
   form({ title: 'Documento — ' + x0.titulo, wide: true, fields: camposDoc(p, x0), values: x0,
     onSave: x => Data.update('documentos', x0.id, x), onDelete: () => Data.remove('documentos', x0.id), deleteConfirm: `Excluir o registro "${x0.titulo}"? (o arquivo no Drive não é apagado)` });
 };
+/* tarefas internas ligadas a uma exigência */
+const tarefasDaExig = id => D.tarefas.filter(t => t.pendencia_id === id);
+const tarefaAberta = t => !t.concluida && t.situacao !== 'cancelada';
+function resumoTarefasExig(x) { const ts = tarefasDaExig(x.id); if (!ts.length) return ''; const ab = ts.filter(tarefaAberta).length;
+  return `<div class="small muted">${ts.length} tarefa(s) ligada(s)${ab ? ` · <b>${ab} em aberto</b>` : ' · todas concluídas'}</div>`; }
+const NOTA_EXIG = '<div class="note small mb"><b>Exigência</b> é o que alguém de fora cobra do projeto — fundação, financiador, fiscal, PRA — e que precisa ser atendido e comprovado. O trabalho interno da equipe para atendê-la vai em <b>tarefas</b>: crie-as a partir da exigência (botão “+ Tarefa para esta exigência”).</div>';
+function blocoTarefasExig(x, p) {
+  const ts = tarefasDaExig(x.id).sort((a, b) => (a.concluida - b.concluida) || String(a.prazo || '9999').localeCompare(String(b.prazo || '9999')));
+  const pode = Perm.podeEditar() || Perm.participa(p.id);
+  return `<div class="sec">Tarefas para atender esta exigência (${ts.length})</div>
+    ${ts.length ? `<div class="mb">${listaTarefas(ts, { proj: false })}</div>` : '<div class="empty small mb">Nenhuma tarefa ligada.</div>'}
+    ${pode && Calc.pendenciaAberta(x) ? `<button class="btn-s mb" data-a="tarefaNova" data-projeto="${p.id}" data-pendencia="${x.id}">+ Tarefa para esta exigência</button>` : ''}`;
+}
 function camposPend(p, x) {
   const gere = !x || Perm.gereProjeto(p.id), docs = D.documentos.filter(d => d.projeto_id === p.id && Perm.veDoc(d));
   const equipe = [...new Set(D.alocacoes.filter(a => a.projeto_id === p.id && a.status === 'ativo').map(a => a.pessoa_id))];
   return [
-    { k: 'titulo', l: 'Pendência', req: true, full: true, ro: !gere, ph: 'ex.: Enviar certidões negativas à FAURGS' },
+    { k: 'titulo', l: 'Exigência', req: true, full: true, ro: !gere, ph: 'ex.: Enviar certidões negativas à FAURGS' },
     { k: 'descricao', l: 'Detalhes', t: 'textarea', rows: 2, ro: !gere },
     { k: 'categoria', l: 'Categoria', t: 'select', blank: false, opts: CAT_PEND, ro: !gere }, { k: 'origem', l: 'Origem (quem exigiu / documento)', ro: !gere, ph: 'ex.: Ofício FAURGS 12/2026' },
     { k: 'responsavel_id', l: 'Responsável', t: 'select', ro: !gere, opts: optPessoas(q => equipe.includes(q.id) || (x && x.responsavel_id === q.id)) },
@@ -3078,13 +3100,15 @@ function camposPend(p, x) {
     { k: 'documento_id', l: 'Documento que comprova', t: 'select', blank: '— nenhum —', hide: !docs.length, opts: docs.map(d => [d.id, lbl(TIPOS_DOC, d.tipo) + ' · ' + d.titulo]) }];
 }
 A.pendNova = d => { const p = byId('projetos', d.projeto);
-  form({ title: 'Nova pendência — ' + p.sigla, wide: true, fields: camposPend(p, null), values: { categoria: 'administrativa', prioridade: 'normal', status: 'aberta' }, onSave: x => Data.insert('pendencias', { ...x, projeto_id: p.id }) }); };
+  form({ title: 'Nova exigência — ' + p.sigla, wide: true, intro: NOTA_EXIG, fields: camposPend(p, null), values: { categoria: 'administrativa', prioridade: 'normal', status: 'aberta' }, onSave: x => Data.insert('pendencias', { ...x, projeto_id: p.id }) }); };
 A.pendEditar = d => { const x0 = byId('pendencias', d.id), p = byId('projetos', x0.projeto_id);
-  form({ title: 'Pendência — ' + p.sigla, wide: true, fields: camposPend(p, x0), values: x0,
+  form({ title: 'Exigência — ' + p.sigla, wide: true, fields: camposPend(p, x0), values: x0, after: blocoTarefasExig(x0, p),
     intro: Perm.gereProjeto(p.id) ? '' : '<div class="note small mb">Como responsável, você atualiza a situação, a resolução e o documento. Prazo e responsável são definidos pela coordenação.</div>',
-    onSave: x => Data.update('pendencias', x0.id, x), onDelete: Perm.gereProjeto(p.id) ? () => Data.remove('pendencias', x0.id) : null, deleteConfirm: 'Excluir esta pendência? (para registrar que não é mais necessária, use a situação “Cancelada”)' }); };
+    onSave: x => Data.update('pendencias', x0.id, x), onDelete: Perm.gereProjeto(p.id) ? () => Data.remove('pendencias', x0.id) : null, deleteConfirm: 'Excluir esta exigência? (para registrar que não é mais necessária, use a situação “Cancelada”)' }); };
 A.pendResolver = d => { const x0 = byId('pendencias', d.id), p = byId('projetos', x0.projeto_id), docs = D.documentos.filter(q => q.projeto_id === p.id && Perm.veDoc(q));
-  form({ title: 'Resolver — ' + x0.titulo, okLabel: 'Marcar como resolvida', okMsg: '✓ Pendência resolvida',
+  const abertasT = tarefasDaExig(x0.id).filter(tarefaAberta);
+  form({ title: 'Resolver — ' + x0.titulo, okLabel: 'Marcar como resolvida', okMsg: '✓ Exigência resolvida',
+    intro: abertasT.length ? `<div class="alert warn small mb"><div>⚠ ${abertasT.length} tarefa(s) ligada(s) a esta exigência ainda em aberto: ${abertasT.map(t => esc(t.titulo)).join('; ')}. Elas continuam abertas — conclua ou cancele-as em Tarefas, se for o caso.</div></div>` : '',
     fields: [{ k: 'resolucao', l: 'Como foi resolvida', t: 'textarea', rows: 2, req: true }, { k: 'resolvida_em', l: 'Resolvida em', t: 'date' },
       { k: 'documento_id', l: 'Documento que comprova', t: 'select', blank: '— nenhum —', hide: !docs.length, opts: docs.map(q => [q.id, lbl(TIPOS_DOC, q.tipo) + ' · ' + q.titulo]) }],
     values: { resolvida_em: hoje() }, onSave: x => Data.update('pendencias', x0.id, { ...x, status: 'resolvida' }) }); };
@@ -3167,7 +3191,7 @@ function historicoBloco(filtro, limite = 15) {
 }
 function quem(u) { if (!u) return 'sistema'; if (String(u).startsWith('local:')) { const pid = u.slice(6); return byId('pessoas', pid) ? nomePessoa(pid) : 'Direção (local)'; } const pf = D.perfis.find(p => p.id === u); return pf ? (pf.pessoa_id ? nomePessoa(pf.pessoa_id) : pf.email) : 'usuário'; }
 const NOME_TAB = { tarefa_relatos: 'relato de atividade', reformulacoes: 'reformulação financeira', fichas_equipe: 'ficha de gestão da equipe', plano_itens: 'item do plano de aplicação', reprogramacoes: 'reprogramação', pessoas: 'pessoa', projetos: 'projeto', alocacoes: 'alocação', tarefas: 'tarefa', tarefa_responsaveis: 'responsável de tarefa', aditivos: 'aditivo', entregas: 'entrega', cronograma: 'atividade do cronograma', vinculos_financeiros: 'bolsa/pagamento', orcamento_rubricas: 'orçamento da rubrica', despesas: 'despesa', prospeccoes: 'prospecção', avaliacoes: 'avaliação', gerencias: 'gerência', gerencia_membros: 'gerente', perfis: 'perfil', infra_itens: 'item de infraestrutura', infra_reservas: 'reserva', infra_manutencoes: 'manutenção', infra_habilitacoes: 'habilitação' };
-const REF_COL = { projeto_id: 'projetos', pessoa_id: 'pessoas', responsavel_id: 'pessoas', solicitante_id: 'pessoas', gerencia_id: 'gerencias', item_id: 'infra_itens', pai_id: 'infra_itens', tarefa_id: 'tarefas', prospeccao_id: 'prospeccoes', projeto_aquisicao_id: 'projetos', vinculo_id: 'vinculos_financeiros', atividade_id: 'cronograma' };
+const REF_COL = { pendencia_id: 'pendencias', projeto_id: 'projetos', pessoa_id: 'pessoas', responsavel_id: 'pessoas', solicitante_id: 'pessoas', gerencia_id: 'gerencias', item_id: 'infra_itens', pai_id: 'infra_itens', tarefa_id: 'tarefas', prospeccao_id: 'prospeccoes', projeto_aquisicao_id: 'projetos', vinculo_id: 'vinculos_financeiros', atividade_id: 'cronograma' };
 function nomeRef(t, id) { const r = byId(t, id); if (!r) return id ? '(removido)' : '∅'; return r.sigla || r.nome || r.titulo || r.item || (r.pessoa_id ? nomePessoa(r.pessoa_id) : '?'); }
 function rotuloReg(t, r) {
   if (!r) return '';
@@ -3567,7 +3591,7 @@ function pessoaDetalhe(p) {
   ${(() => { const ent = D.entregas.filter(e => e.responsavel_id === p.id && Calc.entregaAberta(e)), pen = D.pendencias.filter(x => x.responsavel_id === p.id && Calc.pendenciaAberta(x)), atv = D.cronograma.filter(c => c.responsavel_id === p.id && c.mes_inicio && !['concluida', 'cancelada'].includes(c.status));
     if (!ent.length && !pen.length && !atv.length) return '';
     const li = (tipo, txt, pid, aba, prazo, atr) => `<div class="row small mb click" data-a="projAbrir" data-id="${pid}" data-aba="${aba}" style="gap:8px"><span class="b b-gray">${esc(siglaProjeto(pid))}</span><span class="muted" style="width:88px">${tipo}</span><span style="flex:1">${esc(txt)}</span><span style="${atr ? 'color:var(--red);font-weight:600' : ''}">${prazo || ''}</span></div>`;
-    return `<div class="sec">Responsabilidades em aberto</div><div class="card">${[...ent.map(e => li('Entrega', e.titulo, e.projeto_id, 'entregas', fmtD(e.prazo), Calc.entregaAtrasada(e))), ...pen.map(x => li('Pendência', x.titulo, x.projeto_id, 'docs', fmtD(x.prazo), Calc.pendenciaAtrasada(x))),
+    return `<div class="sec">Responsabilidades em aberto</div><div class="card">${[...ent.map(e => li('Entrega', e.titulo, e.projeto_id, 'entregas', fmtD(e.prazo), Calc.entregaAtrasada(e))), ...pen.map(x => li('Exigência', x.titulo, x.projeto_id, 'docs', fmtD(x.prazo), Calc.pendenciaAtrasada(x))),
       ...atv.map(c => { const pr = byId('projetos', c.projeto_id); return li('Atividade ' + c.codigo, c.titulo, c.projeto_id, 'cronograma', c.mes_fim && pr ? 'até ' + fmtMes(Calc.mesDataFim(pr, c.mes_fim)) : '', false); })].join('')}</div>`; })()}
   ${(p.id === ME.pessoa_id || Perm.gerePessoa(p.id)) && (p.ingresso || p.saida || D.pessoa_checklist.some(r => r.pessoa_id === p.id)) ? `<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(340px,1fr));margin-top:12px">
     <div class="card"><div class="bold mb">Integração (entrada)</div>${blocoChecklist(p, 'entrada')}</div>
@@ -6872,12 +6896,12 @@ function montarRelProjeto(p, o) {
       P(s, `Recebido ${fmtBRL2(R2.tot.recebido)} · executado ${fmtBRL2(R2.tot.executado)} · saldo em caixa ${fmtBRL2(R2.tot.caixa)} · a receber ${fmtBRL2(R2.tot.aReceber)}.`); }
     if (sec.despesas) { H3(s, `Despesas do período (${despP.length})`); T(s, ['Data', 'Rubrica', 'Descrição', 'Favorecido', 'Documento', 'Valor'], despP.sort(byName('data')).map(d => [fmtD(d.data), d.rubrica, d.descricao, d.favorecido || (d.pessoa_id ? nomePessoa(d.pessoa_id) : ''), d.documento || '', fmtBRL2(d.valor)]).concat(despP.length ? [['', '', 'Total', '', '', fmtBRL2(despP.reduce((a, d) => a + num(d.valor), 0))]] : []), { total: despP.length > 0 }); }
   }
-  // 6. Pendências e documentos
+  // 6. Exigências e documentos
   if (sec.pendencias) {
-    const s = nova('Pendências e documentos'), pend = D.pendencias.filter(x => x.projeto_id === p.id);
+    const s = nova('Exigências e documentos'), pend = D.pendencias.filter(x => x.projeto_id === p.id);
     const ab = pend.filter(Calc.pendenciaAberta), res = pend.filter(x => x.status === 'resolvida' && noPer(x.resolvida_em));
-    H3(s, `Pendências em aberto (${ab.length})`); T(s, ['Pendência', 'Origem', 'Responsável', 'Prazo', 'Situação'], ab.map(x => [x.titulo, x.origem || '', x.responsavel_id ? nomePessoa(x.responsavel_id) : '', fmtD(x.prazo) || '', ST_PEND[x.status][0]]));
-    if (res.length) { H3(s, `Pendências resolvidas no período (${res.length})`); T(s, ['Pendência', 'Resolvida em', 'Como'], res.map(x => [x.titulo, fmtD(x.resolvida_em), x.resolucao || ''])); }
+    H3(s, `Exigências em aberto (${ab.length})`); T(s, ['Exigência', 'Origem', 'Responsável', 'Prazo', 'Situação'], ab.map(x => [x.titulo, x.origem || '', x.responsavel_id ? nomePessoa(x.responsavel_id) : '', fmtD(x.prazo) || '', ST_PEND[x.status][0]]));
+    if (res.length) { H3(s, `Exigências resolvidas no período (${res.length})`); T(s, ['Exigência', 'Resolvida em', 'Como'], res.map(x => [x.titulo, fmtD(x.resolvida_em), x.resolucao || ''])); }
     const docs = D.documentos.filter(d => d.projeto_id === p.id && Perm.veDoc(d) && noPer(d.data)); if (docs.length) { H3(s, 'Documentos do período'); T(s, ['Tipo', 'Documento', 'Nº', 'Data'], docs.map(d => [lbl(TIPOS_DOC, d.tipo), d.titulo, d.numero || '', fmtD(d.data)])); }
     if (ads.length) { H3(s, 'Termos aditivos'); T(s, ['Termo', 'Tipo', 'Assinatura', 'Novo término', 'Novo valor'], ads.map(a => [a.numero || 'Termo aditivo', lbl(TIPOS_ADITIVO, a.tipo), fmtD(a.data_assinatura) || '', fmtD(a.novo_fim) || '', fin && a.novo_valor != null ? fmtBRL2(a.novo_valor) : ''])); }
   }
@@ -6888,7 +6912,7 @@ function montarRelProjeto(p, o) {
 }
 
 /* ── tela ── */
-const SECOES_PROJ = [['resumo', 'Resumo do período'], ['fisico', 'Execução física (cronograma)'], ['entregas', 'Entregas e relatórios'], ['equipe', 'Equipe e bolsas'], ['financeiro', 'Execução financeira por rubrica', true], ['plano', 'Plano de aplicação (itens)', true], ['desembolso', 'Desembolso', true], ['despesas', 'Lista de despesas do período', true], ['pendencias', 'Pendências, documentos e aditivos']];
+const SECOES_PROJ = [['resumo', 'Resumo do período'], ['fisico', 'Execução física (cronograma)'], ['entregas', 'Entregas e relatórios'], ['equipe', 'Equipe e bolsas'], ['financeiro', 'Execução financeira por rubrica', true], ['plano', 'Plano de aplicação (itens)', true], ['desembolso', 'Desembolso', true], ['despesas', 'Lista de despesas do período', true], ['pendencias', 'Exigências, documentos e aditivos']];
 function relProjetoForm() {
   const projs = D.projetos.filter(p => p.situacao !== 'arquivado').sort(byName('sigla'));
   if (!projs.length) return '<div class="empty">Nenhum projeto.</div>';
