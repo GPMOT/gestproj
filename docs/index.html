@@ -5,7 +5,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icone-192.png">
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-yIZVRrKSk4bS+rMBbp5pLSXujBk7t11VWd6fF0hkMLk=' 'sha256-4L8vqfHG/3LA4eBoRIjkyA+g5JXYTjTpGNv8YQwkUXw='; style-src 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; connect-src https://wsmvuqldcxuosdfisjob.supabase.co wss://wsmvuqldcxuosdfisjob.supabase.co; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-yIZVRrKSk4bS+rMBbp5pLSXujBk7t11VWd6fF0hkMLk=' 'sha256-+LkX604zmgw/3+mZ7EptvepXmBGcja4SnDhlqr2C9Os='; style-src 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; connect-src https://wsmvuqldcxuosdfisjob.supabase.co wss://wsmvuqldcxuosdfisjob.supabase.co; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GPMOT/UFSM — Gestão de Portfólio</title>
@@ -293,7 +293,7 @@ if (window.top !== window.self) { document.documentElement.hidden = true; try { 
    - Modo online: preencha SUPABASE_CONFIG abaixo (ou em Configurações)
      e o programa passa a ler e gravar no banco Supabase, com login.
    ════════════════════════════════════════════════════════════════════ */
-const VERSAO = '2.35';
+const VERSAO = '2.36';
 const VERSAO_DATA = '25/11/2026';
 const SUPABASE_CONFIG = { url: "https://wsmvuqldcxuosdfisjob.supabase.co", anonKey: "sb_publishable_LpOyzRZfKrq3uQB2G1ChxA_hd8EaJ89" };   // ← preencher na implantação
 
@@ -1605,7 +1605,7 @@ const Calc = {
   minhaAgenda() {
     const me = ME.pessoa_id; if (!me) return [];
     const it = [], add = (data, tipo, txt, pid, a) => it.push({ data: data || null, tipo, txt, pid, a });
-    D.tarefas.filter(x => !x.concluida && D.tarefa_responsaveis.some(r => r.tarefa_id === x.id && r.pessoa_id === me)).forEach(x => add(x.prazo, 'Tarefa', x.titulo, x.projeto_id, { a: 'tarefaEditar', id: x.id }));
+    D.tarefas.filter(x => !x.concluida && D.tarefa_responsaveis.some(r => r.tarefa_id === x.id && r.pessoa_id === me)).forEach(x => { add(x.prazo, x.solicitante_id ? 'Atividade' : 'Tarefa', x.titulo, x.projeto_id, { a: x.solicitante_id ? 'tarefaVer' : 'tarefaEditar', id: x.id }); it[it.length - 1].tarefa = x; });
     D.entregas.filter(e => Calc.entregaAberta(e) && e.responsavel_id === me).forEach(e => add(e.prazo, 'Entrega', e.titulo, e.projeto_id, { a: 'projAbrir', id: e.projeto_id, aba: 'entregas' }));
     D.pendencias.filter(x => Calc.pendenciaAberta(x) && x.responsavel_id === me).forEach(x => add(x.prazo, 'Exigência', x.titulo, x.projeto_id, { a: 'projAbrir', id: x.projeto_id, aba: 'docs' }));
     D.projetos.filter(p => p.situacao === 'vigente').forEach(p => D.cronograma.filter(c => c.projeto_id === p.id && c.responsavel_id === me && c.mes_inicio && !['concluida', 'cancelada'].includes(c.status)).forEach(c => {
@@ -2265,43 +2265,53 @@ VIEWS.painel = () => {
     + (v === 'semana' ? painelSemana() : painelPortfolio());
 };
 
-/* ── atividades: o que aguarda a minha aprovação e as minhas atividades com entrega ── */
-function painelAtividades() {
+/* ── atividades que aguardam a minha aprovação (solicitante) ── */
+function painelAprovacoes() {
   if (!ME.pessoa_id) return '';
-  const apr = Calc.aguardandoMinhaAprovacao(), minhas = D.tarefas.filter(t => t.solicitante_id && !t.concluida && D.tarefa_responsaveis.some(r => r.tarefa_id === t.id && r.pessoa_id === ME.pessoa_id))
-    .sort((a, b) => ({ devolvida: 0, a_fazer: 1, em_andamento: 1, entregue: 2 }[sitTarefa(a)] - { devolvida: 0, a_fazer: 1, em_andamento: 1, entregue: 2 }[sitTarefa(b)]) || String(a.prazo || '9999').localeCompare(String(b.prazo || '9999')));
-  if (!apr.length && !minhas.length) return '';
-  const { ano, sem } = semanaISO(hoje()), ini = semanaInicio(ano, sem), horasSem = D.tarefa_relatos.filter(r => r.pessoa_id === ME.pessoa_id && r.data >= ini && r.data <= addDays(ini, 6)).reduce((s, r) => s + num(r.horas), 0);
-  const meta = Calc.metaSemanal(ME.pessoa_id).horas;
-  return `<div class="grid mb" style="grid-template-columns:repeat(auto-fit,minmax(380px,1fr));align-items:start">
-    ${apr.length ? `<div class="card"><div class="between mb"><span class="bold">Aguardando a sua aprovação (${apr.length})</span><button class="btn-s" data-a="tarefasFiltro" data-v="aprovar">ver todas</button></div>${listaTarefas(apr.slice(0, 6), { vazio: '' })}</div>` : ''}
-    ${minhas.length ? `<div class="card"><div class="between mb"><span class="bold">Minhas atividades (${minhas.length})</span><span class="small muted" style="text-align:right">${fmtHoras(horasSem)}${meta ? ` de ${fmtHoras(meta)}` : ''} nesta semana${meta ? `<div>${barraMeta(horasSem, meta, meta * Calc.fracaoSemana(ini))}</div>` : ''}</span></div>${listaTarefas(minhas.slice(0, 8), { vazio: '' })}
-      ${minhas.length > 8 ? '<button class="btn-s mt" data-a="tarefasFiltro" data-v="minhas">ver todas</button>' : ''}</div>` : ''}</div>`;
+  const apr = Calc.aguardandoMinhaAprovacao(); if (!apr.length) return '';
+  return `<div class="card mb"><div class="between mb"><span class="bold">Aguardando a sua aprovação (${apr.length})</span><button class="btn-s" data-a="tarefasFiltro" data-v="aprovar">ver todas</button></div>${listaTarefas(apr.slice(0, 6), { vazio: '' })}</div>`;
 }
 A.tarefasFiltro = d => { UI.tab = 'tarefas'; UI.sub.tarefas = 'lista'; UI.f.tfEscopo = d.v; UI.f.tfStatus = d.v === 'aprovar' ? 'entregues' : 'abertas'; UI.projeto = null; window.scrollTo(0, 0); render(); };
 
-/* ── Minha semana ── */
+/* ── Minha semana: cada compromisso aparece uma vez, no período do seu prazo ──
+   Esta semana (com os atrasados) em destaque; abaixo, as duas semanas seguintes por data; depois, o resto recolhido */
 function painelSemana() {
-  const t = hoje(), dow = toDate(t).getDay(), fimSem = addDays(t, dow === 0 ? 0 : 7 - dow), lim = addDays(t, 30);
-  const ag = Calc.minhaAgenda();
-  const grupos = [['Atrasados', x => x.data && x.data < t, 'bad'], ['Esta semana', x => x.data && x.data >= t && x.data <= fimSem], ['Próximos 30 dias', x => x.data && x.data > fimSem && x.data <= lim], ['Sem prazo definido', x => !x.data]];
-  const cont = grupos.map(([, f]) => ag.filter(f).length);
+  const t = hoje(), dow = toDate(t).getDay(), w0 = semanaISO(t), ini0 = semanaInicio(w0.ano, w0.sem), fimSem = addDays(ini0, 6), fim2 = addDays(fimSem, 14), lim = addDays(t, 30);
+  const ag = Calc.minhaAgenda(), porData = (a, b) => String(a.data || '').localeCompare(String(b.data || '')) || (a.tarefa ? 0 : 1) - (b.tarefa ? 0 : 1) || String(a.txt).localeCompare(String(b.txt), 'pt-BR');
+  const atras = ag.filter(x => x.data && x.data < t).sort(porData), semana = ag.filter(x => x.data && x.data >= t && x.data <= fimSem).sort(porData);
+  const prox = ag.filter(x => x.data && x.data > fimSem && x.data <= fim2).sort(porData), depois = ag.filter(x => x.data && x.data > fim2 && x.data <= lim).sort(porData), semPrazo = ag.filter(x => !x.data);
   const pe = byId('pessoas', ME.pessoa_id);
   const meusProj = D.alocacoes.filter(a => a.pessoa_id === ME.pessoa_id && a.status === 'ativo').map(a => ({ a, p: byId('projetos', a.projeto_id) })).filter(x => x.p && Calc.vigente(x.p)).sort((a, b) => (b.a.coordena || b.a.vice_coordena) - (a.a.coordena || a.a.vice_coordena) || String(a.p.sigla).localeCompare(b.p.sigla));
   const coordIds = new Set(meusProj.filter(x => x.a.coordena || x.a.vice_coordena).map(x => x.p.id));
   const atencao = alertasPainel().filter(x => x.pid && coordIds.has(x.pid));
+  const dm = d => d.slice(8, 10) + '/' + d.slice(5, 7), DIAS = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
   const linha = x => { const atr = x.data && x.data < t;
-    return `<div class="row small click" style="gap:10px;padding:6px 0;border-bottom:1px solid #eeebe4" ${attrsEv(x.a)}><span style="width:78px;font-variant-numeric:tabular-nums;${atr ? 'color:var(--red);font-weight:600' : ''}">${x.data ? (x.data.slice(0, 4) === t.slice(0, 4) ? fmtD(x.data).slice(0, 5) : fmtD(x.data).slice(0, 6) + x.data.slice(2, 4)) + ' ' + ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'][toDate(x.data).getDay()] : '—'}</span>
+    return `<div class="row small click" style="gap:10px;padding:6px 0;border-bottom:1px solid #eeebe4" ${attrsEv(x.a)}><span style="width:78px;font-variant-numeric:tabular-nums;${atr ? 'color:var(--red);font-weight:600' : ''}">${x.data ? (x.data.slice(0, 4) === t.slice(0, 4) ? fmtD(x.data).slice(0, 5) : fmtD(x.data).slice(0, 6) + x.data.slice(2, 4)) + ' ' + DIAS[toDate(x.data).getDay()] : '—'}</span>
       <span class="b b-gray" style="min-width:74px;text-align:center">${esc(x.tipo)}</span>${x.pid ? `<span class="muted" style="min-width:90px">${esc(siglaProjeto(x.pid))}</span>` : '<span style="min-width:90px"></span>'}<span style="flex:1">${esc(x.txt)}</span></div>`; };
-  const mets = [['Atrasados', cont[0], cont[0] ? 'color:var(--red)' : ''], ['Esta semana', cont[1]], ['Próximos 30 dias', cont[2]], ['Meus projetos vigentes', meusProj.length]];
+  /* tarefas e atividades com o cartão completo (Reportar/Entregar ou marcar concluída); os demais compromissos em linha */
+  const bloco = l => l.map(x => x.tarefa ? tarefaLinha(x.tarefa) : linha(x)).join('');   // na ordem das datas
+  const { ano, sem } = w0, horasSem = D.tarefa_relatos.filter(r => r.pessoa_id === ME.pessoa_id && r.data >= ini0 && r.data <= fimSem).reduce((s, r) => s + num(r.horas), 0), meta = Calc.metaSemanal(ME.pessoa_id).horas;
+  const metaHTML = meta || horasSem ? `<span class="small muted" style="text-align:right">${fmtHoras(horasSem)}${meta ? ` de ${fmtHoras(meta)}` : ''} nesta semana${meta ? `<div>${barraMeta(horasSem, meta, meta * Calc.fracaoSemana(ini0))}</div>` : ''}</span>` : '';
+  const semanas = [1, 2].map(k => { const ini = addDays(ini0, 7 * k), fim = addDays(ini, 6), w = semanaISO(ini); return { rot: `Sem. ${w.sem} · ${dm(ini)} a ${dm(fim)}`, l: prox.filter(x => x.data >= ini && x.data <= fim) }; });
+  const mets = [['Atrasados', atras.length, atras.length ? 'color:var(--red)' : ''], ['Esta semana', semana.length], ['Próximas 2 semanas', prox.length], ['Meus projetos vigentes', meusProj.length]];
   return `<div class="between mb"><div><div class="title" style="font-size:18px">Olá, ${esc((pe && pe.nome || '').split(' ')[0])}</div><div class="small muted">${['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'][dow]}, ${fmtD(t)} · o que está sob a sua responsabilidade</div></div>
     ${Perm.podeEditar() ? `<button class="btn-s" data-a="tarefaNova">+ tarefa</button>` : Perm.leitor() ? `<button class="btn-s btn-p" data-a="tarefaNova">+ Registrar atividade</button>` : ""}</div>
-  ${painelAtividades()}
   <div class="metrics">${mets.map(([k, v, s]) => `<div class="metric"><div class="k">${k}</div><div class="v" style="${s || ''}">${v}</div></div>`).join('')}</div>
   <div class="grid" style="grid-template-columns:minmax(420px,3fr) minmax(300px,2fr);align-items:start">
-    <div class="card">${ag.length ? grupos.map(([nome, f, c], i) => { const l = ag.filter(f).sort((a, b) => String(a.data || '').localeCompare(String(b.data || ''))); return l.length ? `<div class="sec" style="${i === 0 ? 'margin-top:0;' : ''}${c ? 'color:var(--red)' : ''}">${nome} (${l.length})</div>${l.map(linha).join('')}` : ''; }).join('')
-      : '<div class="empty">Nada sob a sua responsabilidade nos próximos 30 dias. 👍</div>'}</div>
     <div>
+      <div class="card mb" style="border-left:4px solid var(--blue, #003963)">
+        <div class="between mb"><div><div class="bold" style="font-size:16px">Esta semana</div><div class="small muted">Sem. ${sem} · ${dm(ini0)} a ${dm(fimSem)}${atras.length ? ` · <b style="color:var(--red)">${atras.length} atrasado(s)</b>` : ''}</div></div>${metaHTML}</div>
+        ${atras.length ? `<div class="sec" style="margin-top:0;color:var(--red)">Atrasados (${atras.length})</div>${bloco(atras)}` : ''}
+        ${semana.length ? `${atras.length ? `<div class="sec">Até domingo (${semana.length})</div>` : ''}${bloco(semana)}` : atras.length ? '' : '<div class="empty">Nada com prazo nesta semana. 👍</div>'}
+      </div>
+      <div class="card mb"><div class="bold mb">Próximas 2 semanas <span class="small muted">(por data de entrega)</span></div>
+        ${prox.length ? semanas.map((g, i) => `<div class="sec"${i === 0 ? ' style="margin-top:0"' : ''}>${esc(g.rot)} (${g.l.length})</div>${g.l.length ? bloco(g.l) : '<div class="small faint mb">nada previsto</div>'}`).join('') : '<div class="empty small">Nada previsto nas duas próximas semanas.</div>'}
+      </div>
+      ${depois.length || semPrazo.length ? `<details class="card mb"><summary class="bold" style="cursor:pointer">Mais adiante e sem prazo <span class="small muted">(${depois.length ? `${depois.length} até ${dm(lim)}` : ''}${depois.length && semPrazo.length ? ' · ' : ''}${semPrazo.length ? `${semPrazo.length} sem prazo` : ''})</span></summary>
+        ${depois.length ? `<div class="sec">Até ${dm(lim)} (${depois.length})</div>${bloco(depois)}` : ''}${semPrazo.length ? `<div class="sec">Sem prazo definido (${semPrazo.length})</div>${bloco(semPrazo)}` : ''}</details>` : ''}
+    </div>
+    <div>
+      ${painelAprovacoes()}
       ${atencao.length ? `<div class="card mb"><div class="bold mb">Precisa da sua atenção <span class="small muted">(projetos que você coordena)</span></div>${atencao.map(x => `<div class="alert ${x.c}"><b>${esc(siglaProjeto(x.pid))}</b>: ${x.h}</div>`).join('')}</div>` : ''}
       <div class="card mb"><div class="bold mb">Meus projetos</div>${meusProj.length ? meusProj.map(({ a, p }) => { const s = Calc.saudeProjeto(p), prox = Calc.entregasAbertas(p.id)[0];
         return `<div class="click" data-a="projAbrir" data-id="${p.id}" style="padding:7px 0;border-bottom:1px solid #eeebe4"><div class="between"><span><b>${esc(p.sigla)}</b> ${a.coordena ? badge('coordena', 'b-green') : a.vice_coordena ? badge('vice-coordena', 'b-green') : `<span class="small muted">${esc(a.papel || '')}</span>`}</span>${badge(SINAL[s.sinal][2] + ' ' + SINAL[s.sinal][0], SINAL[s.sinal][1])}</div>
