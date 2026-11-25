@@ -5,7 +5,7 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icone-192.png">
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-yIZVRrKSk4bS+rMBbp5pLSXujBk7t11VWd6fF0hkMLk=' 'sha256-+LkX604zmgw/3+mZ7EptvepXmBGcja4SnDhlqr2C9Os='; style-src 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; connect-src https://wsmvuqldcxuosdfisjob.supabase.co wss://wsmvuqldcxuosdfisjob.supabase.co; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-yIZVRrKSk4bS+rMBbp5pLSXujBk7t11VWd6fF0hkMLk=' 'sha256-3jCpAJmCExGpID1hNFKkfiwPKTrqIxVUoNt3mx8byss='; style-src 'unsafe-inline'; img-src 'self' data: blob:; font-src data:; connect-src https://wsmvuqldcxuosdfisjob.supabase.co wss://wsmvuqldcxuosdfisjob.supabase.co; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'">
 <meta name="referrer" content="no-referrer">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GPMOT/UFSM — Gestão de Portfólio</title>
@@ -293,7 +293,7 @@ if (window.top !== window.self) { document.documentElement.hidden = true; try { 
    - Modo online: preencha SUPABASE_CONFIG abaixo (ou em Configurações)
      e o programa passa a ler e gravar no banco Supabase, com login.
    ════════════════════════════════════════════════════════════════════ */
-const VERSAO = '2.36';
+const VERSAO = '2.37';
 const VERSAO_DATA = '25/11/2026';
 const SUPABASE_CONFIG = { url: "https://wsmvuqldcxuosdfisjob.supabase.co", anonKey: "sb_publishable_LpOyzRZfKrq3uQB2G1ChxA_hd8EaJ89" };   // ← preencher na implantação
 
@@ -2259,7 +2259,7 @@ A.nav2 = d => A.nav({ t: d.t });
 
 VIEWS.painel = () => {
   const gestor = Perm.dir() || Perm.gerenciasAtivas().length > 0 || Perm.coordenaAlgum();
-  let v = UI.sub.painel || (Perm.dir() || Perm.gerenciasAtivas().length ? 'portfolio' : 'semana');
+  let v = UI.sub.painel || 'semana';   // ao abrir o programa: Painel › Minha semana (sem pessoa vinculada ao usuário: Portfólio)
   if (v === 'semana' && !ME.pessoa_id) v = 'portfolio';
   return `<div class="subtabs">${ME.pessoa_id ? `<button class="chip${v === 'semana' ? ' on' : ''}" data-a="sub" data-g="painel" data-v="semana">Minha semana</button>` : ''}<button class="chip${v === 'portfolio' ? ' on' : ''}" data-a="sub" data-g="painel" data-v="portfolio">Portfólio${gestor ? '' : ' (visão geral)'}</button></div>`
     + (v === 'semana' ? painelSemana() : painelPortfolio());
@@ -7445,7 +7445,7 @@ function abertura() {   // 1 s na abertura; clicar pula. Não aparece nos testes
   setTimeout(sair, 1000);
 }
 async function boot() {
-  abertura(); UI.tab = 'painel';
+  abertura(); UI.tab = 'painel'; UI.sub.painel = 'semana';
   if (SB.cfg()) {
     try {
       await SB.connect();
